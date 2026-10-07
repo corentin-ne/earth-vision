@@ -1,10 +1,20 @@
--transform into an APK i can use on my android (last version of course) keep modern. use libraries frameworks technologies well documented for you where i can do a lot of stuff. Not simplistic things you can't do anything with, the only minimalistic thing is the UX because it's worked well
+# Earth Vision — TODO
 
-- understand why the cities zoom scalerank is not working (tried everything) is a reset necessary ? a bug ? something you overlook ?
+## Done (2.0)
+- [x] Fuse CMaps (web) and earth (3D globe editor) into one Vite + React + MapLibre app
+- [x] Offline-first: installable PWA, all map assets bundled, worlds in IndexedDB, autosave
+- [x] A+ World Map Editor `.map` import **and** export (round-trip tested)
+- [x] Real Earth / Blank Earth templates from Natural Earth admin-1 regions
+- [x] Topology engine: instant region transfers, exact borders, arc-based merges
+- [x] Tools: select, paint (brush, eyedropper, whole-country), split, merge, cities
+- [x] Country pages: flag upload, colour, stats (population follows regions), fields, notes, capital, annex, dissolve
+- [x] Map looks: Political, Atlas (MillMint-style relief), Plain, Night; globe/flat; 3D terrain
+- [x] Undo/redo, search, PNG/GeoJSON/.cmaps export, phone layout
 
-- hover not showing region name now
-
-- split along river too long before doing it. Preview of the region splits
-Automatic names when split i meant you can rename regions after.
-
-- way more features
+## Next
+- [ ] Alliances editor (they are imported/exported, but only listed in the UI)
+- [ ] Drag country labels to place them by hand
+- [ ] Draw brand-new land (islands) and delete regions
+- [ ] Timeline: snapshots of a world over the years, with an animated playback / video export
+- [ ] Higher-resolution relief tiles (z5–z6) for close-up work
+- [ ] Native desktop wrapper (Tauri) once a Rust toolchain is installed — the PWA covers offline use meanwhile

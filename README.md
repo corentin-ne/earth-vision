@@ -1,0 +1,91 @@
+# Earth Vision
+
+Build and reshape your own world on a 3D globe: thousands of regions you can hand from one country
+to another, flags, capitals, cities, populations and notes — with a map as pretty as an atlas.
+Runs in the browser **and fully offline** as an installable app (desktop or phone).
+
+It fuses the earlier **CMaps** (MapLibre web map) and **earth** (Expo 3D globe editor) projects;
+their code is kept under [`legacy/`](legacy/).
+
+## What you can do
+
+- **Open your A+ World Map Editor `.map` files** (drag & drop) — countries, regions, flags, colours,
+  population/GDP, leader/language fields, cities & capitals, water labels and alliances are all read.
+  **Export back to `.map`** at any time, so both apps stay in sync.
+- Start from **Real Earth** (today's ~250 countries over ~4,600 admin-1 regions) or a **Blank Earth**
+  where every region is unclaimed.
+- **Paint** regions into a country by dragging (`B`): adjustable brush, `Alt`+click to pick a country,
+  `Ctrl`+click to take a whole country, hold `Space` to pan. One stroke = one undo step.
+- **Select** (`V`) a country to open its page: rename, recolour, upload a flag, edit stats and text
+  fields, notes, capital, annex it into another country or dissolve it. Click a region inside it to
+  rename it, move it to another country or make it a new country. `Shift`+click to select several
+  regions, then give them away, merge them into one region or found a new country.
+- **Split** (`K`) regions along a line you draw; borders stay exact with the neighbours.
+- **Cities** (`C`): add, drag, rename, hide, set as capital.
+- Populations travel with the land: they are stored per region and summed per country.
+- Four map looks — **Political** (colours + hill shading), **Atlas** (MillMint-style physical relief
+  with fine borders), **Plain** (A+ style) and **Night** — on a globe or a flat map (`G`), with
+  optional 3D mountains, rivers, lakes, urban areas, graticule…
+- Search (`Ctrl+K`), undo/redo (`Ctrl+Z` / `Ctrl+Y`), autosave, a library of worlds, backups as
+  `.cmaps`, PNG snapshots and GeoJSON export.
+
+## Use it
+
+```bash
+npm install
+npm run dev
+```
+
+Open the printed URL. To **install it as an offline app**, open the deployed site (or `npm run preview`)
+in Chrome/Edge and choose *Install app* (on a phone: *Add to Home screen*). Every map asset — relief
+tiles, elevation, fonts, flags, Natural Earth layers — ships with the app, so it never needs the
+network after the first load. Worlds are stored in the browser (IndexedDB); download `.cmaps`
+backups from the home screen.
+
+### Put it on a website
+
+```bash
+npm run build
+```
+
+Upload the `dist/` folder to any static host (GitHub Pages, Netlify, Cloudflare Pages, a plain web
+server…). All paths are relative, so it also works from a sub-folder.
+
+## How it works
+
+| Piece | Where |
+|---|---|
+| World model, undo/redo, all editing operations | [`src/world/store.ts`](src/world/store.ts) |
+| Shared-border topology: borders, country shapes, neighbours | [`src/geo/engine.ts`](src/geo/engine.ts) |
+| Region splitting | [`src/geo/split.ts`](src/geo/split.ts) |
+| A+ `.map` import/export (a zip whose header reads `A+WM`) | [`src/io/amap.ts`](src/io/amap.ts) |
+| MapLibre rendering & map tools | [`src/map/`](src/map/) |
+| UI | [`src/ui/`](src/ui/) |
+
+Regions are kept as a TopoJSON topology, so each border is stored once and knows the region on each
+side. Moving a region to another country therefore never clips polygons: country borders are just the
+arcs whose two sides have different owners, and fills are recoloured through MapLibre feature state.
+That is what keeps painting instant even with thousands of regions.
+
+### Rebuilding the bundled map data
+
+The files in `public/data`, `public/tiles` and `public/fonts` are generated; to regenerate them:
+
+```bash
+bash scripts/fetch-assets.sh        # downloads sources into .cache/
+node scripts/build-assets.mjs       # Earth template, lakes, rivers, urban areas, sea names
+python scripts/build-rasters.py     # relief + elevation tiles (needs numpy and Pillow)
+```
+
+## Tests
+
+```bash
+npm test                                   # geometry, split, undo/redo, editing operations
+AMAP_FILE=path/to/world.map npm test       # + a full import/export round trip of a real .map
+```
+
+## Credits
+
+Relief, borders, lakes, rivers and places: [Natural Earth](https://www.naturalearthdata.com) (public domain).
+Elevation: Mapzen Terrain Tiles via AWS Open Data. Labels: Open Sans (OpenMapTiles font build).
+Rendering: [MapLibre GL JS](https://maplibre.org).

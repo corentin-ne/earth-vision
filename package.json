@@ -1,0 +1,43 @@
+{
+  "name": "earth-vision",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "assets": "node scripts/build-assets.mjs"
+  },
+  "dependencies": {
+    "@turf/area": "^7.4.0",
+    "@turf/boolean-point-in-polygon": "^7.4.0",
+    "@turf/helpers": "^7.4.0",
+    "dexie": "^4.4.6",
+    "fflate": "^0.8.3",
+    "maplibre-gl": "^6.13.0",
+    "polyclip-ts": "^0.16.8",
+    "polylabel": "^2.1.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "topojson-client": "^3.1.0",
+    "topojson-server": "^3.0.1",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/polylabel": "^2.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-server": "^3.0.4",
+    "@vitejs/plugin-react": "^6.1.2",
+    "mapshaper": "^0.7.80",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.3"
+  }
+}

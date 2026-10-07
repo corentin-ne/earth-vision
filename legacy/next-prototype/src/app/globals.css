@@ -1,0 +1,40 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #0f111a;
+  color: #fff;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+
+/* MapLibre Premium Glass Popup Overrides */
+.glass-popup .maplibregl-popup-content {
+  background: rgba(20, 20, 25, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  padding: 8px 12px;
+  color: white;
+}
+
+.glass-popup .maplibregl-popup-tip {
+  border-top-color: rgba(20, 20, 25, 0.85);
+}
+
+.glass-popup .maplibregl-popup-close-button {
+  color: #fff;
+  font-size: 16px;
+  padding: 4px 8px;
+}
+.glass-popup .maplibregl-popup-close-button:hover {
+  background-color: transparent;
+  color: #ff5555;
+}
+

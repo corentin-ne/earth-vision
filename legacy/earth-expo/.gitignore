@@ -1,0 +1,59 @@
+# ─── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+
+# ─── Expo / React Native ─────────────────────────────────────────────────────
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# ─── Native builds ──────────────────────────────────────────────────────────
+ios/
+android/
+
+# ─── Build & Cache ──────────────────────────────────────────────────────────
+*.jsbundle
+*.hbc
+*.tsbuildinfo
+.cache/
+.metro-health-check*
+
+# ─── Environment ─────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ─── Editor / IDE ────────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS Files ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# ─── Testing ─────────────────────────────────────────────────────────────────
+coverage/
+
+# ─── TypeScript ──────────────────────────────────────────────────────────────
+*.tsbuildinfo
+
+# ─── Package manager lock files (keep only one) ─────────────────────────────
+# Uncomment the ones you don't use:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
