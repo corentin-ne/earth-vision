@@ -35,6 +35,7 @@ const P: Record<string, string> = {
   mountain: 'M3 20l6-11 4 6 2-3 6 8z',
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 11v6 M12 7.5h.01',
   menu: 'M4 6h16 M4 12h16 M4 18h16',
+  heal: 'M4.9 13.4l5.7 5.7a3 3 0 0 0 4.2 0l4.3-4.3a3 3 0 0 0 0-4.2l-5.7-5.7a3 3 0 0 0-4.2 0L4.9 9.2a3 3 0 0 0 0 4.2z M10 12h.01 M12 10h.01 M12 14h.01 M14 12h.01',
 };
 
 export type IconName = keyof typeof P;

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { City, Country, LngLat, Patch, Region, RegionGeom, WorldBundle, WorldDoc } from '../types';
 import { GeoEngine, bbox, geomArea, labelPoint, pointInGeom } from '../geo/engine';
 import { insertCutVertices, splitGeom } from '../geo/split';
+import { healGeoms } from '../geo/heal';
 import { rescale } from './stats';
 import { uid } from '../util';
 
@@ -651,6 +652,20 @@ export function mergeRegions(ids: number[]): number | null {
   commit(`Merge ${rs.length} regions`, patch);
   select({ cid: keep.cid || null, regions: [keep.id] });
   return keep.id;
+}
+
+/**
+ * Snaps borders that almost line up so they become shared, removing the stray
+ * lines that bad imports or old splits leave inside countries. Returns how many
+ * regions were repaired.
+ */
+export function healBorders(tol = 0.01): number {
+  const { doc, geoms } = get();
+  if (!doc) return 0;
+  const fixed = healGeoms(geoms, tol);
+  const n = Object.keys(fixed).length;
+  if (n) commit('Heal borders', { geoms: fixed });
+  return n;
 }
 
 // ── Cities ───────────────────────────────────────────────────────────────────

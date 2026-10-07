@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useWorld, countryAggregates, select, createCountry, setTool, countryBounds, toast } from '../world/store';
+import { useWorld, countryAggregates, select, createCountry, setTool, countryBounds, toast, healBorders } from '../world/store';
 import { mapCtl } from '../map/controller';
 import { Flag, Stat } from './common';
 import { Icon } from './icons';
@@ -34,6 +34,23 @@ export function WorldPanel() {
       k === 'area' ? agg[cid]?.area ?? 0 : k === 'pop' ? (popKey ? agg[cid]?.vals[popKey] ?? 0 : 0) : k === 'regions' ? agg[cid]?.regions ?? 0 : 0;
     return list.sort((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : v(b.cid, sort) - v(a.cid, sort)));
   }, [doc.countries, agg, q, sort, popKey]);
+
+  const [healing, setHealing] = useState(false);
+  const heal = () => {
+    setHealing(true);
+    // Let the button show its busy state before the (synchronous) repair runs.
+    setTimeout(() => {
+      try {
+        const n = healBorders();
+        toast(n ? `Healed borders of ${n} region${n > 1 ? 's' : ''} · Ctrl+Z to undo` : 'Borders are already clean', 'ok');
+      } catch (e) {
+        console.error(e);
+        toast('Healing failed: ' + (e as Error).message, 'error');
+      } finally {
+        setHealing(false);
+      }
+    }, 60);
+  };
 
   const create = () => {
     const n = newName?.trim();
@@ -79,6 +96,10 @@ export function WorldPanel() {
           </button>
         </div>
       )}
+
+      <button className={'btn wide heal-btn' + (healing ? ' busy' : '')} onClick={heal} disabled={healing} title="Snap borders that almost line up, removing stray lines inside countries">
+        <Icon name="heal" size={15} /> {healing ? 'Healing map…' : 'Heal map borders'}
+      </button>
 
       <div className="list-tools">
         <div className="search-mini">

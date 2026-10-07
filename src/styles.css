@@ -1,5 +1,5 @@
 :root {
-  --glass: rgba(18, 24, 38, 0.84);
+  --glass: rgba(20, 27, 44, 0.56);
   --glass-2: rgba(255, 255, 255, 0.05);
   --glass-3: rgba(255, 255, 255, 0.09);
   --line: rgba(255, 255, 255, 0.09);
@@ -11,6 +11,8 @@
   --danger: #ff6377;
   --radius: 14px;
   --shadow: 0 10px 34px rgba(5, 10, 25, 0.35), 0 2px 6px rgba(5, 10, 25, 0.2);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --inspector-w: 360px;
   font-family: Inter, 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
   font-size: 14px;
@@ -90,12 +92,34 @@ code {
   margin: 6px 0;
 }
 .glass {
-  background: var(--glass);
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  border: 1px solid var(--line);
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.03) 38%, rgba(255, 255, 255, 0) 60%, rgba(255, 255, 255, 0.05) 100%),
+    var(--glass);
+  -webkit-backdrop-filter: blur(26px) saturate(1.9) brightness(1.04);
+  backdrop-filter: blur(26px) saturate(1.9) brightness(1.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow:
+    var(--shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 22px rgba(255, 255, 255, 0.04);
+}
+/* Specular rim: a thin light edge that is brighter at the top-left, like curved glass. */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.04) 35%, rgba(255, 255, 255, 0) 65%, rgba(255, 255, 255, 0.18));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: -1;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
@@ -1224,5 +1248,266 @@ input.num-field {
   }
   .toast {
     top: 64px;
+  }
+}
+
+/* ── Liquid glass: press ripples & motion ───────────────────────────────── */
+.ripple-layer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.16) 40%, rgba(255, 255, 255, 0) 70%);
+  transform: scale(0);
+  opacity: 1;
+  animation: ripple 0.6s var(--ease-out) forwards;
+}
+/* The wave travelling across the whole panel: a soft expanding ring. */
+.ripple-surface {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0) 52%, rgba(255, 255, 255, 0.13) 64%, rgba(255, 255, 255, 0) 72%);
+  animation: ripple-wave 0.9s var(--ease-out) forwards;
+}
+@keyframes ripple {
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+@keyframes ripple-wave {
+  0% {
+    transform: scale(0.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* Springy press & hover on every control. */
+.icon-btn,
+.btn,
+.tool,
+.swatch,
+.style-chip,
+.start-card,
+.picker-btn,
+.country-list button,
+.menu button,
+.search-results button,
+.picker-list button,
+.region-list button,
+.world-open {
+  transition:
+    transform 0.35s var(--spring),
+    background 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.25s;
+  -webkit-tap-highlight-color: transparent;
+}
+.icon-btn:active:not(:disabled),
+.btn:active:not(:disabled),
+.tool:active,
+.swatch:active,
+.style-chip:active,
+.start-card:active,
+.picker-btn:active {
+  transform: scale(0.9);
+  transition-duration: 0.08s;
+}
+.country-list button:active,
+.menu button:active,
+.search-results button:active,
+.picker-list button:active,
+.region-list button:active,
+.world-open:active {
+  transform: scale(0.98);
+  transition-duration: 0.08s;
+}
+.btn {
+  position: relative;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.btn.primary {
+  background: linear-gradient(180deg, #6fe6cd, var(--accent) 55%, var(--accent-2));
+  box-shadow: 0 4px 16px rgba(62, 207, 178, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #8af0da, #5fe0c5 55%, var(--accent));
+  box-shadow: 0 6px 22px rgba(62, 207, 178, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.btn.primary .ripple {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.2) 45%, rgba(255, 255, 255, 0) 70%);
+}
+
+/* Active tool: a lit glass pill. */
+.tool {
+  position: relative;
+}
+.tool.on {
+  background: linear-gradient(180deg, #74e8cf, var(--accent) 60%, var(--accent-2));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25) inset, 0 6px 18px rgba(62, 207, 178, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: tool-on 0.45s var(--spring);
+}
+@keyframes tool-on {
+  0% {
+    transform: scale(0.82);
+  }
+}
+.icon-btn.on {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(62, 207, 178, 0.35);
+}
+
+/* Popovers grow out of their anchor like a droplet. */
+.menu,
+.layers-pop,
+.search-results,
+.picker-pop,
+.brush {
+  animation: glass-pop 0.32s var(--spring);
+}
+.menu {
+  transform-origin: top right;
+}
+.search-results,
+.picker-pop {
+  transform-origin: top center;
+}
+.layers-pop {
+  transform-origin: bottom left;
+}
+.brush {
+  transform-origin: top left;
+}
+@keyframes glass-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(-4px);
+  }
+}
+.picker-pop {
+  background: rgba(24, 32, 51, 0.82);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(24px) saturate(1.8);
+}
+
+/* Panels slide in once when the editor opens. */
+.topbar {
+  animation: slide-down 0.55s var(--ease-out) backwards;
+}
+.tooldock,
+.layers {
+  animation: slide-right 0.55s var(--ease-out) 0.06s backwards;
+}
+.inspector {
+  animation: slide-left 0.6s var(--ease-out) 0.1s backwards;
+  transition: max-height 0.4s var(--ease-out);
+}
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+@keyframes slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+}
+@keyframes slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+/* Switching between world / country / region pages. */
+.inspector-scroll > * {
+  animation: page-in 0.35s var(--ease-out);
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Switch knob bounces. */
+.switch {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.switch::after {
+  transition: transform 0.35s var(--spring), width 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.toggle:active .switch::after {
+  width: 15px;
+}
+.toggle input:checked + .switch {
+  box-shadow: 0 0 10px rgba(62, 207, 178, 0.45), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Floating hints & toasts become glass too. */
+.toast,
+.hover-tip,
+.split-hint {
+  background: rgba(20, 27, 44, 0.62);
+  -webkit-backdrop-filter: blur(22px) saturate(1.8);
+  backdrop-filter: blur(22px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.toast {
+  border-radius: 999px;
+  padding: 10px 18px;
+  animation: toast-drop 0.45s var(--spring);
+}
+@keyframes toast-drop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -14px) scale(0.9);
+  }
+}
+
+/* Heal map button */
+.heal-btn {
+  margin-top: 6px;
+}
+.heal-btn.busy svg {
+  animation: spin 1s linear infinite;
+}
+
+@media (max-width: 760px) {
+  /* Keep the tool columns clear of the top bar below the notch. */
+  .tooldock,
+  .layers {
+    top: calc(max(8px, env(safe-area-inset-top)) + 58px);
+  }
+  .inspector {
+    animation-name: slide-up;
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
