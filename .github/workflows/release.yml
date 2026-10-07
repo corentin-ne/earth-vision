@@ -1,0 +1,90 @@
+name: Release
+
+# On every push to main: test, build the website, wrap it as an Android APK and
+# publish both on the GitHub release "v<package.json version>" (pre-release when
+# the version has a "-"). Pushing a v* tag publishes that tag instead.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build website
+        run: npm run build
+
+      # ubuntu-latest ships the Android SDK (ANDROID_HOME); the native project is generated fresh each time.
+      - name: Generate the Android project
+        run: npx cap add android
+
+      - name: Build APK
+        working-directory: android
+        # Debug-signed so it installs directly on a phone.
+        run: ./gradlew assembleDebug --no-daemon
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.workers.max=2
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "name=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package artifacts
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk "earth-vision-${{ steps.tag.outputs.name }}.apk"
+          (cd dist && zip -qr "../earth-vision-web-${{ steps.tag.outputs.name }}.zip" .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: earth-vision
+          path: |
+            earth-vision-*.apk
+            earth-vision-web-*.zip
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          name: Earth Vision ${{ steps.tag.outputs.name }}
+          files: |
+            earth-vision-*.apk
+            earth-vision-web-*.zip
+          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
+          generate_release_notes: true
+          body: |
+            **Android:** download the APK, open it on your phone and allow installing from this source.
+            **Website / offline app:** unzip `earth-vision-web-*.zip` onto any static host, then open it and choose "Install app".

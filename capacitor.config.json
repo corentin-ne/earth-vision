@@ -1,0 +1,6 @@
+{
+  "appId": "com.earthvision.app",
+  "appName": "Earth Vision",
+  "webDir": "dist",
+  "android": { "allowMixedContent": false }
+}
