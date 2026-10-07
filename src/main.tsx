@@ -4,6 +4,7 @@ import App from './App';
 import { startAutosave } from './world/persist';
 import { loadIso2 } from './world/flags';
 import { installRipples } from './ui/ripple';
+import '@fontsource-variable/inter';
 import './styles.css';
 
 startAutosave();

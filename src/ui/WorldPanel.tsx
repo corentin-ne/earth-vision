@@ -38,18 +38,13 @@ export function WorldPanel() {
   const [healing, setHealing] = useState(false);
   const heal = () => {
     setHealing(true);
-    // Let the button show its busy state before the (synchronous) repair runs.
-    setTimeout(() => {
-      try {
-        const n = healBorders();
-        toast(n ? `Healed borders of ${n} region${n > 1 ? 's' : ''} · Ctrl+Z to undo` : 'Borders are already clean', 'ok');
-      } catch (e) {
+    healBorders()
+      .then((n) => toast(n ? `Healed borders of ${n} region${n > 1 ? 's' : ''} · undo to revert` : 'Borders are already clean', 'ok'))
+      .catch((e) => {
         console.error(e);
         toast('Healing failed: ' + (e as Error).message, 'error');
-      } finally {
-        setHealing(false);
-      }
-    }, 60);
+      })
+      .finally(() => setHealing(false));
   };
 
   const create = () => {
@@ -75,9 +70,14 @@ export function WorldPanel() {
       </div>
 
       {newName === null ? (
-        <button className="btn primary wide" onClick={() => setNewName('')}>
-          <Icon name="plus" size={15} /> New country
-        </button>
+        <div className="actions two">
+          <button className="btn primary" onClick={() => setNewName('')}>
+            <Icon name="plus" size={16} /> New country
+          </button>
+          <button className={'btn heal-btn' + (healing ? ' busy' : '')} onClick={heal} disabled={healing} title="Snap borders that almost line up, removing stray lines inside countries">
+            <Icon name="heal" size={16} /> {healing ? 'Healing…' : 'Heal borders'}
+          </button>
+        </div>
       ) : (
         <div className="callout row">
           <input
@@ -97,10 +97,7 @@ export function WorldPanel() {
         </div>
       )}
 
-      <button className={'btn wide heal-btn' + (healing ? ' busy' : '')} onClick={heal} disabled={healing} title="Snap borders that almost line up, removing stray lines inside countries">
-        <Icon name="heal" size={15} /> {healing ? 'Healing map…' : 'Heal map borders'}
-      </button>
-
+      <h3 className="list-title">Countries</h3>
       <div className="list-tools">
         <div className="search-mini">
           <Icon name="search" size={14} />

@@ -4,6 +4,7 @@ import { useWorld, loadWorld, closeWorld, toast } from './world/store';
 import { loadBundle, saveBundle, lastWorld } from './io/db';
 import { Editor, useShortcuts } from './ui/Editor';
 import { Home, readWorldFile } from './ui/Home';
+import { Icon } from './ui/icons';
 
 export default function App() {
   const [view, setView] = useState<'boot' | 'home' | 'editor'>('boot');
@@ -66,7 +67,8 @@ export default function App() {
     <>
       {view === 'boot' && (
         <div className="boot">
-          <div className="spinner" />
+          <div className="boot-globe" />
+          <span>Earth Vision</span>
         </div>
       )}
       {view === 'home' && <Home onOpen={open} busy={busy} />}
@@ -88,8 +90,9 @@ function Toast() {
   const t = useWorld((s) => s.toast);
   if (!t) return null;
   return (
-    <div key={t.id} className={'toast ' + (t.kind ?? '')}>
-      {t.text}
+    <div key={t.id} className={'toast ' + (t.kind ?? '')} role="status">
+      {t.kind && <Icon name={t.kind === 'ok' ? 'check' : 'info'} size={15} />}
+      <span>{t.text}</span>
     </div>
   );
 }

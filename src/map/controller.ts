@@ -59,7 +59,10 @@ export class MapController {
       maxPitch: 75,
       boxZoom: false,
       attributionControl: false,
-      canvasContextAttributes: { preserveDrawingBuffer: true },
+      // snapshot() reads the canvas inside a render event, so the costly preserved buffer isn't needed.
+      canvasContextAttributes: { preserveDrawingBuffer: false },
+      // Beyond 2× the extra pixels cost a lot of GPU time on phones for no visible gain.
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
       fadeDuration: 150,
     });
     this.map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
