@@ -15,6 +15,7 @@ import { mapCtl } from '../map/controller';
 import { ColorField, CountryPicker, Flag, NumberField, Section, Stat, TextField } from './common';
 import { RegionCard } from './RegionPanels';
 import { CountryAlliances } from './AlliancePanel';
+import { startSnap } from './SnapCard';
 import { Icon } from './icons';
 import { fmtArea, fmtInt } from '../util';
 
@@ -98,6 +99,9 @@ export function CountryPanel({ cid }: { cid: string }) {
         </button>
         <button className="btn" onClick={() => setAnnexing(!annexing)}>
           <Icon name="merge" size={15} /> Annex…
+        </button>
+        <button className="btn" onClick={() => startSnap(cid)} title="Move a border onto the rivers and mountain crests near it">
+          <Icon name="river" size={15} /> Snap border…
         </button>
       </div>
       {annexing && (

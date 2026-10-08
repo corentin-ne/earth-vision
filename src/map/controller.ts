@@ -23,8 +23,9 @@ import {
   type State,
 } from '../world/store';
 import { loadIso2, iso2 } from '../world/flags';
+import { measureImage } from '../world/flagShape';
 import { loadBarriers, barriers, naturalOn } from '../geo/barriers';
-import { activeNatural, blocked, claimUpToNature, cutAlongNature, reachable } from '../world/natural';
+import { activeNatural, blocked, claimUpToNature, cutAlongNature, reachable, finishSnapLasso, snapLines } from '../world/natural';
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -55,6 +56,8 @@ export class MapController {
   private labelTimer: ReturnType<typeof setTimeout> | null = null;
   private lastBorderRun = 0;
   private drawPts: LngLat[] = [];
+  /** A loop being drawn around part of a border to snap (see natural.ts). */
+  private lasso: { pts: LngLat[]; last: [number, number] } | null = null;
   /** The paint stroke under way; `anchor` is the last brush spot not cut off by a river or crest. */
   private stroke: { group: string; last: [number, number]; anchor: LngLat | null; blockedAt?: LngLat } | null = null;
   private spaceDown = false;
@@ -126,7 +129,8 @@ export class MapController {
         if (s.selection !== p.selection) this.syncSelection();
         if (s.docks !== p.docks) this.updatePadding();
         if (s.tool !== p.tool) this.onToolChange(s, p);
-        if (s.tool !== p.tool || s.natural !== p.natural) this.syncBarriers();
+        if (s.tool !== p.tool || s.natural !== p.natural || s.snap !== p.snap) this.syncBarriers();
+        if (s.snap?.drawing !== p.snap?.drawing) this.cancelLasso();
         if (s.allianceView !== p.allianceView) {
           this.recolorAll();
           this.syncAlliances();
@@ -315,17 +319,21 @@ export class MapController {
     );
   }
 
-  /** Shows the active rivers and crests while painting with natural borders on (loading them first). */
+  /**
+   * Shows the active rivers and crests while painting with natural borders on, or while a border
+   * is being snapped to them (loading them first).
+   */
   private syncBarriers() {
     if (!this.loaded) return;
-    const { tool, natural } = get();
-    const on = tool === 'paint' && naturalOn(natural);
+    const { tool, natural, snap } = get();
+    const lines = snap ? snapLines() : natural;
+    const on = !!snap || (tool === 'paint' && naturalOn(natural));
     if (on && !barriers()) {
       loadBarriers().then(() => this.syncBarriers(), () => toast('Could not load the rivers and crests', 'error'));
       return;
     }
     const b = barriers();
-    this.src('barriers')?.setData(on && b ? (b.geojson(natural) as FeatureCollection) : fc([]));
+    this.src('barriers')?.setData(on && b ? (b.geojson(lines) as FeatureCollection) : fc([]));
   }
 
   /** Outlines of the alliances shown (all of them, or the focused one). */
@@ -629,25 +637,35 @@ export class MapController {
       img.crossOrigin = 'anonymous';
       img.src = url;
       await img.decode();
+      const shape = measureImage(img);
       const H = 44;
-      const W = Math.round(Math.min(78, Math.max(44, (img.naturalWidth / img.naturalHeight) * H)));
-      const pad = 3;
+      // Any proportions, from a square to a long pennant.
+      const W = Math.round(Math.min(104, Math.max(34, shape.ratio * H)));
+      const pad = shape.shaped ? 5 : 3;
       const canvas = document.createElement('canvas');
       canvas.width = W + pad * 2;
       canvas.height = H + pad * 2;
       const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      roundRect(ctx, pad - 1, pad, W + 2, H + 2, 5);
-      ctx.fill();
-      ctx.save();
-      roundRect(ctx, pad, pad, W, H, 4);
-      ctx.clip();
-      ctx.drawImage(img, pad, pad, W, H);
-      ctx.restore();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      roundRect(ctx, pad, pad, W, H, 4);
-      ctx.stroke();
+      if (shape.shaped) {
+        // Not a rectangle: no frame, a soft shadow that follows the outline.
+        ctx.shadowColor = 'rgba(0,0,0,0.45)';
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetY = 1;
+        ctx.drawImage(img, pad, pad, W, H);
+      } else {
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        roundRect(ctx, pad - 1, pad, W + 2, H + 2, 5);
+        ctx.fill();
+        ctx.save();
+        roundRect(ctx, pad, pad, W, H, 4);
+        ctx.clip();
+        ctx.drawImage(img, pad, pad, W, H);
+        ctx.restore();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        roundRect(ctx, pad, pad, W, H, 4);
+        ctx.stroke();
+      }
       const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
       if (this.map.hasImage(key)) this.map.removeImage(key);
       this.map.addImage(key, data, { pixelRatio: 2 });
@@ -700,13 +718,19 @@ export class MapController {
     m.on('mouseup', () => this.onUp());
     m.on('touchend', () => this.onUp());
     m.on('touchmove', (e) => {
-      if (this.stroke && e.points.length === 1) this.paintTo(e.point.x, e.point.y);
+      if (this.lasso && e.points.length === 1) this.extendLasso(e as unknown as MapMouseEvent);
+      else if (this.stroke && e.points.length === 1) this.paintTo(e.point.x, e.point.y);
     });
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
   }
 
   private onMove(e: MapMouseEvent) {
+    if (this.lasso) return this.extendLasso(e);
+    if (get().snap?.drawing) {
+      this.map.getCanvas().style.cursor = 'crosshair';
+      return;
+    }
     const { tool } = get();
     if (tool === 'paint') this.onBrush?.({ x: e.point.x, y: e.point.y, r: get().brushSize, blocked: !!this.stroke?.blockedAt });
     if (this.stroke) {
@@ -742,7 +766,7 @@ export class MapController {
 
   private onClick(e: MapMouseEvent) {
     const { tool, doc, selection } = get();
-    if (!doc) return;
+    if (!doc || get().snap?.drawing) return;
     const oe = e.originalEvent as MouseEvent;
     if (tool === 'select') {
       const city = this.cityAtPoint(e.point);
@@ -798,6 +822,12 @@ export class MapController {
     if (!doc) return;
     const oe = e.originalEvent as MouseEvent;
     if (oe && 'button' in oe && oe.button !== 0) return;
+    if (get().snap?.drawing) {
+      e.preventDefault();
+      this.lasso = { pts: [[e.lngLat.lng, e.lngLat.lat]], last: [e.point.x, e.point.y] };
+      this.renderLasso();
+      return;
+    }
     if (tool === 'paint' && !this.spaceDown) {
       const mode = get().brushMode;
       if (oe?.altKey || mode === 'pick') {
@@ -849,6 +879,12 @@ export class MapController {
   }
 
   private onUp() {
+    if (this.lasso) {
+      const pts = this.lasso.pts;
+      this.cancelLasso();
+      finishSnapLasso(pts);
+      return;
+    }
     if (this.stroke) {
       this.stroke = null;
       endGroup();
@@ -905,11 +941,33 @@ export class MapController {
           }
       // Regions a river or crest runs through are cut along it first, then only this side is taken.
       const pieces = cutAlongNature([...ids], { group: this.stroke.group }).filter((id) => get().doc!.regions[id]?.cid !== brushCid);
-      const take = reachable(p, samples, pieces);
+      // The outer ring of samples outlines the dab, for pieces too thin to hold a sample.
+      const take = reachable(p, samples, pieces, r > 0 ? samples.slice(8) : undefined);
       if (take.length) transferRegions(take, brushCid, opts);
       return;
     }
     if (ids.size) transferRegions([...ids], brushCid, opts);
+  }
+
+  private extendLasso(e: MapMouseEvent) {
+    const l = this.lasso;
+    if (!l) return;
+    if (Math.hypot(e.point.x - l.last[0], e.point.y - l.last[1]) < 5) return;
+    l.pts.push([e.lngLat.lng, e.lngLat.lat]);
+    l.last = [e.point.x, e.point.y];
+    this.renderLasso();
+  }
+
+  /** The loop so far, closed back to where it started. */
+  private renderLasso() {
+    const pts = this.lasso?.pts ?? [];
+    this.src('draw')?.setData(fc(pts.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [...pts, pts[0]] } }] : []));
+  }
+
+  private cancelLasso() {
+    if (!this.lasso) return;
+    this.lasso = null;
+    this.src('draw')?.setData(fc([]));
   }
 
   private renderDraw(cursor?: LngLat) {

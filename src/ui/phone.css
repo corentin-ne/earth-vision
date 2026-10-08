@@ -235,6 +235,10 @@
   .alliance-legend {
     bottom: var(--above-bar);
   }
+  .snap-card {
+    bottom: var(--above-bar);
+    width: calc(100vw - 16px);
+  }
   /* Map credits: a small "i" under the top bar instead of a strip along the bottom. */
   .editor .maplibregl-ctrl-bottom-left {
     top: calc(max(10px, env(safe-area-inset-top)) + 60px);

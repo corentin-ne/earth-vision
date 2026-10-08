@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Country } from '../types';
 import { useWorld, countryAggregates, flagUrlFor, select, setFlag, countryBounds } from '../world/store';
 import { iso2 } from '../world/flags';
+import { useFlagShape } from '../world/flagShape';
 import { randomFlag } from '../world/flagGen';
 import { mapCtl } from '../map/controller';
 import { Icon } from './icons';
@@ -22,13 +23,14 @@ function useCountriesBySize(): Country[] {
 function BigFlag({ country }: { country: Country }) {
   useWorld((s) => (country.flag ? s.flagUrls[country.flag] : null));
   const url = flagUrlFor(country, iso2);
+  const shape = useFlagShape(url);
   if (!url)
     return (
       <div className="big-flag none" style={{ background: country.color }}>
         {country.cid}
       </div>
     );
-  return <img className="big-flag" src={url} alt={`Flag of ${country.name}`} draggable={false} />;
+  return <img className={'big-flag' + (shape.shaped ? ' shaped' : '')} src={url} alt={`Flag of ${country.name}`} draggable={false} />;
 }
 
 /** Full-size view of one country's flag, with ← / → to browse the others. */

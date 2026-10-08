@@ -109,6 +109,11 @@ export interface State {
   allianceView: string | null;
   /** Every panel and button hidden: just the map. */
   zen: boolean;
+  /**
+   * Snapping a country's border with a neighbour onto rivers and crests: which two countries,
+   * and whether the user is drawing a loop around the part of the border to snap.
+   */
+  snap: { cid: string; other: string | null; drawing: boolean } | null;
 }
 
 const DEFAULT_LAYERS: Layers = {
@@ -175,6 +180,7 @@ export const useWorld = create<State>(() => ({
   natural: prefs.natural ?? { rivers: 'off', crests: false },
   allianceView: null,
   zen: false,
+  snap: null,
 }));
 
 useWorld.subscribe((s, prev) => {
@@ -466,6 +472,7 @@ export function loadWorld(b: WorldBundle) {
     galleryOpen: false,
     allianceView: null,
     zen: false,
+    snap: null,
   });
   pendingLabels.clear();
   emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, alliances: true, all: true });

@@ -403,6 +403,15 @@ code {
 }
 .flag-none {
   background: var(--fill-2);
+  aspect-ratio: 1.5;
+}
+/* Not a rectangle (see-through outline): no frame, a shadow that follows the shape instead. */
+.flag.shaped {
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
 .swatch-mini {
   width: 10px;
@@ -2589,6 +2598,15 @@ input.num-field {
 .flag-tile .big-flag {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 4px 12px rgba(0, 0, 0, 0.35);
 }
+/* Shaped flags: the frame and backdrop go, a shadow follows the outline. */
+.big-flag.shaped,
+.flag-tile .big-flag.shaped,
+.lb-figure .big-flag.shaped {
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.5));
+}
 .flag-tile span {
   white-space: nowrap;
   overflow: hidden;
@@ -2790,7 +2808,7 @@ input.num-field {
   }
 }
 .details .country-head .flag {
-  width: 84px !important;
+  width: auto !important;
   height: 56px !important;
 }
 .details .country-head .title-input {
@@ -2851,7 +2869,7 @@ input.num-field {
   overscroll-behavior: contain;
 }
 .details-dock .country-head .flag {
-  width: 72px !important;
+  width: auto !important;
   height: 48px !important;
 }
 .details-dock .country-head .title-input {
@@ -2916,9 +2934,23 @@ input.num-field {
   top: 0;
   align-self: start;
 }
+.fm-stage {
+  width: 300px;
+  height: 230px;
+  display: grid;
+  place-items: center;
+}
 .fm-canvas {
   border-radius: 8px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+.fm-canvas.shaped {
+  border-radius: 0;
+  box-shadow: none;
+  filter: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.45));
+}
+.fm-layout {
+  min-height: 52px;
 }
 .fm-controls section {
   margin-bottom: 14px;

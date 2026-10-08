@@ -1,22 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWorld, setFlag, toast } from '../world/store';
-import { drawFlag, randomSpec, renderFlag, deepen, FLAG_COLORS, LAYOUTS, EMBLEMS, type FlagSpec, type EmblemPos } from '../world/flagGen';
+import { drawFlag, flagSize, randomSpec, renderFlag, deepen, FLAG_COLORS, LAYOUTS, EMBLEMS, SHAPES, type FlagSpec, type EmblemPos } from '../world/flagGen';
 import { Icon } from './icons';
 
-/** Draws a flag design on a canvas of the given CSS width (3:2). */
-function FlagCanvas({ spec, width, className }: { spec: FlagSpec; width: number; className?: string }) {
+/** Draws a flag design fitted inside a box of the given CSS size, keeping the shape's proportions. */
+function FlagCanvas({ spec, width, height = (width * 2) / 3, className }: { spec: FlagSpec; width: number; height?: number; className?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const [fw, fh] = flagSize(spec);
+  const k = Math.min(width / fw, height / fh);
+  const w = fw * k;
+  const h = fh * k;
   useEffect(() => {
     const c = ref.current;
     const ctx = c?.getContext('2d');
     if (!c || !ctx) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    c.width = Math.round(width * dpr);
-    c.height = Math.round(((width * 2) / 3) * dpr);
-    ctx.setTransform((width * dpr) / 300, 0, 0, (width * dpr) / 300, 0, 0);
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+    ctx.setTransform(k * dpr, 0, 0, k * dpr, 0, 0);
     drawFlag(ctx, spec);
-  }, [spec, width]);
-  return <canvas ref={ref} className={className} style={{ width, height: (width * 2) / 3 }} />;
+  }, [spec, w, h, k]);
+  return <canvas ref={ref} className={className} style={{ width: w, height: h }} />;
 }
 
 const POSITIONS: { id: EmblemPos; label: string }[] = [
@@ -45,7 +49,7 @@ export function FlagMaker() {
       return { ...s, colors };
     });
   const layout = LAYOUTS.find((l) => l.id === spec.layout)!;
-  const palette = [...new Set([deepen(country.color), ...FLAG_COLORS])];
+  const palette = [...new Set([deepen(country.color), ...FLAG_COLORS, '#1E6BFF', '#FF6A00'])];
 
   const save = async () => {
     setSaving(true);
@@ -86,13 +90,32 @@ export function FlagMaker() {
 
         <div className="fm-body">
           <div className="fm-preview">
-            <FlagCanvas spec={spec} width={300} className="fm-canvas" />
+            <div className="fm-stage">
+              <FlagCanvas spec={spec} width={300} height={230} className={'fm-canvas' + (spec.shape && spec.shape !== 'rect' && spec.shape !== 'wide' && spec.shape !== 'square' ? ' shaped' : '')} />
+            </div>
             <button className="btn" onClick={() => setSpec(randomSpec(country.color))}>
               <Icon name="dice" size={15} /> Surprise me
             </button>
           </div>
 
           <div className="fm-controls">
+            <section>
+              <h3>Shape</h3>
+              <div className="fm-layouts fm-shapes">
+                {SHAPES.map((sh) => (
+                  <button key={sh.id} className={'fm-layout' + ((spec.shape ?? 'rect') === sh.id ? ' on' : '')} onClick={() => set({ shape: sh.id })} title={sh.label}>
+                    <FlagCanvas spec={{ ...spec, shape: sh.id, emblem: 'none' }} width={54} height={40} />
+                  </button>
+                ))}
+              </div>
+              {spec.shape === 'flames' && (
+                <div className="fm-row">
+                  <span className="fm-label">Flames</span>
+                  <Swatches value={spec.trim ?? '#1E6BFF'} onPick={(c) => set({ trim: c })} />
+                </div>
+              )}
+            </section>
+
             <section>
               <h3>Layout</h3>
               <div className="fm-layouts">

@@ -29,6 +29,7 @@ import { downloadMap, fileBase } from '../io/files';
 import { flushAutosave, onSaveState } from '../world/persist';
 import { download, fmtCompact } from '../util';
 import { AllianceLegend, viewAlliance } from './AlliancePanel';
+import { SnapCard } from './SnapCard';
 import { naturalOn, type RiverLevel } from '../geo/barriers';
 
 export function Editor({ onHome }: { onHome: () => void }) {
@@ -56,6 +57,7 @@ export function Editor({ onHome }: { onHome: () => void }) {
           <SelectionBubble />
           <DetailsDock />
           <AllianceLegend />
+          <SnapCard />
           <BrushCursor />
         </>
       )}
@@ -633,6 +635,7 @@ function PhoneDock() {
   const worldOpen = useWorld((s) => s.worldOpen);
   const sheet = useWorld((s) => s.worldOpen || (s.detailsOpen && !!(s.selection.cid || s.selection.regions.length || s.selection.city != null)));
   const layersOpen = useWorld((s) => s.layersOpen);
+  const snapping = useWorld((s) => !!s.snap);
   const globe = useWorld((s) => s.globe);
   const allianceView = useWorld((s) => s.allianceView);
   const [more, setMore] = useState(false);
@@ -644,7 +647,7 @@ function PhoneDock() {
   };
   return (
     <div className="phone-dock">
-      {!sheet && (
+      {!sheet && !snapping && (
         <div className="phone-opts">
           {tool === 'paint' && <PhoneBrush />}
           {tool === 'select' && (
@@ -921,7 +924,7 @@ function SelectionBubble() {
  * Reports how much of the screen a docked panel covers, so the map centres and fits things in
  * the part that stays visible (see MapController.updatePadding).
  */
-function useDockInset(id: string, ref: RefObject<HTMLElement | null>, active: boolean, mobile: boolean) {
+export function useDockInset(id: string, ref: RefObject<HTMLElement | null>, active: boolean, mobile: boolean) {
   useEffect(() => {
     const el = ref.current;
     const put = (v: { right: number; bottom: number } | null) =>
@@ -1183,6 +1186,10 @@ export function useShortcuts() {
         else if (k === '[') useWorld.setState((s) => ({ brushSize: Math.max(0, s.brushSize - 5) }));
         else if (k === ']') useWorld.setState((s) => ({ brushSize: Math.min(60, s.brushSize + 5) }));
         else if (k === 'escape' && useWorld.getState().flagMakerFor) useWorld.setState({ flagMakerFor: null });
+        else if (k === 'escape' && useWorld.getState().snap) {
+          const snap = useWorld.getState().snap!;
+          useWorld.setState({ snap: snap.drawing ? { ...snap, drawing: false } : null });
+        }
         else if (k === 'escape' && useWorld.getState().detailsOpen) useWorld.setState({ detailsOpen: false });
         else if (k === 'escape' && useWorld.getState().worldOpen) useWorld.setState({ worldOpen: false });
         else if (k === 'escape' && useWorld.getState().help) useWorld.setState({ help: false });

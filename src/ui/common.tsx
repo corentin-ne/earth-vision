@@ -2,12 +2,18 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Country } from '../types';
 import { useWorld, flagUrlFor, countryAggregates } from '../world/store';
 import { iso2 } from '../world/flags';
+import { useFlagShape } from '../world/flagShape';
 import { Icon } from './icons';
 import { fmtCompact } from '../util';
 
+/**
+ * A country's flag, `size` pixels tall, in the image's own proportions (kept between square-ish
+ * and very wide so lists stay tidy). Shaped flags drop the frame for a shadow that follows them.
+ */
 export function Flag({ country, size = 22 }: { country?: Country; size?: number }) {
   useWorld((s) => (country?.flag ? s.flagUrls[country.flag] : null));
   const url = flagUrlFor(country, iso2);
+  const shape = useFlagShape(url);
   const h = size;
   const w = Math.round(size * 1.5);
   if (!country) return <span className="flag flag-none" style={{ width: w, height: h }} />;
@@ -17,7 +23,16 @@ export function Flag({ country, size = 22 }: { country?: Country; size?: number 
         {country.cid.slice(0, 3)}
       </span>
     );
-  return <img className="flag" src={url} alt="" style={{ width: w, height: h }} draggable={false} />;
+  const ratio = Math.min(2.2, Math.max(0.8, shape.ratio));
+  return (
+    <img
+      className={'flag' + (shape.shaped ? ' shaped' : '')}
+      src={url}
+      alt=""
+      style={{ height: h, width: Math.round(h * ratio), aspectRatio: String(ratio) }}
+      draggable={false}
+    />
+  );
 }
 
 /** Text input that commits on blur / Enter instead of on every keystroke. */

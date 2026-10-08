@@ -172,6 +172,21 @@ export class GeoEngine {
     return out;
   }
 
+  /** The border arcs with one side in `a` and the other in `b` (e.g. two countries' shared border). */
+  arcsBetween(a: (rid: number) => boolean, b: (rid: number) => boolean): LngLat[][] {
+    const out: LngLat[][] = [];
+    if (!this.topo) return out;
+    const sides = this.arcSides;
+    const arcs = this.topo.arcs as Position[][];
+    for (let i = 0; i < arcs.length; i++) {
+      const x = sides[i * 2];
+      const y = sides[i * 2 + 1];
+      if (x === -1 || y === -1) continue;
+      if ((a(x) && b(y)) || (a(y) && b(x))) out.push(arcs[i] as LngLat[]);
+    }
+    return out;
+  }
+
   /** All regions bordering any region in the set (excluding the set itself). */
   neighborsOfSet(inSet: (rid: number) => boolean): Set<number> {
     const out = new Set<number>();
