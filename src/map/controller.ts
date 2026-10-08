@@ -580,7 +580,7 @@ export class MapController {
         return;
       }
       const r = doc.regions[rid];
-      if (oe.shiftKey || oe.ctrlKey || oe.metaKey) {
+      if (oe.shiftKey || oe.ctrlKey || oe.metaKey || get().multiSelect) {
         const ids = selection.regions.includes(rid) ? selection.regions.filter((x) => x !== rid) : [...selection.regions, rid];
         select({ cid: selection.cid ?? (r.cid || null), regions: ids });
       } else if (selection.regions.length === 1 && selection.regions[0] === rid) {
@@ -617,12 +617,14 @@ export class MapController {
     const oe = e.originalEvent as MouseEvent;
     if (oe && 'button' in oe && oe.button !== 0) return;
     if (tool === 'paint' && !this.spaceDown) {
-      if (oe?.altKey) {
+      const mode = get().brushMode;
+      if (oe?.altKey || mode === 'pick') {
         // Eyedropper
         const rid = this.regionAtPoint(e.point);
         if (rid != null) {
           useWorld.setState({ brushCid: doc.regions[rid].cid });
           toast(`Brush: ${doc.countries[doc.regions[rid].cid]?.name ?? 'Unclaimed'}`);
+          if (mode === 'pick') useWorld.setState({ brushMode: 'paint' });
         }
         e.preventDefault();
         return;
@@ -633,7 +635,7 @@ export class MapController {
       }
       e.preventDefault();
       this.stroke = { group: `paint:${Date.now()}`, last: [e.point.x, e.point.y] };
-      if (oe?.ctrlKey || oe?.metaKey) {
+      if (oe?.ctrlKey || oe?.metaKey || mode === 'whole') {
         // Whole-country fill: annex the entire country under the cursor.
         const rid = this.regionAtPoint(e.point);
         const src = rid != null ? doc.regions[rid].cid : null;

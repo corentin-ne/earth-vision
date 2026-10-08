@@ -10,6 +10,10 @@
 //   theme.json            palette; a country colour may be an index into it
 //   country_info_type.json / country_extra_info_type.json   stat & text field names
 //   …plus settings, landmarks, alliances, etc. which are kept as-is.
+//
+// Earth Vision adds one file A+ ignores, earth_vision.json, holding what the A+
+// format cannot express (notes, per-region populations, city sizes, all stats &
+// fields, the camera), so a .map round trip loses nothing.
 import { unzipSync, zipSync, strFromU8, strToU8, type Zippable } from 'fflate';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import type { City, Country, Region, RegionGeom, WaterLabel, WorldBundle, WorldDoc, StatDef, Alliance } from '../types';
@@ -63,7 +67,23 @@ export function unzipAmap(bytes: Uint8Array): Record<string, Uint8Array> {
 }
 
 /** Files we rebuild on export; everything else is carried through untouched. */
-const OWNED = new Set(['country_simple.json', 'region_simple.json', 'city.json', 'water.json', 'map_info.json', 'alliance/alliances.json']);
+const SIDECAR = 'earth_vision.json';
+
+interface Sidecar {
+  format: 'earth-vision';
+  version: 1;
+  created?: number;
+  stats?: StatDef[];
+  fields?: string[];
+  palette?: string[];
+  view?: WorldDoc['view'];
+  countries?: Record<string, { notes?: string; stats?: Record<string, number>; fields?: Record<string, string> }>;
+  /** Region id → [owner, scaling values]; the owner tells whether A+ moved the region since. */
+  regions?: Record<number, [string, Record<string, number>]>;
+  cities?: Record<number, { pop?: number }>;
+}
+
+const OWNED = new Set([SIDECAR, 'country_simple.json', 'region_simple.json', 'city.json', 'water.json', 'map_info.json', 'alliance/alliances.json']);
 
 export function importAmap(bytes: Uint8Array, fileName = 'World'): WorldBundle {
   const files = unzipAmap(bytes);
@@ -141,6 +161,8 @@ export function importAmap(bytes: Uint8Array, fileName = 'World'): WorldBundle {
     }
   }
   distributeByArea(regions, scaleTotals);
+  const side = json<Sidecar | null>(files, SIDECAR, null);
+  if (side?.format === 'earth-vision') applySidecar(side, countries, regions, scaleTotals);
 
   // Cities
   const cities: Record<number, City> = {};
@@ -150,6 +172,8 @@ export function importAmap(bytes: Uint8Array, fileName = 'World'): WorldBundle {
     const id = typeof f.id === 'number' ? f.id : i;
     const [lng, lat] = f.geometry.coordinates;
     cities[id] = { id, name: p.label, lng, lat, capital: p.t === 1, hidden: p.hide || undefined };
+    const pop = side?.cities?.[id]?.pop;
+    if (pop) cities[id].pop = pop;
     if (p.t === 1 && p.c && countries[p.c] && countries[p.c].capital == null) countries[p.c].capital = id;
   });
 
@@ -181,17 +205,21 @@ export function importAmap(bytes: Uint8Array, fileName = 'World'): WorldBundle {
     meta: {
       id: uid(),
       title: info.title || fileName.replace(/\.map.*$/i, ''),
-      created: now,
+      created: side?.created ?? now,
       modified: now,
       source: 'amap',
     },
-    settings: { stats, fields, palette: theme.map((c) => c.toUpperCase()) },
+    settings: {
+      stats: side?.stats ?? stats,
+      fields: side?.fields ?? fields,
+      palette: side?.palette ?? theme.map((c) => c.toUpperCase()),
+    },
     countries,
     regions,
     cities,
     water,
     alliances,
-    view: Number.isFinite(lastX) && Number.isFinite(lastY) ? { center: [lastX, lastY], zoom: Math.max(1.5, Number(settingsFile.last_zoom) || 2) } : undefined,
+    view: side?.view ?? (Number.isFinite(lastX) && Number.isFinite(lastY) ? { center: [lastX, lastY], zoom: Math.max(1.5, Number(settingsFile.last_zoom) || 2) } : undefined),
   };
   return { doc, geoms, flags, passthrough };
 }
@@ -330,11 +358,68 @@ export async function exportAmap(bundle: WorldBundle): Promise<Uint8Array> {
       : alliances;
     zip['alliance/alliances.json'] = strToU8(JSON.stringify(merged, null, 2));
   }
+  zip[SIDECAR] = strToU8(JSON.stringify(buildSidecar(doc)));
   zip['__signature__'] = pass['__signature__'] ?? strToU8('A+ World Map Editor');
 
   const out = zipSync(zip, { level: 6 });
   SIG_AMAP.forEach((b, i) => (out[i] = b));
   return out;
+}
+
+function buildSidecar(doc: WorldDoc): Sidecar {
+  const countries: NonNullable<Sidecar['countries']> = {};
+  for (const c of Object.values(doc.countries)) {
+    if (c.notes || Object.keys(c.stats).length || Object.keys(c.fields).length) countries[c.cid] = { notes: c.notes, stats: c.stats, fields: c.fields };
+  }
+  const regions: NonNullable<Sidecar['regions']> = {};
+  for (const r of Object.values(doc.regions)) if (r.vals && Object.keys(r.vals).length) regions[r.id] = [r.cid, r.vals];
+  const cities: NonNullable<Sidecar['cities']> = {};
+  for (const c of Object.values(doc.cities)) if (c.pop) cities[c.id] = { pop: c.pop };
+  return {
+    format: 'earth-vision',
+    version: 1,
+    created: doc.meta.created,
+    stats: doc.settings.stats,
+    fields: doc.settings.fields,
+    palette: doc.settings.palette,
+    view: doc.view,
+    countries,
+    regions,
+    cities,
+  };
+}
+
+/**
+ * Restores what A+ cannot store. Region values are only trusted for a country when
+ * they still add up to the total A+ saved for it — otherwise the map was edited in
+ * A+ since, and the area-based split from that total is kept.
+ */
+function applySidecar(
+  side: Sidecar,
+  countries: Record<string, Country>,
+  regions: Record<number, Region>,
+  totals: Record<string, Record<string, number>>,
+) {
+  for (const [cid, extra] of Object.entries(side.countries ?? {})) {
+    const c = countries[cid];
+    if (!c) continue;
+    if (extra.notes) c.notes = extra.notes;
+    c.stats = { ...extra.stats, ...c.stats };
+    c.fields = { ...extra.fields, ...c.fields };
+  }
+  const sums: Record<string, Record<string, number>> = {};
+  for (const r of Object.values(regions)) {
+    const saved = side.regions?.[r.id];
+    if (!saved || saved[0] !== r.cid) continue;
+    const s = (sums[r.cid] ??= {});
+    for (const [k, v] of Object.entries(saved[1])) s[k] = (s[k] ?? 0) + v;
+  }
+  const matches = (cid: string) =>
+    Object.entries(totals[cid] ?? {}).every(([k, t]) => Math.abs((sums[cid]?.[k] ?? 0) - t) <= Math.max(1, Math.abs(t) * 0.01));
+  for (const r of Object.values(regions)) {
+    const saved = side.regions?.[r.id];
+    if (saved && saved[0] === r.cid && matches(r.cid)) r.vals = { ...saved[1] };
+  }
 }
 
 function padInfoTypes(stats: StatDef[]): InfoType[] {

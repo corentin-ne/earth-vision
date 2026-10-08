@@ -11,7 +11,16 @@
 - [x] Map looks: Political, Atlas (MillMint-style relief), Plain, Night; globe/flat; 3D terrain
 - [x] Undo/redo, search, PNG/GeoJSON/.cmaps export, phone layout
 
+## Done (2.1)
+- [x] Home dashboard: main map on top with a picture, stats and largest nations; world cards; compact import
+- [x] `.map` is the only export (lossless thanks to `earth_vision.json`); `.cmaps` stays readable
+- [x] Fantasy Earth generator, random flags & names, flag gallery and full-size flag view
+- [x] Advanced tools: population from real-world data, heal borders, recolour, capitals, flags for all…
+- [x] Android: share-sheet exports, back button, safe areas, touch modes, app icon & version
+- [x] Faster: editor loaded on demand, flags encoded in parallel, thumbnails off the critical path
+
 ## Next
+- [ ] Android: open `.map` files straight from the file manager ("Open with Earth Vision")
 - [ ] Alliances editor (they are imported/exported, but only listed in the UI)
 - [ ] Drag country labels to place them by hand
 - [ ] Draw brand-new land (islands) and delete regions

@@ -16,6 +16,7 @@ import { ColorField, CountryPicker, Flag, NumberField, Section, Stat, TextField 
 import { RegionCard } from './RegionPanels';
 import { Icon } from './icons';
 import { fmtArea, fmtInt } from '../util';
+import { randomFlag } from '../world/flagGen';
 
 export function CountryPanel({ cid }: { cid: string }) {
   const doc = useWorld((s) => s.doc)!;
@@ -43,12 +44,14 @@ export function CountryPanel({ cid }: { cid: string }) {
   return (
     <div className="panel-body">
       <div className="country-head">
-        <button className="flag-btn" title="Change flag" onClick={() => fileRef.current?.click()}>
-          <Flag country={c} size={44} />
-          <span className="flag-edit">
+        <div className="flag-btn">
+          <button title="View the flag" onClick={() => useWorld.setState({ flagView: cid })}>
+            <Flag country={c} size={44} />
+          </button>
+          <button className="flag-edit" title="Upload a flag" onClick={() => fileRef.current?.click()}>
             <Icon name="image" size={14} />
-          </span>
-        </button>
+          </button>
+        </div>
         <input
           ref={fileRef}
           type="file"
@@ -65,6 +68,14 @@ export function CountryPanel({ cid }: { cid: string }) {
           <div className="sub">
             <span className="badge">{c.cid}</span>
             {rank >= 0 && <span>#{rank + 1} by area</span>}
+            <button className="link" onClick={async () => {
+                const blob = await randomFlag(c.color);
+                if (blob) setFlag(cid, blob);
+              }}
+              title="Draw a random flag (undo brings the old one back)"
+            >
+              <Icon name="dice" size={12} /> Random flag
+            </button>
             {capital && (
               <button className="link" onClick={() => mapCtl?.flyTo([capital.lng, capital.lat], 6)}>
                 <Icon name="crown" size={12} /> {capital.name}

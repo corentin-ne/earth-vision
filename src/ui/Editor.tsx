@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapController, setMapCtl, mapCtl } from '../map/controller';
 import {
   useWorld,
+  countryAggregates,
   undo,
   redo,
   select,
@@ -17,13 +18,16 @@ import {
 import { CountryPanel } from './CountryPanel';
 import { CityPanel, MultiRegionPanel, RegionCard } from './RegionPanels';
 import { WorldPanel } from './WorldPanel';
+import { AdvancedPanel } from './AdvancedPanel';
+import { FlagGallery, FlagLightbox } from './FlagViewer';
 import { CountryPicker, Flag, TextField } from './common';
 import { Icon, type IconName } from './icons';
-import { exportAmap } from '../io/amap';
-import { exportProject } from '../io/project';
+import { downloadMap, fileBase } from '../io/files';
+import { flushAutosave, onSaveState } from '../world/persist';
 import { download } from '../util';
 
 export function Editor({ onHome }: { onHome: () => void }) {
+  useShortcuts();
   return (
     <div className="editor">
       <MapView />
@@ -33,6 +37,10 @@ export function Editor({ onHome }: { onHome: () => void }) {
       <LayersPanel />
       <HoverTip />
       <SplitHint />
+      <ShortcutsHelp />
+      <AdvancedPanel />
+      <FlagGallery />
+      <FlagLightbox />
     </div>
   );
 }
@@ -123,34 +131,9 @@ function TopBar({ onHome }: { onHome: () => void }) {
   const undoLabel = useWorld((s) => s.past[s.past.length - 1]?.label);
   const redoLabel = useWorld((s) => s.future[s.future.length - 1]?.label);
   const [menu, setMenu] = useState(false);
-
-  const exportAs = async (kind: 'map' | 'cmaps' | 'png' | 'geojson') => {
+  const exportAs = (kind: ExportKind) => {
     setMenu(false);
-    const b = currentBundle();
-    const base = b.doc.meta.title.replace(/[^\w\- ]+/g, '').trim() || 'world';
-    try {
-      if (kind === 'map') download(await exportAmap(b), `${base}.map`);
-      if (kind === 'cmaps') download(await exportProject(b), `${base}.cmaps`);
-      if (kind === 'png') {
-        const blob = await mapCtl?.snapshot();
-        if (blob) download(blob, `${base}.png`, 'image/png');
-      }
-      if (kind === 'geojson') {
-        const features = Object.values(b.doc.regions)
-          .filter((r) => b.geoms[r.id])
-          .map((r) => ({
-            type: 'Feature',
-            id: r.id,
-            geometry: b.geoms[r.id],
-            properties: { name: r.name, country: r.cid, country_name: b.doc.countries[r.cid]?.name ?? null, area_km2: Math.round(r.area), ...r.vals },
-          }));
-        download(JSON.stringify({ type: 'FeatureCollection', features }), `${base}-regions.geojson`, 'application/geo+json');
-      }
-      toast('Exported', 'ok');
-    } catch (e) {
-      console.error(e);
-      toast('Export failed: ' + (e as Error).message, 'error');
-    }
+    exportWorld(kind);
   };
 
   return (
@@ -159,6 +142,7 @@ function TopBar({ onHome }: { onHome: () => void }) {
         <Icon name="home" />
       </button>
       <TextField className="world-title" value={title} onCommit={(t) => t.trim() && setTitle(t.trim())} />
+      <SaveBadge />
       <div className="sep" />
       <button className="icon-btn" disabled={!canUndo} onClick={undo} title={undoLabel ? `Undo: ${undoLabel} (Ctrl+Z)` : 'Undo'}>
         <Icon name="undo" />
@@ -168,6 +152,12 @@ function TopBar({ onHome }: { onHome: () => void }) {
       </button>
       <div className="sep" />
       <Search />
+      <button className="icon-btn hide-phone" onClick={surprise} title="Surprise me: visit a random country (R)">
+        <Icon name="dice" />
+      </button>
+      <button className="icon-btn" onClick={() => useWorld.setState({ advancedOpen: true })} title="Advanced: population, heal borders, colours… (A)">
+        <Icon name="tune" />
+      </button>
       <div className="menu-wrap">
         <button className="icon-btn" onClick={() => setMenu(!menu)} title="Export">
           <Icon name="download" />
@@ -175,21 +165,130 @@ function TopBar({ onHome }: { onHome: () => void }) {
         {menu && (
           <div className="menu glass" onMouseLeave={() => setMenu(false)}>
             <button onClick={() => exportAs('map')}>
-              <Icon name="file" size={15} /> A+ World Map (.map)
-            </button>
-            <button onClick={() => exportAs('cmaps')}>
-              <Icon name="file" size={15} /> CMaps project (.cmaps)
+              <Icon name="file" size={15} /> <span className="grow">World map (.map)</span>
+              <kbd>Ctrl E</kbd>
             </button>
             <button onClick={() => exportAs('png')}>
-              <Icon name="camera" size={15} /> Image of this view (.png)
+              <Icon name="camera" size={15} /> <span className="grow">Image of this view (.png)</span>
+              <kbd>P</kbd>
             </button>
             <button onClick={() => exportAs('geojson')}>
-              <Icon name="globe" size={15} /> Regions (.geojson)
+              <Icon name="globe" size={15} /> <span className="grow">Regions (.geojson)</span>
             </button>
           </div>
         )}
       </div>
     </header>
+  );
+}
+
+type ExportKind = 'map' | 'png' | 'geojson';
+
+async function exportWorld(kind: ExportKind) {
+  const b = currentBundle();
+  const base = fileBase(b.doc.meta.title);
+  try {
+    if (kind === 'map') await downloadMap(b);
+    if (kind === 'png') {
+      const blob = await mapCtl?.snapshot();
+      if (blob) await download(blob, `${base}.png`, 'image/png');
+    }
+    if (kind === 'geojson') {
+      const features = Object.values(b.doc.regions)
+        .filter((r) => b.geoms[r.id])
+        .map((r) => ({
+          type: 'Feature',
+          id: r.id,
+          geometry: b.geoms[r.id],
+          properties: { name: r.name, country: r.cid, country_name: b.doc.countries[r.cid]?.name ?? null, area_km2: Math.round(r.area), ...r.vals },
+        }));
+      await download(JSON.stringify({ type: 'FeatureCollection', features }), `${base}-regions.geojson`, 'application/geo+json');
+    }
+    toast(kind === 'png' ? 'Snapshot saved' : 'Exported', 'ok');
+  } catch (e) {
+    console.error(e);
+    toast('Export failed: ' + (e as Error).message, 'error');
+  }
+}
+
+/** Flies to a random country and opens its page. */
+function surprise() {
+  const doc = useWorld.getState().doc;
+  if (!doc) return;
+  const agg = countryAggregates(doc);
+  const owned = Object.values(doc.countries).filter((c) => agg[c.cid]?.regions);
+  if (!owned.length) return toast('No country to visit yet — paint one first!');
+  const cur = useWorld.getState().selection.cid;
+  const pool = owned.length > 1 ? owned.filter((c) => c.cid !== cur) : owned;
+  const c = pool[Math.floor(Math.random() * pool.length)];
+  select({ cid: c.cid });
+  mapCtl?.fitBounds(countryBounds(c.cid));
+}
+
+/** "Saving…" / "Saved" next to the title. */
+function SaveBadge() {
+  const [pending, setPending] = useState(false);
+  useEffect(() => onSaveState(setPending), []);
+  return (
+    <span className={'save-badge' + (pending ? ' pending' : '')} title={pending ? 'Saving…' : 'All changes saved in this browser'}>
+      {pending ? <span className="save-dot" /> : <Icon name="check" size={13} />}
+      <span className="hide-phone">{pending ? 'Saving' : 'Saved'}</span>
+    </span>
+  );
+}
+
+const SHORTCUTS: [string, string][] = [
+  ['V', 'Select'],
+  ['B', 'Paint regions'],
+  ['K', 'Split regions'],
+  ['C', 'Cities'],
+  ['[  ]', 'Smaller / bigger brush'],
+  ['Alt + click', 'Pick a country (paint)'],
+  ['Ctrl + click', 'Take a whole country (paint)'],
+  ['Space', 'Pan while painting'],
+  ['Shift + click', 'Select several regions'],
+  ['G', 'Globe / flat map'],
+  ['L', 'Map style & layers'],
+  ['R', 'Surprise me: random country'],
+  ['P', 'Save a picture of the view'],
+  ['A', 'Advanced tools'],
+  ['F', 'Flags of the world'],
+  ['Ctrl + K', 'Search'],
+  ['Ctrl + Z / Y', 'Undo / redo'],
+  ['Ctrl + S', 'Save now'],
+  ['Ctrl + E', 'Export .map'],
+  ['Esc', 'Back / cancel'],
+  ['?', 'This help'],
+];
+
+function ShortcutsHelp() {
+  const open = useWorld((s) => s.help);
+  if (!open) return null;
+  const close = () => useWorld.setState({ help: false });
+  return (
+    <div className="modal-back" onClick={close}>
+      <div className="modal glass" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <Icon name="keyboard" />
+          <h2 className="grow">Keyboard shortcuts</h2>
+          <button className="icon-btn" onClick={close} title="Close (Esc)">
+            <Icon name="x" />
+          </button>
+        </div>
+        <div className="shortcut-grid">
+          {SHORTCUTS.map(([k, label]) => (
+            <div key={k} className="shortcut">
+              <span>{label}</span>
+              <span className="keys">
+                {k.split(' + ').map((p, i) => (
+                  <kbd key={i}>{p}</kbd>
+                ))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -290,6 +389,8 @@ function ToolDock() {
   const brushCid = useWorld((s) => s.brushCid);
   const brushSize = useWorld((s) => s.brushSize);
   const country = useWorld((s) => s.doc?.countries[brushCid]);
+  const brushMode = useWorld((s) => s.brushMode);
+  const multi = useWorld((s) => s.multiSelect);
   return (
     <div className="tooldock">
       <div className="tools glass">
@@ -305,6 +406,19 @@ function ToolDock() {
             <span className="brush-swatch" style={{ background: country?.color ?? 'transparent' }} />
             <CountryPicker value={brushCid} allowNone noneLabel="Unclaimed (erase)" onChange={(cid) => useWorld.setState({ brushCid: cid })} />
           </div>
+          <div className="segmented">
+            {(
+              [
+                ['paint', 'brush', 'Paint'],
+                ['pick', 'pipette', 'Pick'],
+                ['whole', 'flag', 'Whole country'],
+              ] as const
+            ).map(([m, icon, label]) => (
+              <button key={m} className={brushMode === m ? 'on' : ''} onClick={() => useWorld.setState({ brushMode: m })}>
+                <Icon name={icon} size={14} /> {label}
+              </button>
+            ))}
+          </div>
           <label className="brush-size">
             <span>Brush</span>
             <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
@@ -314,6 +428,15 @@ function ToolDock() {
             Drag to paint · <kbd>Alt</kbd>+click picks a country · <kbd>Ctrl</kbd>+click takes a whole country · hold <kbd>Space</kbd> to pan
           </p>
         </div>
+      )}
+      {tool === 'select' && (
+        <button
+          className={'multi-toggle glass' + (multi ? ' on' : '')}
+          onClick={() => useWorld.setState({ multiSelect: !multi })}
+          title="Tap regions to add them to the selection (same as Shift+click)"
+        >
+          <Icon name="plus" size={14} /> Multi-select
+        </button>
       )}
       {tool === 'city' && (
         <div className="brush glass">
@@ -399,7 +522,8 @@ const LAYER_LABELS: [keyof Layers, string][] = [
 ];
 
 function LayersPanel() {
-  const [open, setOpen] = useState(false);
+  const open = useWorld((s) => s.layersOpen);
+  const setOpen = (v: boolean) => useWorld.setState({ layersOpen: v });
   const mapStyle = useWorld((s) => s.mapStyle);
   const globe = useWorld((s) => s.globe);
   const layers = useWorld((s) => s.layers);
@@ -409,8 +533,11 @@ function LayersPanel() {
         <button className="icon-btn" onClick={() => useWorld.setState({ globe: !globe })} title={globe ? 'Flat map' : 'Globe'}>
           <Icon name={globe ? 'flat' : 'globe'} />
         </button>
-        <button className={'icon-btn' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title="Map style & layers">
+        <button className={'icon-btn' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title="Map style & layers (L)">
           <Icon name="layers" />
+        </button>
+        <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ help: true })} title="Keyboard shortcuts (?)">
+          <Icon name="keyboard" />
         </button>
       </div>
       {open && (
@@ -445,7 +572,13 @@ export function useShortcuts() {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const k = e.key.toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && k === 'z') {
+      if ((e.ctrlKey || e.metaKey) && k === 's') {
+        e.preventDefault();
+        if (useWorld.getState().doc) flushAutosave().then(() => toast('Saved', 'ok'));
+      } else if ((e.ctrlKey || e.metaKey) && k === 'e') {
+        e.preventDefault();
+        if (useWorld.getState().doc) exportWorld('map');
+      } else if ((e.ctrlKey || e.metaKey) && k === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
@@ -458,8 +591,17 @@ export function useShortcuts() {
         else if (k === 'k') setTool('split');
         else if (k === 'c') setTool('city');
         else if (k === 'g') useWorld.setState((s) => ({ globe: !s.globe }));
+        else if (k === 'l') useWorld.setState((s) => ({ layersOpen: !s.layersOpen }));
+        else if (k === 'r' && useWorld.getState().doc) surprise();
+        else if (k === 'a' && useWorld.getState().doc) useWorld.setState((s) => ({ advancedOpen: !s.advancedOpen }));
+        else if (k === 'f' && useWorld.getState().doc) useWorld.setState((s) => ({ galleryOpen: !s.galleryOpen }));
+        else if (k === 'p' && useWorld.getState().doc) exportWorld('png');
+        else if (e.key === '?') useWorld.setState((s) => ({ help: !s.help }));
         else if (k === '[') useWorld.setState((s) => ({ brushSize: Math.max(0, s.brushSize - 5) }));
         else if (k === ']') useWorld.setState((s) => ({ brushSize: Math.min(60, s.brushSize + 5) }));
+        else if (k === 'escape' && useWorld.getState().help) useWorld.setState({ help: false });
+        else if (k === 'escape' && useWorld.getState().advancedOpen) useWorld.setState({ advancedOpen: false });
+        else if (k === 'escape' && useWorld.getState().galleryOpen) useWorld.setState({ galleryOpen: false });
         else if (k === 'escape' && useWorld.getState().tool !== 'split') {
           if (useWorld.getState().tool !== 'select') setTool('select');
           else select({});

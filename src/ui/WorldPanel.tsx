@@ -4,6 +4,7 @@ import { mapCtl } from '../map/controller';
 import { Flag, Stat } from './common';
 import { Icon } from './icons';
 import { fmtArea, fmtCompact, fmtInt } from '../util';
+import { countryName } from '../world/names';
 
 type SortKey = 'area' | 'pop' | 'name' | 'regions';
 
@@ -58,9 +59,17 @@ export function WorldPanel() {
       </div>
 
       {newName === null ? (
-        <button className="btn primary wide" onClick={() => setNewName('')}>
-          <Icon name="plus" size={15} /> New country
-        </button>
+        <div className="row-btns">
+          <button className="btn primary" onClick={() => setNewName('')}>
+            <Icon name="plus" size={15} /> New country
+          </button>
+          <button className="btn" onClick={() => useWorld.setState({ galleryOpen: true })} title="All flags (F)">
+            <Icon name="flag" size={15} /> Flags
+          </button>
+          <button className="btn" onClick={() => useWorld.setState({ advancedOpen: true })} title="Advanced tools (A)">
+            <Icon name="tune" size={15} /> Advanced
+          </button>
+        </div>
       ) : (
         <div className="callout row">
           <input
@@ -74,6 +83,9 @@ export function WorldPanel() {
               if (e.key === 'Escape') setNewName(null);
             }}
           />
+          <button className="icon-btn dice-btn" onClick={() => setNewName(countryName())} title="Invent a name">
+            <Icon name="dice" size={16} />
+          </button>
           <button className="btn primary" onClick={create} disabled={!newName.trim()}>
             Create
           </button>
@@ -105,7 +117,7 @@ export function WorldPanel() {
               }}
             >
               <span className="rank">{sort === 'name' ? '' : i + 1}</span>
-              <Flag country={c} size={16} />
+              <Flag country={c} size={18} />
               <span className="grow name">{c.name}</span>
               <span className="swatch-mini" style={{ background: c.color }} />
               <small>

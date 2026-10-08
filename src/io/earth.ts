@@ -18,10 +18,29 @@ export const PALETTE = ['#D6C7FF', '#EBCA8A', '#C1E599', '#E7E58F', '#98DDA1', '
  * A world built from Natural Earth's admin-1 divisions, owned by today's countries
  * (or by nobody, to start from a blank slate).
  */
+export interface EarthData {
+  regions: FeatureCollection<RegionGeom, { name: string; cid: string }>;
+  countries: EarthTemplate['countries'];
+  cities: EarthTemplate['cities'];
+}
+
+let earthData: Promise<EarthData> | null = null;
+/** The bundled Natural Earth template, decoded once and shared. Treat it as read-only. */
+export function loadEarthData(): Promise<EarthData> {
+  earthData ??= fetch(new URL('data/earth.json', document.baseURI))
+    .then((r) => r.json() as Promise<EarthTemplate>)
+    .then((tpl) => ({
+      regions: feature(tpl.topology, tpl.topology.objects.regions) as EarthData['regions'],
+      countries: tpl.countries,
+      cities: tpl.cities,
+    }));
+  earthData.catch(() => (earthData = null));
+  return earthData;
+}
+
 export async function loadEarth(opts: { unclaimed?: boolean; title?: string } = {}): Promise<WorldBundle> {
-  const res = await fetch(new URL('data/earth.json', document.baseURI));
-  const tpl = (await res.json()) as EarthTemplate;
-  const fc = feature(tpl.topology, tpl.topology.objects.regions) as FeatureCollection<RegionGeom, { name: string; cid: string }>;
+  const tpl = await loadEarthData();
+  const fc = tpl.regions;
 
   const regions: Record<number, Region> = {};
   const geoms: Record<number, RegionGeom> = {};

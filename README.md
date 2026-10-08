@@ -12,8 +12,11 @@ their code is kept under [`legacy/`](legacy/).
 - **Open your A+ World Map Editor `.map` files** (drag & drop) — countries, regions, flags, colours,
   population/GDP, leader/language fields, cities & capitals, water labels and alliances are all read.
   **Export back to `.map`** at any time, so both apps stay in sync.
-- Start from **Real Earth** (today's ~250 countries over ~4,600 admin-1 regions) or a **Blank Earth**
-  where every region is unclaimed.
+- Start from **Real Earth** (today's ~250 countries over ~4,600 admin-1 regions), a **Fantasy Earth**
+  (invented nations with names, flags and capitals grown over real land) or a **Blank Earth** where every
+  region is unclaimed.
+- A home dashboard with your **main map** on top (picture, stats, largest nations) and your other worlds
+  below; pin any world as the main one, rename, duplicate, export or delete it.
 - **Paint** regions into a country by dragging (`B`): adjustable brush, `Alt`+click to pick a country,
   `Ctrl`+click to take a whole country, hold `Space` to pan. One stroke = one undo step.
 - **Select** (`V`) a country to open its page: rename, recolour, upload a flag, edit stats and text
@@ -26,8 +29,14 @@ their code is kept under [`legacy/`](legacy/).
 - Four map looks — **Political** (colours + hill shading), **Atlas** (MillMint-style physical relief
   with fine borders), **Plain** (A+ style) and **Night** — on a globe or a flat map (`G`), with
   optional 3D mountains, rivers, lakes, urban areas, graticule…
-- Search (`Ctrl+K`), undo/redo (`Ctrl+Z` / `Ctrl+Y`), autosave, a library of worlds, backups as
-  `.cmaps`, PNG snapshots and GeoJSON export.
+- **Advanced** tools (`A`): recalculate population for the current borders from real-world data (or
+  spread each country's total by area), heal borders (stray pieces and holes), recolour the map so
+  neighbours differ, choose capitals, draw flags for every country, re-centre names, remove empty countries.
+- **Flags**: a gallery of the world's flags (`F`), a full-size view to browse them, upload or roll a random one.
+- Search (`Ctrl+K`), undo/redo (`Ctrl+Z` / `Ctrl+Y`), autosave, a library of worlds, `.map` export
+  (`Ctrl+E`), PNG snapshots (`P`) and GeoJSON export. `?` lists every shortcut.
+- On a phone / the **Android app**: touch buttons for pick-a-colour, whole-country fill and multi-select,
+  the back button steps out of panels, and exports open the share sheet (save to Files, Drive, send…).
 
 ## Use it
 
@@ -39,8 +48,10 @@ npm run dev
 Open the printed URL. To **install it as an offline app**, open the deployed site (or `npm run preview`)
 in Chrome/Edge and choose *Install app* (on a phone: *Add to Home screen*). Every map asset — relief
 tiles, elevation, fonts, flags, Natural Earth layers — ships with the app, so it never needs the
-network after the first load. Worlds are stored in the browser (IndexedDB); download `.cmaps`
-backups from the home screen.
+network after the first load. Worlds are stored in the browser (IndexedDB); export them as `.map`
+from the home screen. Every `.map` Earth Vision writes opens in A+ World Map Editor, and also carries an
+`earth_vision.json` (ignored by A+) with what A+ cannot store — notes, exact region populations, city
+sizes — so nothing is lost on a round trip. Old `.cmaps` backups still open.
 
 ### Put it on a website
 
@@ -50,6 +61,16 @@ npm run build
 
 Upload the `dist/` folder to any static host (GitHub Pages, Netlify, Cloudflare Pages, a plain web
 server…). All paths are relative, so it also works from a sub-folder.
+
+### Android app
+
+Every push to `main` builds an APK on GitHub Actions and attaches it to the release. To build one locally
+(needs the Android SDK):
+
+```bash
+npm run android            # build, sync and set up android/ (icon, version)
+cd android && ./gradlew assembleDebug
+```
 
 ## How it works
 

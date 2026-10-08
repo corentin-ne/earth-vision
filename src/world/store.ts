@@ -77,6 +77,17 @@ export interface State {
   globe: boolean;
   layers: Layers;
   toast: { id: number; text: string; kind?: 'error' | 'ok' } | null;
+  /** Keyboard shortcuts overlay. */
+  help: boolean;
+  layersOpen: boolean;
+  /** Touch-friendly stand-ins for Alt+click (pick) and Ctrl+click (whole country) while painting. */
+  brushMode: 'paint' | 'pick' | 'whole';
+  /** Touch-friendly stand-in for Shift+click: clicks add regions to the selection. */
+  multiSelect: boolean;
+  advancedOpen: boolean;
+  /** Country whose flag is shown full size. */
+  flagView: string | null;
+  galleryOpen: boolean;
 }
 
 const DEFAULT_LAYERS: Layers = {
@@ -122,6 +133,13 @@ export const useWorld = create<State>(() => ({
   globe: prefs.globe ?? true,
   layers: prefs.layers ?? DEFAULT_LAYERS,
   toast: null,
+  help: false,
+  layersOpen: false,
+  brushMode: 'paint',
+  multiSelect: false,
+  advancedOpen: false,
+  flagView: null,
+  galleryOpen: false,
 }));
 
 useWorld.subscribe((s, prev) => {
@@ -359,6 +377,10 @@ export function loadWorld(b: WorldBundle) {
     hover: { region: null, city: null },
     tool: 'select',
     brushCid: Object.keys(b.doc.countries)[0] ?? '',
+    help: false,
+    advancedOpen: false,
+    flagView: null,
+    galleryOpen: false,
   });
   emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, all: true });
 }

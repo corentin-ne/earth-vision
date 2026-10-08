@@ -44,7 +44,9 @@ jobs:
 
       # ubuntu-latest ships the Android SDK (ANDROID_HOME); the native project is generated fresh each time.
       - name: Generate the Android project
-        run: npx cap add android
+        run: |
+          npx cap add android
+          node scripts/android-setup.mjs
 
       - name: Build APK
         working-directory: android
