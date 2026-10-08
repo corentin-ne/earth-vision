@@ -11,6 +11,7 @@ import { Home } from './ui/Home';
 const Editor = lazy(() => import('./ui/Editor').then((m) => ({ default: m.Editor })));
 // Start fetching it right away anyway, so opening a world rarely waits on the network.
 const preloadEditor = () => void import('./ui/Editor');
+import { Icon } from './ui/icons';
 
 export default function App() {
   const [view, setView] = useState<'boot' | 'home' | 'editor'>('boot');
@@ -104,7 +105,8 @@ export default function App() {
     <>
       {view === 'boot' && (
         <div className="boot">
-          <div className="spinner" />
+          <div className="boot-globe" />
+          <span>Earth Vision</span>
         </div>
       )}
       {view === 'home' && <Home onOpen={open} busy={busy} />}
@@ -118,7 +120,8 @@ export default function App() {
         <Suspense
           fallback={
             <div className="boot">
-              <div className="spinner" />
+              <div className="boot-globe" />
+              <span>Earth Vision</span>
             </div>
           }
         >
@@ -136,8 +139,9 @@ function Toast() {
   const t = useWorld((s) => s.toast);
   if (!t) return null;
   return (
-    <div key={t.id} className={'toast ' + (t.kind ?? '')}>
-      {t.text}
+    <div key={t.id} className={'toast ' + (t.kind ?? '')} role="status">
+      {t.kind && <Icon name={t.kind === 'ok' ? 'check' : 'info'} size={15} />}
+      <span>{t.text}</span>
     </div>
   );
 }

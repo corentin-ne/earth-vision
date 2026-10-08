@@ -11,7 +11,7 @@
 - [x] Map looks: Political, Atlas (MillMint-style relief), Plain, Night; globe/flat; 3D terrain
 - [x] Undo/redo, search, PNG/GeoJSON/.cmaps export, phone layout
 
-## Done (2.1)
+## Done (2.2)
 - [x] Home dashboard: main map on top with a picture, stats and largest nations; world cards; compact import
 - [x] `.map` is the only export (lossless thanks to `earth_vision.json`); `.cmaps` stays readable
 - [x] Fantasy Earth generator, random flags & names, flag gallery and full-size flag view

@@ -92,6 +92,7 @@ export function WorldPanel() {
         </div>
       )}
 
+      <h3 className="list-title">Countries</h3>
       <div className="list-tools">
         <div className="search-mini">
           <Icon name="search" size={14} />

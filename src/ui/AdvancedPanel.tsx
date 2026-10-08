@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { useWorld } from '../world/store';
+import { useWorld, healBorders } from '../world/store';
 import {
   recalcPopulation,
-  healBorders,
+  tidyBorders,
   autoColor,
   assignCapitals,
   removeEmptyCountries,
@@ -14,6 +14,11 @@ import {
 import { Icon, type IconName } from './icons';
 import { fmtInt } from '../util';
 
+const SNAP: [string, number][] = [
+  ['Gentle', 0.004],
+  ['Normal', 0.01],
+  ['Strong', 0.03],
+];
 const HEAL_STEPS = [1_000, 5_000, 20_000, 50_000, 100_000, 250_000, 1_000_000];
 
 /** Whole-world tools: population, border clean-up, colours, capitals, flags… */
@@ -22,6 +27,7 @@ export function AdvancedPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [healStep, setHealStep] = useState(3);
   const [healCountries, setHealCountries] = useState(false);
+  const [snap, setSnap] = useState(1);
   if (!open) return null;
   const close = () => useWorld.setState({ advancedOpen: false });
   const popKey = populationKey();
@@ -56,7 +62,24 @@ export function AdvancedPanel() {
           </button>
         </Tool>
 
-        <Tool icon="bandage" title="Heal borders" desc="Hands stray pieces of land that are cut off and surrounded by a single other country to that country, and fills unclaimed holes.">
+        <Tool icon="heal" title="Heal map borders" desc="Snaps borders that almost line up so neighbouring regions share them exactly again — removes stray lines and slivers left by imports or old splits. Runs in the background.">
+          <div className="segmented inline">
+            {SNAP.map(([label], i) => (
+              <button key={label} className={snap === i ? 'on' : ''} onClick={() => setSnap(i)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            className="btn primary small"
+            disabled={!!busy}
+            onClick={() => go('heal', () => healBorders(SNAP[snap][1]), (r) => (n(r) ? `Healed the borders of ${n(r)} region${n(r) > 1 ? 's' : ''}` : 'Borders are already clean'))}
+          >
+            {busy === 'heal' ? <span className="spinner small" /> : <Icon name="heal" size={14} />} {busy === 'heal' ? 'Healing…' : 'Heal'}
+          </button>
+        </Tool>
+
+        <Tool icon="bandage" title="Tidy stray pieces" desc="Hands bits of land cut off from their country and surrounded by a single other one to that country, and fills unclaimed holes.">
           <label className="range-row">
             <span>Up to</span>
             <input type="range" min={0} max={HEAL_STEPS.length - 1} value={healStep} onChange={(e) => setHealStep(+e.target.value)} />
@@ -69,9 +92,9 @@ export function AdvancedPanel() {
           <button
             className="btn primary small"
             disabled={!!busy}
-            onClick={() => go('heal', () => healBorders(HEAL_STEPS[healStep], { countries: healCountries }), (r) => (n(r) ? `Healed ${n(r)} region${n(r) > 1 ? 's' : ''}` : 'Borders are already clean'))}
+            onClick={() => go('tidy', () => tidyBorders(HEAL_STEPS[healStep], { countries: healCountries }), (r) => (n(r) ? `Tidied ${n(r)} region${n(r) > 1 ? 's' : ''}` : 'Nothing stray to tidy'))}
           >
-            {busy === 'heal' ? <span className="spinner small" /> : <Icon name="bandage" size={14} />} Heal
+            {busy === 'tidy' ? <span className="spinner small" /> : <Icon name="bandage" size={14} />} Tidy
           </button>
         </Tool>
 

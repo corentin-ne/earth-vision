@@ -28,11 +28,25 @@ export default defineConfig({
       },
       workbox: {
         // Everything the map needs ships with the app, so it works fully offline.
-        globPatterns: ['**/*.{js,mjs,css,html,svg,png,webp,pbf,json,ico,webmanifest}'],
+        globPatterns: ['**/*.{js,mjs,css,html,svg,png,webp,pbf,json,ico,webmanifest,woff2}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
       },
     }),
   ],
   worker: { format: 'es' },
-  build: { target: 'es2022', chunkSizeWarningLimit: 2000 },
+  build: {
+    target: 'es2022',
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        // Big, rarely-changing libraries get their own files so app updates don't re-download them.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('maplibre-gl')) return 'maplibre';
+          if (/[\\/](react|react-dom|scheduler|zustand)[\\/]/.test(id)) return 'react';
+          return 'vendor';
+        },
+      },
+    },
+  },
 });

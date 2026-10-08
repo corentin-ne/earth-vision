@@ -46,6 +46,7 @@ const P: Record<string, string> = {
   dice: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M8.5 8.5h.01 M15.5 8.5h.01 M12 12h.01 M8.5 15.5h.01 M15.5 15.5h.01',
   keyboard: 'M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10',
   shuffle: 'M3 7h4l10 10h4 M3 17h4l3-3 M14 10l3-3h4 M18 4l3 3-3 3 M18 14l3 3-3 3',
+  heal: 'M4.9 13.4l5.7 5.7a3 3 0 0 0 4.2 0l4.3-4.3a3 3 0 0 0 0-4.2l-5.7-5.7a3 3 0 0 0-4.2 0L4.9 9.2a3 3 0 0 0 0 4.2z M10 12h.01 M12 10h.01 M12 14h.01 M14 12h.01',
 };
 
 export type IconName = keyof typeof P;

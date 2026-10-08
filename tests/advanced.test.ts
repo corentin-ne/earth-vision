@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Polygon } from 'geojson';
 import type { WorldBundle } from '../src/types';
 import { useWorld, loadWorld, undo, countryAggregates } from '../src/world/store';
-import { healBorders, autoColor, recalcPopulation, removeEmptyCountries, assignCapitals } from '../src/world/advanced';
+import { tidyBorders, autoColor, recalcPopulation, removeEmptyCountries, assignCapitals } from '../src/world/advanced';
 import { estimatePopulation } from '../src/world/population';
 import { geomArea } from '../src/geo/engine';
 
@@ -46,7 +46,7 @@ const doc = () => useWorld.getState().doc!;
 describe('advanced tools', () => {
   it('heals stray pieces and holes but keeps a country’s heartland', () => {
     loadWorld(world());
-    const moved = healBorders(1e9);
+    const moved = tidyBorders(1e9);
     expect(moved).toBe(2);
     expect(doc().regions[6].cid).toBe('AAA'); // the stray BBB square
     expect(doc().regions[17].cid).toBe('AAA'); // the unclaimed hole
@@ -57,7 +57,7 @@ describe('advanced tools', () => {
 
   it('respects the size limit', () => {
     loadWorld(world());
-    expect(healBorders(1)).toBe(0);
+    expect(tidyBorders(1)).toBe(0);
   });
 
   it('recolours neighbours differently', () => {

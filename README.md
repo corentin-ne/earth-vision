@@ -30,7 +30,8 @@ their code is kept under [`legacy/`](legacy/).
   with fine borders), **Plain** (A+ style) and **Night** — on a globe or a flat map (`G`), with
   optional 3D mountains, rivers, lakes, urban areas, graticule…
 - **Advanced** tools (`A`): recalculate population for the current borders from real-world data (or
-  spread each country's total by area), heal borders (stray pieces and holes), recolour the map so
+  spread each country's total by area), heal map borders (snap borders that almost line up), tidy stray
+  pieces and holes, recolour the map so
   neighbours differ, choose capitals, draw flags for every country, re-centre names, remove empty countries.
 - **Flags**: a gallery of the world's flags (`F`), a full-size view to browse them, upload or roll a random one.
 - Search (`Ctrl+K`), undo/redo (`Ctrl+Z` / `Ctrl+Y`), autosave, a library of worlds, `.map` export

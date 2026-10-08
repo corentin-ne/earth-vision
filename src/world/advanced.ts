@@ -54,7 +54,7 @@ export async function recalcPopulation(mode: 'real' | 'even'): Promise<string> {
  * entirely surrounded by one other country go to that country; unclaimed holes inside a
  * country are filled. With `countries`, small countries that are completely enclaved go too.
  */
-export function healBorders(maxArea: number, opts: { countries?: boolean } = {}): number {
+export function tidyBorders(maxArea: number, opts: { countries?: boolean } = {}): number {
   const doc = get().doc;
   if (!doc) return 0;
   const seen = new Set<number>();
@@ -99,7 +99,7 @@ export function healBorders(maxArea: number, opts: { countries?: boolean } = {})
     for (const id of c.ids) regions[id] = { ...doc.regions[id], cid: to };
     moved += c.ids.length;
   }
-  if (moved) commit(`Heal borders (${moved} region${moved > 1 ? 's' : ''})`, { regions });
+  if (moved) commit(`Tidy stray pieces (${moved} region${moved > 1 ? 's' : ''})`, { regions });
   return moved;
 }
 

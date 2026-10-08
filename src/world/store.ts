@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { City, Country, LngLat, Patch, Region, RegionGeom, WorldBundle, WorldDoc } from '../types';
 import { GeoEngine, bbox, geomArea, labelPoint, pointInGeom } from '../geo/engine';
 import { insertCutVertices, splitGeom } from '../geo/split';
+import { healGeoms } from '../geo/heal';
 import { rescale } from './stats';
 import { uid } from '../util';
 
@@ -673,6 +674,35 @@ export function mergeRegions(ids: number[]): number | null {
   commit(`Merge ${rs.length} regions`, patch);
   select({ cid: keep.cid || null, regions: [keep.id] });
   return keep.id;
+}
+
+/**
+ * Snaps borders that almost line up so they become shared, removing the stray
+ * lines that bad imports or old splits leave inside countries. Runs in a worker
+ * so the map stays responsive. Resolves to how many regions were repaired.
+ */
+export async function healBorders(tol = 0.01): Promise<number> {
+  const { doc, geoms } = get();
+  if (!doc) return 0;
+  let fixed: Record<number, RegionGeom>;
+  if (typeof Worker === 'undefined') fixed = healGeoms(geoms, tol);
+  else {
+    const w = new Worker(new URL('../geo/heal.worker.ts', import.meta.url), { type: 'module' });
+    try {
+      fixed = await new Promise((resolve, reject) => {
+        w.onmessage = (e) => (e.data.ok ? resolve(e.data.fixed) : reject(new Error(e.data.error)));
+        w.onerror = (e) => reject(new Error(e.message || 'Worker failed'));
+        w.postMessage({ geoms, tol });
+      });
+    } finally {
+      w.terminate();
+    }
+  }
+  // The world may have been closed or swapped while the worker ran.
+  if (get().geoms !== geoms) return 0;
+  const n = Object.keys(fixed).length;
+  if (n) commit('Heal borders', { geoms: fixed });
+  return n;
 }
 
 // ── Cities ───────────────────────────────────────────────────────────────────

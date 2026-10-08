@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import { MapController, setMapCtl, mapCtl } from '../map/controller';
 import {
   useWorld,
@@ -21,6 +21,7 @@ import { WorldPanel } from './WorldPanel';
 import { AdvancedPanel } from './AdvancedPanel';
 import { FlagGallery, FlagLightbox } from './FlagViewer';
 import { CountryPicker, Flag, TextField } from './common';
+import type { Country } from '../types';
 import { Icon, type IconName } from './icons';
 import { downloadMap, fileBase } from '../io/files';
 import { flushAutosave, onSaveState } from '../world/persist';
@@ -59,6 +60,35 @@ function MapView() {
     };
   }, []);
   return <div ref={ref} className="map" />;
+}
+
+/** Closes a popover when the user presses anywhere outside `ref`. */
+export function useOutside(ref: RefObject<HTMLElement | null>, open: boolean, close: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [ref, open, close]);
+}
+
+export function useMobile() {
+  const q = '(max-width: 760px)';
+  const [m, setM] = useState(() => window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const f = () => setM(mq.matches);
+    mq.addEventListener('change', f);
+    return () => mq.removeEventListener('change', f);
+  }, []);
+  return m;
 }
 
 // Tiny pub/subs so high-frequency map events don't go through React state of the whole tree.
@@ -131,6 +161,8 @@ function TopBar({ onHome }: { onHome: () => void }) {
   const undoLabel = useWorld((s) => s.past[s.past.length - 1]?.label);
   const redoLabel = useWorld((s) => s.future[s.future.length - 1]?.label);
   const [menu, setMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useOutside(menuRef, menu, useCallback(() => setMenu(false), []));
   const exportAs = (kind: ExportKind) => {
     setMenu(false);
     exportWorld(kind);
@@ -158,12 +190,13 @@ function TopBar({ onHome }: { onHome: () => void }) {
       <button className="icon-btn" onClick={() => useWorld.setState({ advancedOpen: true })} title="Advanced: population, heal borders, colours… (A)">
         <Icon name="tune" />
       </button>
-      <div className="menu-wrap">
-        <button className="icon-btn" onClick={() => setMenu(!menu)} title="Export">
+      <div className="menu-wrap" ref={menuRef}>
+        <button className={'icon-btn' + (menu ? ' on' : '')} onClick={() => setMenu(!menu)} title="Export">
           <Icon name="download" />
         </button>
         {menu && (
-          <div className="menu glass" onMouseLeave={() => setMenu(false)}>
+          <div className="menu glass">
+            <div className="menu-label">Export</div>
             <button onClick={() => exportAs('map')}>
               <Icon name="file" size={15} /> <span className="grow">World map (.map)</span>
               <kbd>Ctrl E</kbd>
@@ -393,10 +426,14 @@ function ToolDock() {
   const multi = useWorld((s) => s.multiSelect);
   return (
     <div className="tooldock">
-      <div className="tools glass">
+      <div className="tools glass" style={{ '--i': TOOLS.findIndex((t) => t.id === tool) } as CSSProperties}>
+        <span className="tool-indicator" aria-hidden />
         {TOOLS.map((t) => (
-          <button key={t.id} className={'tool' + (tool === t.id ? ' on' : '')} onClick={() => setTool(t.id)} title={`${t.label} (${t.key})`}>
+          <button key={t.id} className={'tool' + (tool === t.id ? ' on' : '')} onClick={() => setTool(t.id)} title={`${t.label} (${t.key})`} aria-label={t.label}>
             <Icon name={t.icon} size={20} />
+            <span className="tool-tip">
+              {t.label} <kbd>{t.key}</kbd>
+            </span>
           </button>
         ))}
       </div>
@@ -449,50 +486,135 @@ function ToolDock() {
 
 // ── Inspector ────────────────────────────────────────────────────────────────
 
+type Snap = 'peek' | 'half' | 'full';
+const PEEK = 64;
+const snapHeight = (s: Snap) => (s === 'peek' ? PEEK : Math.round(window.innerHeight * (s === 'half' ? 0.48 : 0.86)));
+
 function Inspector() {
   const sel = useWorld((s) => s.selection);
   const doc = useWorld((s) => s.doc)!;
+  const mobile = useMobile();
   const [collapsed, setCollapsed] = useState(false);
+  const [snap, setSnap] = useState<Snap>('half');
+  const ref = useRef<HTMLElement>(null);
+  const drag = useRef<{ y: number; h: number; t: number; moved: boolean } | null>(null);
+
   let title = doc.meta.title;
   let body = <WorldPanel />;
   let back = false;
+  let key = 'world';
+  let flag: Country | undefined;
   if (sel.city != null && doc.cities[sel.city]) {
-    title = 'City';
+    title = doc.cities[sel.city].name;
     body = <CityPanel id={sel.city} />;
     back = true;
+    key = `city:${sel.city}`;
   } else if (sel.regions.length > 1) {
-    title = 'Selection';
+    title = `${sel.regions.length} regions`;
     body = <MultiRegionPanel ids={sel.regions} />;
     back = true;
+    key = 'multi';
   } else if (sel.cid && doc.countries[sel.cid]) {
-    title = 'Country';
+    flag = doc.countries[sel.cid];
+    title = flag.name;
     body = <CountryPanel cid={sel.cid} />;
     back = true;
+    key = `country:${sel.cid}`;
   } else if (sel.regions.length === 1 && doc.regions[sel.regions[0]]) {
-    title = 'Unclaimed region';
+    title = doc.regions[sel.regions[0]].name;
     body = (
       <div className="panel-body">
         <RegionCard region={doc.regions[sel.regions[0]]} />
       </div>
     );
     back = true;
+    key = `region:${sel.regions[0]}`;
   }
+
+  // Selecting something on a phone lifts the sheet so its page is visible.
+  const page = key.split(':')[0];
+  useEffect(() => {
+    if (mobile && page !== 'world') setSnap((s) => (s === 'peek' ? 'half' : s));
+  }, [mobile, key, page]);
+
+  const setHeight = (h: number | null) => {
+    const el = ref.current;
+    if (el) el.style.height = h == null ? '' : `${h}px`;
+  };
+  useEffect(() => setHeight(mobile ? snapHeight(snap) : null), [mobile, snap]);
+  useEffect(() => {
+    if (!mobile) return;
+    const onResize = () => setHeight(snapHeight(snap));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [mobile, snap]);
+
+  const onDown = (e: ReactPointerEvent) => {
+    if (!mobile || (e.target as HTMLElement).closest('button')) return;
+    drag.current = { y: e.clientY, h: ref.current!.getBoundingClientRect().height, t: performance.now(), moved: false };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    ref.current!.classList.add('dragging');
+  };
+  const onMove = (e: ReactPointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const dy = e.clientY - d.y;
+    if (Math.abs(dy) > 5) d.moved = true;
+    setHeight(Math.max(PEEK - 20, Math.min(window.innerHeight * 0.92, d.h - dy)));
+  };
+  const onUp = (e: ReactPointerEvent) => {
+    const d = drag.current;
+    drag.current = null;
+    ref.current?.classList.remove('dragging');
+    if (!d) return;
+    if (!d.moved) {
+      setSnap((s) => (s === 'peek' ? 'half' : 'peek'));
+      return;
+    }
+    const h = ref.current!.getBoundingClientRect().height;
+    // A quick flick goes one step in its direction; otherwise land on the nearest stop.
+    const v = (e.clientY - d.y) / Math.max(1, performance.now() - d.t);
+    const order: Snap[] = ['peek', 'half', 'full'];
+    let next: Snap;
+    if (Math.abs(v) > 0.6) {
+      const i = order.indexOf(snap);
+      next = order[Math.max(0, Math.min(2, i + (v < 0 ? 1 : -1)))];
+    } else next = order.reduce((a, b) => (Math.abs(snapHeight(b) - h) < Math.abs(snapHeight(a) - h) ? b : a));
+    setSnap(next);
+    setHeight(snapHeight(next));
+  };
+
+  const closed = mobile ? snap === 'peek' : collapsed;
   return (
-    <aside className={'inspector glass' + (collapsed ? ' collapsed' : '')}>
-      <div className="inspector-head">
+    <aside ref={ref} className={'inspector glass' + (mobile ? ' sheet' : '') + (closed ? ' collapsed' : '')}>
+      <div className="inspector-head" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+        {mobile && <span className="grabber" aria-hidden />}
         {back ? (
           <button className="icon-btn" onClick={() => select({})} title="Back to world overview (Esc)">
             <Icon name="list" />
           </button>
         ) : (
-          <Icon name="globe" />
+          <span className="head-icon">
+            <Icon name="globe" />
+          </span>
         )}
-        <h2 className="grow">{title}</h2>
-        <button className="icon-btn collapse-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? 'Expand' : 'Collapse'}>
-          <Icon name={collapsed ? 'chevronDown' : 'x'} />
+        {flag && <Flag country={flag} size={18} />}
+        <h2 className="grow" key={key}>
+          {title}
+        </h2>
+        <button
+          className="icon-btn collapse-btn"
+          onClick={() => (mobile ? setSnap(snap === 'full' ? 'half' : snap === 'half' ? 'full' : 'half') : setCollapsed(!collapsed))}
+          title={closed ? 'Expand' : mobile && snap === 'full' ? 'Shrink' : 'Collapse'}
+        >
+          <Icon name="chevronDown" className={'chev' + (mobile ? (snap === 'full' ? '' : ' up') : collapsed ? '' : ' up')} />
         </button>
       </div>
-      {!collapsed && <div className="inspector-scroll">{body}</div>}
+      <div className="inspector-scroll">
+        <div className="page" key={key}>
+          {body}
+        </div>
+      </div>
     </aside>
   );
 }
@@ -523,12 +645,14 @@ const LAYER_LABELS: [keyof Layers, string][] = [
 
 function LayersPanel() {
   const open = useWorld((s) => s.layersOpen);
-  const setOpen = (v: boolean) => useWorld.setState({ layersOpen: v });
+  const setOpen = useCallback((v: boolean) => useWorld.setState({ layersOpen: v }), []);
+  const ref = useRef<HTMLDivElement>(null);
+  useOutside(ref, open, useCallback(() => setOpen(false), [setOpen]));
   const mapStyle = useWorld((s) => s.mapStyle);
   const globe = useWorld((s) => s.globe);
   const layers = useWorld((s) => s.layers);
   return (
-    <div className="layers">
+    <div className="layers" ref={ref}>
       <div className="layers-buttons glass">
         <button className="icon-btn" onClick={() => useWorld.setState({ globe: !globe })} title={globe ? 'Flat map' : 'Globe'}>
           <Icon name={globe ? 'flat' : 'globe'} />
@@ -542,6 +666,7 @@ function LayersPanel() {
       </div>
       {open && (
         <div className="layers-pop glass">
+          <div className="menu-label">Map style</div>
           <div className="style-grid">
             {STYLES.map((s) => (
               <button key={s.id} className={'style-chip ' + s.id + (mapStyle === s.id ? ' on' : '')} onClick={() => useWorld.setState({ mapStyle: s.id })} title={s.desc}>
@@ -550,6 +675,7 @@ function LayersPanel() {
               </button>
             ))}
           </div>
+          <div className="menu-label">Show on the map</div>
           <div className="toggles">
             {LAYER_LABELS.map(([k, label]) => (
               <label key={k} className="toggle">
