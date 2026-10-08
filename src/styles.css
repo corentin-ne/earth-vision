@@ -2614,15 +2614,6 @@ input.num-field {
   margin: 0;
   flex: 0 1 260px;
 }
-/* Dense dialogs need a solid backing: the see-through glass is for floating chrome. */
-.modal-back {
-  background: rgba(4, 8, 16, 0.62);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-}
-.modal.glass {
-  background: linear-gradient(160deg, rgba(30, 38, 56, 0.97), rgba(16, 22, 35, 0.97));
-}
 .range-row input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
@@ -2841,9 +2832,6 @@ input.num-field {
   overflow: hidden;
   border-radius: 24px;
   animation: dock-in 0.32s var(--ease-out, ease-out);
-}
-.details-dock.glass {
-  background: linear-gradient(160deg, rgba(30, 38, 56, 0.96), rgba(16, 22, 35, 0.96));
 }
 @keyframes dock-in {
   from {

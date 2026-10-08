@@ -27,8 +27,13 @@
   --accent-text: color-mix(in oklab, var(--accent) 82%, white);
   --on-accent: #042a22;
 
-  --glass: rgba(20, 25, 38, 0.6);
-  --glass-strong: rgba(22, 27, 41, 0.9);
+  --glass: rgba(20, 25, 38, 0.52);
+  --glass-strong: rgba(24, 29, 44, 0.82);
+  /* The aurora the glass refracts (kit foundation/base.css): the accent and its two hue companions. */
+  --aurora-1: color-mix(in srgb, var(--accent) 36%, transparent);
+  --aurora-2: color-mix(in srgb, var(--accent-2) 28%, transparent);
+  --aurora-3: color-mix(in srgb, var(--accent-3) 20%, transparent);
+  --grain-opacity: 0.05;
   --glass-subtle: rgba(255, 255, 255, 0.04);
   --glass-hover: rgba(255, 255, 255, 0.07);
   --glass-active: rgba(255, 255, 255, 0.1);
@@ -185,37 +190,53 @@ button {
   color: var(--text-muted);
 }
 
-/* ── Backdrop: Spark aurora + Pocket grain ───────────────────────────────── */
-.home {
+/* ── Backdrop: the kit's soft aurora behind everything ───────────────────────
+   Painted once on body (no filter: a blur on a full-screen layer is recomputed for every repaint
+   behind the glass). Nothing opaque may cover it: the home, the loading veil and the space around
+   the 3D globe all show it, and every panel is translucent glass over it. */
+html {
   background: var(--bg);
 }
-.home-bg {
+body,
+#root {
+  background: transparent;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
   background:
-    radial-gradient(900px 560px at 85% -12%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 62%),
-    radial-gradient(800px 620px at -12% 108%, color-mix(in srgb, var(--accent-3) 22%, transparent), transparent 62%),
-    radial-gradient(700px 480px at 50% 55%, color-mix(in srgb, var(--accent-2) 10%, transparent), transparent 70%),
-    var(--bg);
+    radial-gradient(900px 640px at 8% 0%, var(--aurora-1), transparent 62%),
+    radial-gradient(760px 620px at 98% 8%, var(--aurora-2), transparent 60%),
+    radial-gradient(900px 760px at 62% 108%, var(--aurora-3), transparent 62%),
+    radial-gradient(600px 500px at 30% 70%, color-mix(in srgb, var(--aurora-2) 45%, transparent), transparent 70%);
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* Full-page wrappers stay clear so the aurora shows through. */
+.home,
+.home-bg,
+.boot,
+.loading-veil,
+.editor {
+  background: transparent;
 }
 .home-bg::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--noise-faint);
-  opacity: 0.7;
-  pointer-events: none;
-}
-.boot,
-.loading-veil {
-  background:
-    radial-gradient(700px 460px at 50% 42%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
-    var(--bg);
+  content: none;
 }
 
 /* ── Glass surfaces: kit tokens, Pocket corners and pointer-lit metal rim ── */
 .glass {
-  background:
-    linear-gradient(150deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01) 42%, color-mix(in srgb, var(--accent) 5%, transparent)),
-    var(--glass);
+  background: var(--glass);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   border: 0;
@@ -262,6 +283,10 @@ button {
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 }
+/* Over the map (bright, busy), panels keep the glass a little denser so text stays readable. */
+.editor {
+  --glass: rgba(20, 25, 38, 0.62);
+}
 /* Strong glass for floating layers (kit: modals, menus, toasts, tooltips). */
 .modal.glass,
 .menu.glass,
@@ -272,9 +297,7 @@ button {
 .toast,
 .sel-bubble.glass,
 .details-dock.glass {
-  background:
-    linear-gradient(150deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01) 42%),
-    var(--glass-strong);
+  background: var(--glass-strong);
   -webkit-backdrop-filter: var(--blur-strong);
   backdrop-filter: var(--blur-strong);
   box-shadow: var(--glass-shadow-lg);
@@ -625,9 +648,7 @@ kbd {
 
 /* ── Home pieces ─────────────────────────────────────────────────────────── */
 .hero {
-  background:
-    linear-gradient(150deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01) 42%, color-mix(in srgb, var(--accent) 5%, transparent)),
-    var(--glass);
+  background: var(--glass);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   border: 1px solid var(--glass-border);
