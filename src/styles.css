@@ -2857,37 +2857,6 @@ input.num-field {
 .details-dock .country-head .title-input {
   font-size: 20px;
 }
-.world-fab {
-  position: absolute;
-  left: 50%;
-  bottom: calc(16px + var(--sab));
-  transform: translateX(-50%);
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: calc(100vw - 32px);
-  padding: 11px 18px 11px 14px;
-  border-radius: 999px;
-  font-weight: 600;
-  font-size: 14px;
-  white-space: nowrap;
-  animation: fab-in 0.3s var(--ease-out, ease-out);
-}
-.world-fab span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.world-fab svg {
-  color: var(--accent);
-  flex: none;
-}
-@keyframes fab-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 12px);
-  }
-}
 @media (max-width: 760px) {
   /* Phones: panels come up from the bottom over ~58% of the screen; the map stays above them. */
   .inspector.dock-bottom,
@@ -3082,7 +3051,7 @@ input.num-field {
   opacity: 0;
 }
 /* Interface pieces wait for the map, then come in one after another. */
-.editor:not(.ready) :is(.topbar, .tooldock, .layers, .inspector, .world-fab, .sel-bubble-anchor) {
+.editor:not(.ready) :is(.topbar, .tooldock, .phone-dock, .layers, .inspector, .sel-bubble-anchor) {
   visibility: hidden;
   animation: none !important;
 }
@@ -3098,8 +3067,8 @@ input.num-field {
 .editor.ready .inspector:not(.dock-bottom) {
   animation: dock-in 0.65s var(--ease-out, ease-out) 0.35s backwards;
 }
-.editor.ready .world-fab {
-  animation: fab-in 0.5s var(--ease-out, ease-out) 0.55s backwards;
+.editor.ready .phone-dock {
+  animation: phone-up 0.55s var(--ease-out, ease-out) 0.3s backwards;
 }
 /* Country rows cascade in. */
 .country-list > button {

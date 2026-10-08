@@ -638,13 +638,6 @@ kbd {
 .sel-bubble::after {
   background: var(--glass-strong);
 }
-.world-fab {
-  font-family: var(--font-display);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-size: 14px;
-}
 
 /* ── Home pieces ─────────────────────────────────────────────────────────── */
 .hero {

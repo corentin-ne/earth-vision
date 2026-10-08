@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
 import { MapController, setMapCtl, mapCtl } from '../map/controller';
 import {
   useWorld,
@@ -122,7 +122,9 @@ export function useOutside(ref: RefObject<HTMLElement | null>, open: boolean, cl
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) close();
+      const t = e.target as Element;
+      // A toggle outside the popover (marked data-keep-open) handles its own clicks.
+      if (!ref.current?.contains(t) && !t.closest?.('[data-keep-open]')) close();
     };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
     window.addEventListener('pointerdown', onDown, true);
@@ -245,16 +247,24 @@ function HoverTip() {
 function SplitHint() {
   const tool = useWorld((s) => s.tool);
   const sel = useWorld((s) => s.selection.regions.length);
+  const mobile = useMobile();
   const [n, setN] = useState(0);
   useEffect(() => drawBus.on(setN), []);
   if (tool !== 'split') return null;
+  const target = sel ? 'the selected region' + (sel > 1 ? 's' : '') : 'the region(s) to cut';
   return (
     <div className="split-hint">
       <Icon name="knife" size={16} />
       <span>
-        {n === 0
-          ? `Click to draw a line across ${sel ? 'the selected region' + (sel > 1 ? 's' : '') : 'the region(s) to cut'}.`
-          : 'Keep clicking · double-click or Enter to cut · Backspace removes a point · Esc cancels'}
+        {mobile
+          ? n === 0
+            ? `Tap points across ${target}.`
+            : n === 1
+              ? 'Tap the next point.'
+              : 'Keep tapping, then Cut.'
+          : n === 0
+            ? `Click to draw a line across ${target}.`
+            : 'Keep clicking · double-click or Enter to cut · Backspace removes a point · Esc cancels'}
       </span>
       {n > 1 && (
         <button className="btn primary small" onClick={() => mapCtl?.finishSplit()}>
@@ -534,6 +544,34 @@ const TOOLS: { id: Tool; icon: IconName; label: string; key: string }[] = [
 ];
 
 function ToolDock() {
+  return useMobile() ? <PhoneDock /> : <DesktopToolDock />;
+}
+
+/** The tool switcher; `bare` drops its own glass card (inside the phone bar). */
+function ToolButtons({ bare }: { bare?: boolean }) {
+  const tool = useWorld((s) => s.tool);
+  return (
+    <div className={'tools' + (bare ? '' : ' glass')} style={{ '--i': TOOLS.findIndex((t) => t.id === tool) } as CSSProperties}>
+      <span className="tool-indicator" aria-hidden />
+      {TOOLS.map((t) => (
+        <button key={t.id} className={'tool' + (tool === t.id ? ' on' : '')} onClick={() => setTool(t.id)} title={`${t.label} (${t.key})`} aria-label={t.label}>
+          <Icon name={t.icon} size={20} />
+          <span className="tool-tip">
+            {t.label} <kbd>{t.key}</kbd>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const BRUSH_MODES = [
+  ['paint', 'brush', 'Paint'],
+  ['pick', 'pipette', 'Pick'],
+  ['whole', 'flag', 'Whole country'],
+] as const;
+
+function DesktopToolDock() {
   const tool = useWorld((s) => s.tool);
   const brushCid = useWorld((s) => s.brushCid);
   const brushSize = useWorld((s) => s.brushSize);
@@ -542,17 +580,7 @@ function ToolDock() {
   const multi = useWorld((s) => s.multiSelect);
   return (
     <div className="tooldock">
-      <div className="tools glass" style={{ '--i': TOOLS.findIndex((t) => t.id === tool) } as CSSProperties}>
-        <span className="tool-indicator" aria-hidden />
-        {TOOLS.map((t) => (
-          <button key={t.id} className={'tool' + (tool === t.id ? ' on' : '')} onClick={() => setTool(t.id)} title={`${t.label} (${t.key})`} aria-label={t.label}>
-            <Icon name={t.icon} size={20} />
-            <span className="tool-tip">
-              {t.label} <kbd>{t.key}</kbd>
-            </span>
-          </button>
-        ))}
-      </div>
+      <ToolButtons />
       {tool === 'paint' && (
         <div className="brush glass">
           <div className="brush-row">
@@ -560,13 +588,7 @@ function ToolDock() {
             <CountryPicker value={brushCid} allowNone noneLabel="Unclaimed (erase)" onChange={(cid) => useWorld.setState({ brushCid: cid })} />
           </div>
           <div className="segmented">
-            {(
-              [
-                ['paint', 'brush', 'Paint'],
-                ['pick', 'pipette', 'Pick'],
-                ['whole', 'flag', 'Whole country'],
-              ] as const
-            ).map(([m, icon, label]) => (
+            {BRUSH_MODES.map(([m, icon, label]) => (
               <button key={m} className={brushMode === m ? 'on' : ''} onClick={() => useWorld.setState({ brushMode: m })}>
                 <Icon name={icon} size={14} /> {label}
               </button>
@@ -596,6 +618,137 @@ function ToolDock() {
         <div className="brush glass">
           <p className="hint">Click the map to place a city · drag a city to move it · click one to edit it</p>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Phones: one bar along the bottom (tools, world, layers, more) and the active tool's options
+ * just above it, folded to a single row so the map keeps the screen.
+ */
+function PhoneDock() {
+  const tool = useWorld((s) => s.tool);
+  const multi = useWorld((s) => s.multiSelect);
+  const worldOpen = useWorld((s) => s.worldOpen);
+  const sheet = useWorld((s) => s.worldOpen || (s.detailsOpen && !!(s.selection.cid || s.selection.regions.length || s.selection.city != null)));
+  const layersOpen = useWorld((s) => s.layersOpen);
+  const globe = useWorld((s) => s.globe);
+  const allianceView = useWorld((s) => s.allianceView);
+  const [more, setMore] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useOutside(moreRef, more, useCallback(() => setMore(false), []));
+  const pick = (f: () => void) => () => {
+    setMore(false);
+    f();
+  };
+  return (
+    <div className="phone-dock">
+      {!sheet && (
+        <div className="phone-opts">
+          {tool === 'paint' && <PhoneBrush />}
+          {tool === 'select' && (
+            <button className={'multi-toggle glass' + (multi ? ' on' : '')} onClick={() => useWorld.setState({ multiSelect: !multi })}>
+              <Icon name="plus" size={14} /> Multi-select
+            </button>
+          )}
+          {tool === 'city' && <div className="phone-hint glass">Tap to place a city · drag one to move it</div>}
+        </div>
+      )}
+      <nav className="phonebar glass">
+        <ToolButtons bare />
+        <span className="phonebar-sep" />
+        <button
+          className={'icon-btn' + (worldOpen ? ' on' : '')}
+          onClick={() => useWorld.setState({ worldOpen: !worldOpen, detailsOpen: false, layersOpen: false })}
+          title="World overview"
+          aria-label="World overview"
+        >
+          <Icon name="list" />
+        </button>
+        <button
+          className={'icon-btn' + (layersOpen ? ' on' : '')}
+          data-keep-open
+          onClick={() => useWorld.setState({ layersOpen: !layersOpen })}
+          title="Map style & layers"
+          aria-label="Map style & layers"
+        >
+          <Icon name="layers" />
+        </button>
+        <div className="menu-wrap" ref={moreRef}>
+          <button className={'icon-btn' + (more ? ' on' : '')} onClick={() => setMore(!more)} title="More" aria-label="More">
+            <Icon name="more" />
+          </button>
+          {more && (
+            <div className="menu glass phone-more">
+              <button onClick={pick(() => useWorld.setState({ globe: !globe }))}>
+                <Icon name={globe ? 'flat' : 'globe'} size={16} /> <span className="grow">{globe ? 'Flat map' : 'Globe'}</span>
+              </button>
+              <button onClick={pick(() => (allianceView ? useWorld.setState({ allianceView: null }) : viewAlliance('all')))}>
+                <Icon name="shield" size={16} /> <span className="grow">{allianceView ? 'Hide alliances' : 'Show alliances'}</span>
+              </button>
+              <button onClick={pick(surprise)}>
+                <Icon name="dice" size={16} /> <span className="grow">Surprise me</span>
+              </button>
+              <button onClick={pick(enterZen)}>
+                <Icon name="eyeOff" size={16} /> <span className="grow">Hide the tools</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </nav>
+    </div>
+  );
+}
+
+/** The brush on phones: country and mode in one row; size and natural borders folded away. */
+function PhoneBrush() {
+  const brushCid = useWorld((s) => s.brushCid);
+  const brushSize = useWorld((s) => s.brushSize);
+  const brushMode = useWorld((s) => s.brushMode);
+  const country = useWorld((s) => s.doc?.countries[brushCid]);
+  const natural = useWorld((s) => naturalOn(s.natural));
+  const [open, setOpenState] = useState(() => {
+    try {
+      return localStorage.getItem('ev.phoneBrushOpen') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    try {
+      localStorage.setItem('ev.phoneBrushOpen', v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  };
+  return (
+    <div className={'phone-brush glass' + (open ? ' open' : '')}>
+      <div className="brush-row">
+        <span className="brush-swatch" style={{ background: country?.color ?? 'transparent' }} />
+        <CountryPicker value={brushCid} allowNone noneLabel="Unclaimed (erase)" onChange={(cid) => useWorld.setState({ brushCid: cid })} />
+        <div className="segmented icons">
+          {BRUSH_MODES.map(([m, icon, label]) => (
+            <button key={m} className={brushMode === m ? 'on' : ''} onClick={() => useWorld.setState({ brushMode: m })} title={label} aria-label={label}>
+              <Icon name={icon} size={16} />
+            </button>
+          ))}
+        </div>
+        <button className={'icon-btn fold' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title={open ? 'Fewer options' : 'Brush size & natural borders'} aria-expanded={open}>
+          <Icon name="tune" size={18} />
+          {!open && (brushSize > 0 || natural) && <span className="fold-dot" />}
+        </button>
+      </div>
+      {open && (
+        <>
+          <label className="brush-size">
+            <span>Brush</span>
+            <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
+            <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
+          </label>
+          <NaturalBorders />
+        </>
       )}
     </div>
   );
@@ -818,6 +971,7 @@ function DetailsDock() {
   const mobile = useMobile();
   const ref = useRef<HTMLElement>(null);
   const shown = open && !!view;
+  const [peek, togglePeek] = usePeek(shown);
   useDockInset('details', ref, shown, mobile);
   const key = view?.key;
   useEffect(() => {
@@ -828,9 +982,10 @@ function DetailsDock() {
   }, [shown, key]);
   if (!shown || !view) return null;
   return (
-    <aside ref={ref} className={'dock details-dock glass' + (mobile ? ' dock-bottom' : '')}>
-      <div className="dock-head">
-        <span className="details-kind">{view.kind}</span>
+    <aside ref={ref} className={'dock details-dock glass' + (mobile ? ' dock-bottom' : '') + (mobile && peek ? ' peek' : '')}>
+      <div className="dock-head" onClick={mobile ? togglePeek : undefined}>
+        {mobile && <span className="sheet-handle" aria-hidden />}
+        <span className="details-kind">{mobile && peek ? `${view.kind} · ${view.title}` : view.kind}</span>
         <div className="grow" />
         <button className="icon-btn" onClick={() => useWorld.setState({ detailsOpen: false })} title="Close (Esc)">
           <Icon name="x" />
@@ -843,6 +998,22 @@ function DetailsDock() {
   );
 }
 
+/**
+ * Phones: tapping a sheet's header folds it down to just that header (the map gets the screen
+ * back) and tapping again brings it up. Taps on the header's own buttons are left alone.
+ */
+function usePeek(shown: boolean): [boolean, (e: ReactMouseEvent) => void] {
+  const [peek, setPeek] = useState(false);
+  useEffect(() => {
+    if (!shown) setPeek(false);
+  }, [shown]);
+  const toggle = useCallback((e: ReactMouseEvent) => {
+    if ((e.target as Element).closest('button, input, a')) return;
+    setPeek((p) => !p);
+  }, []);
+  return [peek, toggle];
+}
+
 /** The world overview: a side panel on desktop; on phones a panel opened from a button, so the map gets the whole screen. */
 function Inspector() {
   const doc = useWorld((s) => s.doc)!;
@@ -853,25 +1024,23 @@ function Inspector() {
   const ref = useRef<HTMLElement>(null);
   // The details panel takes the same place.
   const shown = !details && (mobile ? worldOpen : true);
+  const [peek, togglePeek] = usePeek(shown);
   useDockInset('world', ref, shown && !(collapsed && !mobile), mobile);
   const countries = Object.keys(doc.countries).length;
 
-  if (!shown)
-    return mobile && !details ? (
-      <button className="world-fab glass" onClick={() => useWorld.setState({ worldOpen: true })}>
-        <Icon name="list" size={17} />
-        <span>
-          {doc.meta.title} · {countries} countries
-        </span>
-      </button>
-    ) : null;
+  // On phones the bottom bar opens it.
+  if (!shown) return null;
   return (
-    <aside ref={ref} className={'inspector dock glass' + (mobile ? ' dock-bottom' : '') + (collapsed && !mobile ? ' collapsed' : '')}>
-      <div className="inspector-head">
+    <aside ref={ref} className={'inspector dock glass' + (mobile ? ' dock-bottom' : '') + (collapsed && !mobile ? ' collapsed' : '') + (mobile && peek ? ' peek' : '')}>
+      <div className="inspector-head" onClick={mobile ? togglePeek : undefined}>
+        {mobile && <span className="sheet-handle" aria-hidden />}
         <span className="head-icon">
           <Icon name="globe" />
         </span>
-        <h2 className="grow">{doc.meta.title}</h2>
+        <h2 className="grow">
+          {doc.meta.title}
+          {mobile && <small> · {countries} countries</small>}
+        </h2>
         {mobile ? (
           <button className="icon-btn" onClick={() => useWorld.setState({ worldOpen: false })} title="Close">
             <Icon name="x" />

@@ -103,6 +103,8 @@ export class MapController {
   };
 
   private async onLoad() {
+    // Phones: the map credits start folded behind their "i" button.
+    if (window.innerWidth <= 760) this.map.getContainer().querySelector('.maplibregl-compact-show')?.classList.remove('maplibregl-compact-show');
     this.updatePadding();
     window.addEventListener('resize', this.updatePadding);
     await loadIso2();

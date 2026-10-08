@@ -500,8 +500,8 @@ export function select(sel: Partial<Selection>) {
 
 export function setTool(tool: Tool) {
   const { selection, doc } = get();
-  // Every tool but select works on the map: get the details window out of the way.
-  if (tool !== 'select') set({ detailsOpen: false });
+  // Every tool but select works on the map: get the details and world panels out of the way.
+  if (tool !== 'select') set({ detailsOpen: false, worldOpen: false });
   // Painting starts with the selected country as the brush.
   if (tool === 'paint' && selection.cid && doc?.countries[selection.cid]) set({ tool, brushCid: selection.cid });
   else set({ tool });
