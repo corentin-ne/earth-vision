@@ -16,3 +16,6 @@
 __pycache__/
 legacy/next-prototype/public/countries.geojson
 /android
+
+# Android signing key (backed up locally, provided to CI as secrets)
+/.signing

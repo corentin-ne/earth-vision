@@ -72,7 +72,10 @@ server…). All paths are relative, so it also works from a sub-folder.
 
 ### Android app
 
-Every push to `main` builds an APK on GitHub Actions and attaches it to the release. To build one locally
+Every push to `main` builds an APK on GitHub Actions and attaches it to the release. It is a release
+build signed with a permanent key (repository secrets `ANDROID_KEYSTORE_B64` and
+`ANDROID_KEYSTORE_PASSWORD`), so each new APK installs over the previous one. Keep a backup of that key:
+an APK signed with another key cannot update the installed app (it has to be uninstalled first). To build one locally
 (needs the Android SDK):
 
 ```bash

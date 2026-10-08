@@ -42,6 +42,19 @@ jobs:
       - name: Build website
         run: npm run build
 
+      # The permanent signing key (repository secrets). Every release must be signed with the
+      # same key, or Android refuses to install it over the app already on the phone.
+      - name: Restore the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/earth-vision.keystore"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/earth-vision.keystore" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret: building a debug APK that cannot update an installed one."
+          fi
+
       # ubuntu-latest ships the Android SDK (ANDROID_HOME); the native project is generated fresh each time.
       - name: Generate the Android project
         run: |
@@ -50,10 +63,17 @@ jobs:
 
       - name: Build APK
         working-directory: android
-        # Debug-signed so it installs directly on a phone.
-        run: ./gradlew assembleDebug --no-daemon
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.workers.max=2
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_PATH" ]; then
+            ./gradlew assembleRelease --no-daemon
+            cp app/build/outputs/apk/release/app-release.apk ../app.apk
+          else
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../app.apk
+          fi
 
       - name: Resolve release tag
         id: tag
@@ -66,7 +86,7 @@ jobs:
 
       - name: Package artifacts
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk "earth-vision-${{ steps.tag.outputs.name }}.apk"
+          cp app.apk "earth-vision-${{ steps.tag.outputs.name }}.apk"
           (cd dist && zip -qr "../earth-vision-web-${{ steps.tag.outputs.name }}.zip" .)
 
       - uses: actions/upload-artifact@v4

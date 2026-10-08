@@ -1,5 +1,10 @@
 // Customises the Android project that `npx cap add android` generates (it is not
-// committed): app icon and version. Run after `cap add` / `cap sync`.
+// committed): app icon, version and — when ANDROID_KEYSTORE_PATH is set — a permanent
+// release signing key. Run after `cap add` / `cap sync`.
+//
+// The key matters: Android only installs an update over an existing app when both are
+// signed with the same key. CI used to sign with a throwaway debug key, so every APK
+// looked like a different app and could not replace the installed one.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -53,6 +58,27 @@ const [maj, min, pat] = version.split(/[.-]/).map((n) => parseInt(n, 10) || 0);
 const gradle = path.join(root, 'android/app/build.gradle');
 let g = fs.readFileSync(gradle, 'utf8');
 g = g.replace(/versionCode \d+/, `versionCode ${maj * 10000 + min * 100 + pat}`).replace(/versionName "[^"]*"/, `versionName "${version}"`);
+
+// ── Signing: the same key for every release (passwords stay in the environment).
+const keystore = process.env.ANDROID_KEYSTORE_PATH;
+if (keystore && !g.includes('signingConfigs')) {
+  const ks = path.resolve(keystore).replace(/\\/g, '/');
+  g = g.replace(
+    /\n    buildTypes \{/,
+    `
+    signingConfigs {
+        release {
+            storeFile file("${ks}")
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "earthvision"
+            keyPassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+        }
+    }
+    buildTypes {`,
+  );
+  g = g.replace(/(\n    buildTypes \{\n        release \{\n)/, `$1            signingConfig signingConfigs.release\n`);
+  if (!g.includes('signingConfig signingConfigs.release')) throw new Error('Could not add the signing config to build.gradle');
+}
 fs.writeFileSync(gradle, g);
 
-console.log(`Android project set up: icon, version ${version}`);
+console.log(`Android project set up: icon, version ${version}${keystore ? ', release signing' : ''}`);
