@@ -2164,53 +2164,6 @@ input.num-field {
     width: min(316px, calc(100vw - 86px));
     transform-origin: top right;
   }
-  /* Bottom sheet */
-  .inspector.sheet {
-    top: auto;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: auto;
-    height: 48vh;
-    max-height: 92vh;
-    border-radius: 28px 28px 0 0;
-    border-bottom: 0;
-    padding-bottom: env(safe-area-inset-bottom);
-    animation-name: slide-up;
-    transition: height 0.55s var(--spring);
-  }
-  .inspector.sheet.dragging {
-    transition: none;
-  }
-  .inspector.sheet .inspector-head {
-    padding-top: 18px;
-    min-height: 64px;
-    touch-action: none;
-    cursor: grab;
-    border-bottom-color: transparent;
-  }
-  .inspector.sheet:not(.collapsed) .inspector-head {
-    border-bottom-color: var(--stroke);
-  }
-  .grabber {
-    position: absolute;
-    top: 7px;
-    left: 50%;
-    width: 40px;
-    height: 5px;
-    margin-left: -20px;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.28);
-    transition:
-      width 0.3s var(--spring),
-      margin 0.3s var(--spring),
-      background 0.2s;
-  }
-  .inspector.dragging .grabber {
-    width: 54px;
-    margin-left: -27px;
-    background: rgba(255, 255, 255, 0.5);
-  }
   .panel-body {
     padding: 14px 16px 24px;
   }
@@ -2873,4 +2826,227 @@ input.num-field {
 .boot.crash strong {
   color: var(--fg);
   font-size: 18px;
+}
+
+/* ── Docked panels (world overview, details) ─────────────────────────────── */
+.details-dock {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: min(560px, 46vw);
+  display: flex;
+  flex-direction: column;
+  z-index: 7;
+  overflow: hidden;
+  border-radius: 24px;
+  animation: dock-in 0.32s var(--ease-out, ease-out);
+}
+.details-dock.glass {
+  background: linear-gradient(160deg, rgba(30, 38, 56, 0.96), rgba(16, 22, 35, 0.96));
+}
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+.dock-head {
+  display: flex;
+  align-items: center;
+  padding: 8px 8px 0 18px;
+  flex: none;
+}
+.dock-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.details-dock .country-head .flag {
+  width: 72px !important;
+  height: 48px !important;
+}
+.details-dock .country-head .title-input {
+  font-size: 20px;
+}
+.world-fab {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + var(--sab));
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 11px 18px 11px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  animation: fab-in 0.3s var(--ease-out, ease-out);
+}
+.world-fab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.world-fab svg {
+  color: var(--accent);
+  flex: none;
+}
+@keyframes fab-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+}
+@media (max-width: 760px) {
+  /* Phones: panels come up from the bottom over ~58% of the screen; the map stays above them. */
+  .inspector.dock-bottom,
+  .details-dock.dock-bottom {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: 58vh;
+    border-radius: 24px 24px 0 0;
+    padding-bottom: var(--sab);
+    animation: dock-up 0.32s var(--ease-out, ease-out);
+  }
+  .editor .maplibregl-ctrl-bottom-left {
+    bottom: calc(70px + var(--sab));
+  }
+}
+@keyframes dock-up {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+}
+
+/* The details dock is wider than the world panel: the top bar makes room for it. */
+@media (min-width: 761px) {
+  .editor.details-open .topbar {
+    right: calc(min(560px, 46vw) + 28px);
+  }
+}
+
+/* ── Flag maker ──────────────────────────────────────────────────────────── */
+.flag-maker-back {
+  z-index: 60;
+}
+.flag-maker {
+  width: min(860px, 100%);
+  display: flex;
+  flex-direction: column;
+  padding: 10px 18px 14px;
+}
+.fm-body {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 22px;
+  margin-top: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+.fm-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+}
+.fm-canvas {
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+.fm-controls section {
+  margin-bottom: 14px;
+}
+.fm-controls h3 {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fm-layouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+}
+.fm-layout {
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--glass-2);
+}
+.fm-layout canvas {
+  border-radius: 3px;
+}
+.fm-layout.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(62, 207, 178, 0.35);
+}
+.fm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.fm-label {
+  width: 78px;
+  flex: none;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.fm-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.fm-swatches .swatch {
+  width: 24px;
+  height: 24px;
+}
+.segmented.fm-seg {
+  margin: 0 0 10px;
+  flex: 1;
+}
+.fm-row .segmented.fm-seg {
+  margin: 0;
+}
+.fm-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+}
+@media (max-width: 760px) {
+  .flag-maker-back {
+    padding: 0;
+  }
+  .flag-maker {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    padding-top: calc(10px + var(--sat));
+    padding-bottom: calc(12px + var(--sab));
+  }
+  .fm-body {
+    grid-template-columns: 1fr;
+    flex: 1;
+  }
+  .fm-preview {
+    position: static;
+  }
 }

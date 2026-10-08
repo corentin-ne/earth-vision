@@ -30,7 +30,9 @@ their code is kept under [`legacy/`](legacy/).
   surface is a small GPU shader — drifting swell lit by the sun, with glints — that costs next to nothing
   (throttled, paused when idle or hidden; toggle *Animated water*).
 - Click a country, region or city: a bubble shows its flag and name and the map glides it into view;
-  *Details* opens its full page in a large window (full screen on phones).
+  *Details* docks its full page beside the map (below it on phones) and frames it in what stays visible.
+- **Flag maker**: pick a layout, the colours of each part and an emblem (star, stars, sun, crescent),
+  with a live preview — or let it surprise you and tweak from there.
 - Four map looks — **Political** (colours + hill shading), **Atlas** (MillMint-style physical relief
   with fine borders), **Plain** (A+ style) and **Night** — on a globe or a flat map (`G`), with
   optional 3D mountains, rivers, lakes, urban areas, graticule…

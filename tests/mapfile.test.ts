@@ -129,3 +129,20 @@ describe('names & formatting', () => {
     expect(fmtAgo(now - 26 * 3600_000, now)).toBe('yesterday');
   });
 });
+
+describe('flag designs', () => {
+  it('are valid and reproducible from a seed', async () => {
+    const { randomSpec, LAYOUTS, EMBLEMS } = await import('../src/world/flagGen');
+    const a = randomSpec('#D6C7FF', seeded(9));
+    const b = randomSpec('#D6C7FF', seeded(9));
+    expect(a).toEqual(b);
+    const rand = seeded(3);
+    for (let i = 0; i < 100; i++) {
+      const s = randomSpec(undefined, rand);
+      expect(LAYOUTS.some((l) => l.id === s.layout)).toBe(true);
+      expect(EMBLEMS.some((e) => e.id === s.emblem)).toBe(true);
+      expect(new Set(s.colors).size).toBe(3);
+      for (const c of [...s.colors, s.emblemColor]) expect(c).toMatch(/^#[0-9A-F]{6}$/);
+    }
+  });
+});

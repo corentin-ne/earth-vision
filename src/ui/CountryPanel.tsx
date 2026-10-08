@@ -16,7 +16,6 @@ import { ColorField, CountryPicker, Flag, NumberField, Section, Stat, TextField 
 import { RegionCard } from './RegionPanels';
 import { Icon } from './icons';
 import { fmtArea, fmtInt } from '../util';
-import { randomFlag } from '../world/flagGen';
 
 export function CountryPanel({ cid }: { cid: string }) {
   const doc = useWorld((s) => s.doc)!;
@@ -68,13 +67,8 @@ export function CountryPanel({ cid }: { cid: string }) {
           <div className="sub">
             <span className="badge">{c.cid}</span>
             {rank >= 0 && <span>#{rank + 1} by area</span>}
-            <button className="link" onClick={async () => {
-                const blob = await randomFlag(c.color);
-                if (blob) setFlag(cid, blob);
-              }}
-              title="Draw a random flag (undo brings the old one back)"
-            >
-              <Icon name="dice" size={12} /> Random flag
+            <button className="link" onClick={() => useWorld.setState({ flagMakerFor: cid })} title="Design a flag: layout, colours, emblem">
+              <Icon name="flag" size={12} /> Design flag
             </button>
             {capital && (
               <button className="link" onClick={() => mapCtl?.flyTo([capital.lng, capital.lat], 6)}>

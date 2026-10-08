@@ -113,6 +113,8 @@ export function WorldPanel() {
             <button
               key={c.cid}
               onClick={() => {
+                // On a phone the list closes so the country (and its bubble) can be seen.
+                useWorld.setState({ worldOpen: false });
                 select({ cid: c.cid });
                 mapCtl?.fitBounds(countryBounds(c.cid));
               }}

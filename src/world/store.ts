@@ -92,8 +92,12 @@ export interface State {
   advancedOpen: boolean;
   /** The full details window of the current selection. */
   detailsOpen: boolean;
-  /** Screen space the side panel / bottom sheet covers (px), so the map centres in what's left. */
-  inspectorInset: { right: number; bottom: number };
+  /** Screen space each docked panel covers (px), so the map centres in what's left. */
+  docks: Record<string, { right: number; bottom: number }>;
+  /** Phones: the world overview panel is open. */
+  worldOpen: boolean;
+  /** Country whose flag is being designed in the flag maker. */
+  flagMakerFor: string | null;
   /** Country whose flag is shown full size. */
   flagView: string | null;
   galleryOpen: boolean;
@@ -149,7 +153,9 @@ export const useWorld = create<State>(() => ({
   multiSelect: false,
   advancedOpen: false,
   detailsOpen: false,
-  inspectorInset: { right: 0, bottom: 0 },
+  docks: {},
+  worldOpen: false,
+  flagMakerFor: null,
   flagView: null,
   galleryOpen: false,
 }));

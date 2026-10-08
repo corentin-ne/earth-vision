@@ -47,6 +47,7 @@ export function FlagLightbox() {
   useEffect(() => {
     if (!cid) return;
     const onKey = (e: KeyboardEvent) => {
+      if (useWorld.getState().flagMakerFor) return;
       if (e.key === 'ArrowRight') go(1);
       else if (e.key === 'ArrowLeft') go(-1);
       else if (e.key === 'Escape') useWorld.setState({ flagView: null });
@@ -88,6 +89,9 @@ export function FlagLightbox() {
         <div className="lb-actions">
           <button className="btn small" onClick={() => fileRef.current?.click()}>
             <Icon name="image" size={14} /> Upload
+          </button>
+          <button className="btn small primary" onClick={() => useWorld.setState({ flagMakerFor: c.cid })}>
+            <Icon name="edit" size={14} /> Design
           </button>
           <button
             className="btn small"

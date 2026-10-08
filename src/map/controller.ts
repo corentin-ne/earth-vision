@@ -79,7 +79,9 @@ export class MapController {
   /** Keeps the visual centre of the map in the part not covered by the inspector. */
   private updatePadding = () => {
     const mobile = window.innerWidth <= 760;
-    const { right, bottom } = get().inspectorInset;
+    const docks = Object.values(get().docks);
+    const right = Math.max(0, ...docks.map((d) => d.right));
+    const bottom = Math.max(0, ...docks.map((d) => d.bottom));
     // Never pad away more than most of the map (a full-height sheet still leaves a strip).
     const h = this.map.getContainer().clientHeight;
     const w = this.map.getContainer().clientWidth;
@@ -105,7 +107,7 @@ export class MapController {
       useWorld.subscribe((s, p) => {
         if (s.mapStyle !== p.mapStyle || s.layers !== p.layers || s.globe !== p.globe) this.applyLook();
         if (s.selection !== p.selection) this.syncSelection();
-        if (s.inspectorInset !== p.inspectorInset) this.updatePadding();
+        if (s.docks !== p.docks) this.updatePadding();
         if (s.tool !== p.tool) this.onToolChange(s, p);
       }),
     );
@@ -781,9 +783,9 @@ export class MapController {
 
   // ── Camera ───────────────────────────────────────────────────────────────
 
-  fitBounds(b: [number, number, number, number] | null, maxZoom = 6) {
-    // Showing something on the map means getting the details window out of the way.
-    useWorld.setState({ detailsOpen: false });
+  fitBounds(b: [number, number, number, number] | null, maxZoom = 6, opts: { keepDetails?: boolean } = {}) {
+    // On a phone, showing something else on the map means getting the details out of the way.
+    if (!opts.keepDetails && window.innerWidth <= 760) useWorld.setState({ detailsOpen: false });
     if (!b) return;
     const pad = Math.min(120, Math.min(this.map.getContainer().clientWidth, this.map.getContainer().clientHeight) / 6);
     this.map.fitBounds(
@@ -801,7 +803,6 @@ export class MapController {
   }
 
   flyTo(p: LngLat, zoom?: number) {
-    useWorld.setState({ detailsOpen: false });
     this.map.flyTo({ center: p, zoom: zoom ?? Math.max(this.map.getZoom(), 5), duration: 900 });
   }
 

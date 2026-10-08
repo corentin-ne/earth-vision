@@ -50,8 +50,10 @@ export default function App() {
     if (busy) return true;
     if (view !== 'editor') return false;
     const s = useWorld.getState();
-    if (s.flagView) useWorld.setState({ flagView: null });
+    if (s.flagMakerFor) useWorld.setState({ flagMakerFor: null });
+    else if (s.flagView) useWorld.setState({ flagView: null });
     else if (s.detailsOpen) useWorld.setState({ detailsOpen: false });
+    else if (s.worldOpen) useWorld.setState({ worldOpen: false });
     else if (s.help) useWorld.setState({ help: false });
     else if (s.advancedOpen) useWorld.setState({ advancedOpen: false });
     else if (s.galleryOpen) useWorld.setState({ galleryOpen: false });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { MapController, setMapCtl, mapCtl } from '../map/controller';
 import {
   useWorld,
@@ -10,6 +10,7 @@ import {
   setTitle,
   currentBundle,
   countryBounds,
+  boundsOf,
   toast,
   type Tool,
   type MapStyleId,
@@ -20,6 +21,7 @@ import { CityPanel, MultiRegionPanel, RegionCard } from './RegionPanels';
 import { WorldPanel } from './WorldPanel';
 import { AdvancedPanel } from './AdvancedPanel';
 import { FlagGallery, FlagLightbox } from './FlagViewer';
+import { FlagMaker } from './FlagMaker';
 import { CountryPicker, Flag, TextField } from './common';
 import type { LngLat } from '../types';
 import { Icon, type IconName } from './icons';
@@ -29,21 +31,23 @@ import { download, fmtCompact } from '../util';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
+  const details = useWorld((s) => s.detailsOpen);
   return (
-    <div className="editor">
+    <div className={'editor' + (details ? ' details-open' : '')}>
       <MapView />
       <TopBar onHome={onHome} />
       <ToolDock />
       <Inspector />
       <LayersPanel />
       <SelectionBubble />
-      <DetailsWindow />
+      <DetailsDock />
       <HoverTip />
       <SplitHint />
       <ShortcutsHelp />
       <AdvancedPanel />
       <FlagGallery />
       <FlagLightbox />
+      <FlagMaker />
     </div>
   );
 }
@@ -488,9 +492,6 @@ function ToolDock() {
 
 // ── Inspector ────────────────────────────────────────────────────────────────
 
-type Snap = 'peek' | 'half' | 'full';
-const PEEK = 64;
-const snapHeight = (s: Snap) => (s === 'peek' ? PEEK : Math.round(window.innerHeight * (s === 'half' ? 0.48 : 0.86)));
 
 /** What the selection is, for the bubble and the details window. */
 function useSelectionView() {
@@ -600,57 +601,29 @@ function SelectionBubble() {
   );
 }
 
-/** The selection's full page, in a large window (full screen on phones). */
-function DetailsWindow() {
-  const open = useWorld((s) => s.detailsOpen);
-  const view = useSelectionView();
-  if (!open || !view) return null;
-  const close = () => useWorld.setState({ detailsOpen: false });
-  return (
-    <div className="modal-back details-back" onClick={close}>
-      <div className="modal glass details" onClick={(e) => e.stopPropagation()}>
-        <div className="details-head">
-          <span className="details-kind">{view.kind}</span>
-          <div className="grow" />
-          <button className="icon-btn" onClick={close} title="Back to the map (Esc)">
-            <Icon name="x" />
-          </button>
-        </div>
-        <div className="details-body page" key={view.key}>
-          {view.body}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Inspector() {
-  const doc = useWorld((s) => s.doc)!;
-  const hasSelection = useWorld((s) => !!(s.selection.cid || s.selection.regions.length || s.selection.city != null));
-  const mobile = useMobile();
-  const [collapsed, setCollapsed] = useState(false);
-  const [snap, setSnap] = useState<Snap>('half');
-  const ref = useRef<HTMLElement>(null);
-  const drag = useRef<{ y: number; h: number; t: number; moved: boolean } | null>(null);
-
-  const title = doc.meta.title;
-  const body = <WorldPanel />;
-  const key = 'world';
-
-  // On a phone, selecting something lowers the sheet so the map (and the bubble) can be seen.
-  useEffect(() => {
-    if (mobile && hasSelection) setSnap('peek');
-  }, [mobile, hasSelection]);
-
-  // Tell the map which part of the screen the panel covers, so "centre" means the visible part.
+/**
+ * Reports how much of the screen a docked panel covers, so the map centres and fits things in
+ * the part that stays visible (see MapController.updatePadding).
+ */
+function useDockInset(id: string, ref: RefObject<HTMLElement | null>, active: boolean, mobile: boolean) {
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    const put = (v: { right: number; bottom: number } | null) =>
+      useWorld.setState((s) => {
+        const docks = { ...s.docks };
+        if (v) docks[id] = v;
+        else delete docks[id];
+        return { docks };
+      });
+    if (!active || !el) {
+      put(null);
+      return;
+    }
     const report = () => {
       const r = el.getBoundingClientRect();
-      const inset = mobile ? { right: 0, bottom: Math.max(0, window.innerHeight - r.top) } : { right: collapsed ? 0 : Math.max(0, window.innerWidth - r.left), bottom: 0 };
-      const cur = useWorld.getState().inspectorInset;
-      if (cur.right !== inset.right || cur.bottom !== inset.bottom) useWorld.setState({ inspectorInset: inset });
+      const v = mobile ? { right: 0, bottom: Math.max(0, window.innerHeight - r.top) } : { right: Math.max(0, window.innerWidth - r.left), bottom: 0 };
+      const cur = useWorld.getState().docks[id];
+      if (!cur || cur.right !== v.right || cur.bottom !== v.bottom) put(v);
     };
     report();
     const ro = new ResizeObserver(report);
@@ -659,78 +632,96 @@ function Inspector() {
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', report);
+      put(null);
     };
-  }, [mobile, collapsed, snap]);
+  }, [id, ref, active, mobile]);
+}
 
-  const setHeight = (h: number | null) => {
-    const el = ref.current;
-    if (el) el.style.height = h == null ? '' : `${h}px`;
-  };
-  useEffect(() => setHeight(mobile ? snapHeight(snap) : null), [mobile, snap]);
+/** Frames the current selection in the visible part of the map. */
+function focusSelection() {
+  const { selection: sel, doc } = useWorld.getState();
+  if (!doc || !mapCtl) return;
+  if (sel.city != null && doc.cities[sel.city]) {
+    const c = doc.cities[sel.city];
+    mapCtl.centerOn([c.lng, c.lat]);
+  } else if (sel.cid && doc.countries[sel.cid]) mapCtl.fitBounds(countryBounds(sel.cid), 6, { keepDetails: true });
+  else if (sel.regions.length) mapCtl.fitBounds(boundsOf(sel.regions), 7, { keepDetails: true });
+}
+
+/** The selection's full page, docked beside the map (below it on phones) so the map stays in view. */
+function DetailsDock() {
+  const open = useWorld((s) => s.detailsOpen);
+  const view = useSelectionView();
+  const mobile = useMobile();
+  const ref = useRef<HTMLElement>(null);
+  const shown = open && !!view;
+  useDockInset('details', ref, shown, mobile);
+  const key = view?.key;
   useEffect(() => {
-    if (!mobile) return;
-    const onResize = () => setHeight(snapHeight(snap));
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [mobile, snap]);
-
-  const onDown = (e: ReactPointerEvent) => {
-    if (!mobile || (e.target as HTMLElement).closest('button')) return;
-    drag.current = { y: e.clientY, h: ref.current!.getBoundingClientRect().height, t: performance.now(), moved: false };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    ref.current!.classList.add('dragging');
-  };
-  const onMove = (e: ReactPointerEvent) => {
-    const d = drag.current;
-    if (!d) return;
-    const dy = e.clientY - d.y;
-    if (Math.abs(dy) > 5) d.moved = true;
-    setHeight(Math.max(PEEK - 20, Math.min(window.innerHeight * 0.92, d.h - dy)));
-  };
-  const onUp = (e: ReactPointerEvent) => {
-    const d = drag.current;
-    drag.current = null;
-    ref.current?.classList.remove('dragging');
-    if (!d) return;
-    if (!d.moved) {
-      setSnap((s) => (s === 'peek' ? 'half' : 'peek'));
-      return;
-    }
-    const h = ref.current!.getBoundingClientRect().height;
-    // A quick flick goes one step in its direction; otherwise land on the nearest stop.
-    const v = (e.clientY - d.y) / Math.max(1, performance.now() - d.t);
-    const order: Snap[] = ['peek', 'half', 'full'];
-    let next: Snap;
-    if (Math.abs(v) > 0.6) {
-      const i = order.indexOf(snap);
-      next = order[Math.max(0, Math.min(2, i + (v < 0 ? 1 : -1)))];
-    } else next = order.reduce((a, b) => (Math.abs(snapHeight(b) - h) < Math.abs(snapHeight(a) - h) ? b : a));
-    setSnap(next);
-    setHeight(snapHeight(next));
-  };
-
-  const closed = mobile ? snap === 'peek' : collapsed;
+    if (!shown) return;
+    // After the dock has reported its size, so the fit uses the visible part of the map.
+    const id = requestAnimationFrame(() => requestAnimationFrame(focusSelection));
+    return () => cancelAnimationFrame(id);
+  }, [shown, key]);
+  if (!shown || !view) return null;
   return (
-    <aside ref={ref} className={'inspector glass' + (mobile ? ' sheet' : '') + (closed ? ' collapsed' : '')}>
-      <div className="inspector-head" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
-        {mobile && <span className="grabber" aria-hidden />}
+    <aside ref={ref} className={'dock details-dock glass' + (mobile ? ' dock-bottom' : '')}>
+      <div className="dock-head">
+        <span className="details-kind">{view.kind}</span>
+        <div className="grow" />
+        <button className="icon-btn" onClick={() => useWorld.setState({ detailsOpen: false })} title="Close (Esc)">
+          <Icon name="x" />
+        </button>
+      </div>
+      <div className="dock-scroll page" key={view.key}>
+        {view.body}
+      </div>
+    </aside>
+  );
+}
+
+/** The world overview: a side panel on desktop; on phones a panel opened from a button, so the map gets the whole screen. */
+function Inspector() {
+  const doc = useWorld((s) => s.doc)!;
+  const mobile = useMobile();
+  const details = useWorld((s) => s.detailsOpen && !!(s.selection.cid || s.selection.regions.length || s.selection.city != null));
+  const worldOpen = useWorld((s) => s.worldOpen);
+  const [collapsed, setCollapsed] = useState(false);
+  const ref = useRef<HTMLElement>(null);
+  // The details panel takes the same place.
+  const shown = !details && (mobile ? worldOpen : true);
+  useDockInset('world', ref, shown && !(collapsed && !mobile), mobile);
+  const countries = Object.keys(doc.countries).length;
+
+  if (!shown)
+    return mobile && !details ? (
+      <button className="world-fab glass" onClick={() => useWorld.setState({ worldOpen: true })}>
+        <Icon name="list" size={17} />
+        <span>
+          {doc.meta.title} · {countries} countries
+        </span>
+      </button>
+    ) : null;
+  return (
+    <aside ref={ref} className={'inspector dock glass' + (mobile ? ' dock-bottom' : '') + (collapsed && !mobile ? ' collapsed' : '')}>
+      <div className="inspector-head">
         <span className="head-icon">
           <Icon name="globe" />
         </span>
-        <h2 className="grow" key={key}>
-          {title}
-        </h2>
-        <button
-          className="icon-btn collapse-btn"
-          onClick={() => (mobile ? setSnap(snap === 'full' ? 'half' : snap === 'half' ? 'full' : 'half') : setCollapsed(!collapsed))}
-          title={closed ? 'Expand' : mobile && snap === 'full' ? 'Shrink' : 'Collapse'}
-        >
-          <Icon name="chevronDown" className={'chev' + (mobile ? (snap === 'full' ? '' : ' up') : collapsed ? '' : ' up')} />
-        </button>
+        <h2 className="grow">{doc.meta.title}</h2>
+        {mobile ? (
+          <button className="icon-btn" onClick={() => useWorld.setState({ worldOpen: false })} title="Close">
+            <Icon name="x" />
+          </button>
+        ) : (
+          <button className="icon-btn collapse-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? 'Expand' : 'Collapse'}>
+            <Icon name="chevronDown" className={'chev' + (collapsed ? '' : ' up')} />
+          </button>
+        )}
       </div>
       <div className="inspector-scroll">
-        <div className="page" key={key}>
-          {body}
+        <div className="page">
+          <WorldPanel />
         </div>
       </div>
     </aside>
@@ -844,7 +835,9 @@ export function useShortcuts() {
         else if (e.key === '?') useWorld.setState((s) => ({ help: !s.help }));
         else if (k === '[') useWorld.setState((s) => ({ brushSize: Math.max(0, s.brushSize - 5) }));
         else if (k === ']') useWorld.setState((s) => ({ brushSize: Math.min(60, s.brushSize + 5) }));
+        else if (k === 'escape' && useWorld.getState().flagMakerFor) useWorld.setState({ flagMakerFor: null });
         else if (k === 'escape' && useWorld.getState().detailsOpen) useWorld.setState({ detailsOpen: false });
+        else if (k === 'escape' && useWorld.getState().worldOpen) useWorld.setState({ worldOpen: false });
         else if (k === 'escape' && useWorld.getState().help) useWorld.setState({ help: false });
         else if (k === 'escape' && useWorld.getState().advancedOpen) useWorld.setState({ advancedOpen: false });
         else if (k === 'escape' && useWorld.getState().galleryOpen) useWorld.setState({ galleryOpen: false });
