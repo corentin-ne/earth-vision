@@ -29,6 +29,8 @@ const fc = <G extends Feature['geometry']>(features: Feature<G>[]): FeatureColle
 
 /** Imperative bridge between the world store and MapLibre. */
 export class MapController {
+  /** Animated surf along the coasts. */
+  readonly waves = new Waves(this);
   map: MLMap;
   private loaded = false;
   private regionColor = new Map<number, string>();
@@ -109,6 +111,7 @@ export class MapController {
   }
 
   destroy() {
+    this.waves.stop();
     this.unsubs.forEach((u) => u());
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
@@ -141,6 +144,10 @@ export class MapController {
       'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 5, 0.6, 8, 0],
     });
     paint('ocean', 'background-color', L.ocean);
+    paint('land-base', 'fill-color', L.landBase);
+    for (const id of ['shelf-outer', 'shelf-inner']) paint(id, 'line-color', L.shelf);
+    for (const id of ['surf-a', 'surf-b']) paint(id, 'line-color', L.surf);
+    this.waves.configure(layers.waves, L.surfOpacity);
     vis('graticule', layers.graticule);
     paint('graticule', 'line-color', L.graticule);
 
@@ -801,4 +808,90 @@ function isTyping(e: KeyboardEvent) {
 export let mapCtl: MapController | null = null;
 export function setMapCtl(c: MapController | null) {
   mapCtl = c;
+}
+
+/**
+ * Surf rolling out from the coasts: two staggered rings whose width and opacity follow a
+ * slow cycle. Only paint properties change (no data, no layout), and frames are throttled,
+ * skipped while the page is hidden and stopped after a minute without any interaction —
+ * so an idle map costs (almost) nothing. Off for people who prefer reduced motion.
+ */
+class Waves {
+  private raf = 0;
+  private last = 0;
+  private lastInput = performance.now();
+  private on = false;
+  private peak = 0.5;
+  private readonly period = 4200;
+  private readonly frameMs: number;
+  private readonly reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private bound = false;
+
+  constructor(private ctl: MapController) {
+    const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+    // The surf moves ~4 px/s, so 8–10 steps a second already look continuous: each frame
+    // is a full map redraw (~5 ms on a laptop), and this keeps an idle map nearly free.
+    this.frameMs = 1000 / (coarse ? 8 : 10);
+  }
+
+  configure(on: boolean, peak: number) {
+    this.on = on && !this.reduced;
+    this.peak = peak;
+    if (!this.bound) this.bind();
+    if (this.on) this.start();
+    else {
+      this.stop();
+      for (const id of ['surf-a', 'surf-b']) this.map.setPaintProperty(id, 'line-opacity', 0);
+    }
+  }
+
+  private get map() {
+    return this.ctl.map;
+  }
+
+  private bind() {
+    this.bound = true;
+    const wake = () => {
+      this.lastInput = performance.now();
+      if (this.on && !this.raf) this.start();
+    };
+    for (const ev of ['mousemove', 'touchstart', 'wheel', 'movestart'] as const) this.map.on(ev, wake);
+    window.addEventListener('keydown', wake);
+    document.addEventListener('visibilitychange', wake);
+  }
+
+  start() {
+    if (this.raf) return;
+    const loop = (now: number) => {
+      this.raf = requestAnimationFrame(loop);
+      if (document.hidden || now - this.last < this.frameMs) return;
+      if (now - this.lastInput > 30_000) {
+        // Idle for half a minute: freeze on the current frame until the user comes back.
+        this.stop();
+        return;
+      }
+      this.last = now;
+      this.frame(now);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  stop() {
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  private frame(now: number) {
+    const m = this.map;
+    const base = (now % this.period) / this.period;
+    (['surf-a', 'surf-b'] as const).forEach((id, i) => {
+      const p = (base + i * 0.5) % 1;
+      // Grows from the shore outwards, fades in quickly and out slowly.
+      const w = 2 + p * 16;
+      const alpha = this.peak * Math.min(1, p * 6) * (1 - p) ** 1.6;
+      m.setPaintProperty(id, 'line-width', ['interpolate', ['exponential', 1.5], ['zoom'], 0, w * 0.3, 3, w, 6, w * 2, 9, w * 3.5]);
+      m.setPaintProperty(id, 'line-blur', ['interpolate', ['exponential', 1.5], ['zoom'], 0, w * 0.2, 3, w * 0.55, 6, w * 1.1, 9, w * 2]);
+      m.setPaintProperty(id, 'line-opacity', alpha);
+    });
+  }
 }

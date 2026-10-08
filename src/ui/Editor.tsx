@@ -638,6 +638,7 @@ const LAYER_LABELS: [keyof Layers, string][] = [
   ['relief', 'Terrain relief'],
   ['hillshade', 'Hill shading'],
   ['terrain', '3D mountains'],
+  ['waves', 'Animated water'],
   ['rivers', 'Rivers'],
   ['urban', 'Urban areas'],
   ['graticule', 'Graticule'],

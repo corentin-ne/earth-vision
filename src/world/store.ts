@@ -13,6 +13,8 @@ export interface Layers {
   relief: boolean;
   hillshade: boolean;
   terrain: boolean;
+  /** Animated surf along the coasts. */
+  waves: boolean;
   regionBorders: boolean;
   regionLabels: boolean;
   countryLabels: boolean;
@@ -95,6 +97,7 @@ const DEFAULT_LAYERS: Layers = {
   relief: true,
   hillshade: true,
   terrain: false,
+  waves: true,
   regionBorders: true,
   regionLabels: true,
   countryLabels: true,

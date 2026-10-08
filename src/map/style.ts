@@ -22,7 +22,15 @@ function graticule(step = 15): FeatureCollection {
 }
 
 export interface Look {
+  /** Deep water. */
   ocean: string;
+  /** Lighter water glowing along the coasts (continental shelf). */
+  shelf: string;
+  /** Colour of the animated surf rings. */
+  surf: string;
+  surfOpacity: number;
+  /** Land under everything else, so water effects never show through bare land. */
+  landBase: string;
   /** Colour of land nobody owns; null lets the relief show through. */
   unclaimed: string | null;
   fillOpacity: number;
@@ -53,7 +61,11 @@ export interface Look {
 
 export const LOOKS: Record<MapStyleId, Look> = {
   political: {
-    ocean: '#c4def0',
+    ocean: '#a9d0ea',
+    shelf: '#d6ecf8',
+    surf: '#ffffff',
+    surfOpacity: 0.55,
+    landBase: '#e8e2d0',
     unclaimed: null,
     fillOpacity: 1,
     seam: true,
@@ -66,7 +78,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
     countryBorderWidth: 1.1,
     regionBorder: 'rgba(255,255,255,0.6)',
     coast: 'rgba(40,80,120,0.55)',
-    lake: '#c4def0',
+    lake: '#c9e4f4',
     river: '#6fa8d6',
     urban: 'rgba(120,90,60,0.18)',
     label: '#1b2333',
@@ -75,11 +87,15 @@ export const LOOKS: Record<MapStyleId, Look> = {
     regionLabel: 'rgba(30,40,60,0.62)',
     cityLabel: '#222a38',
     waterLabel: '#4b78a8',
-    sky: { sky: '#c8dff0', horizon: '#e8f4fc', fog: '#e8f4fc' },
+    sky: { sky: '#9cc6e6', horizon: '#e4f2fb', fog: '#e4f2fb' },
     selection: '#ff2d55',
   },
   atlas: {
-    ocean: '#e2f3fd',
+    ocean: '#cde8f8',
+    shelf: '#eef8fe',
+    surf: '#ffffff',
+    surfOpacity: 0.6,
+    landBase: '#efe9dc',
     unclaimed: null,
     fillOpacity: 0.14,
     seam: false,
@@ -92,7 +108,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
     countryBorderWidth: 1.4,
     regionBorder: 'rgba(179,1,158,0.22)',
     coast: 'rgba(0,140,190,0.45)',
-    lake: '#e2f3fd',
+    lake: '#e4f4fd',
     river: '#00acd4',
     urban: 'rgba(255,188,82,0.5)',
     label: 'rgb(124,53,95)',
@@ -105,7 +121,11 @@ export const LOOKS: Record<MapStyleId, Look> = {
     selection: '#ff0f5f',
   },
   plain: {
-    ocean: '#bce0fb',
+    ocean: '#a8d5f6',
+    shelf: '#c9e7fc',
+    surf: '#ffffff',
+    surfOpacity: 0.45,
+    landBase: '#f2efe6',
     unclaimed: '#f2efe6',
     fillOpacity: 1,
     seam: true,
@@ -118,7 +138,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
     countryBorderWidth: 1,
     regionBorder: 'rgba(128,128,128,0.8)',
     coast: 'rgba(23,23,23,0.9)',
-    lake: '#bce0fb',
+    lake: '#c3e4fb',
     river: '#7fb7e6',
     urban: 'rgba(0,0,0,0)',
     label: '#08254d',
@@ -131,7 +151,11 @@ export const LOOKS: Record<MapStyleId, Look> = {
     selection: '#ff0000',
   },
   night: {
-    ocean: '#0a1220',
+    ocean: '#060c18',
+    shelf: '#10284a',
+    surf: '#4fd8ff',
+    surfOpacity: 0.5,
+    landBase: '#161d2b',
     unclaimed: null,
     fillOpacity: 1,
     seam: true,
@@ -144,7 +168,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
     countryBorderWidth: 1,
     regionBorder: 'rgba(233,236,255,0.14)',
     coast: 'rgba(140,180,255,0.45)',
-    lake: '#0a1220',
+    lake: '#0d203d',
     river: '#3d6fa8',
     urban: 'rgba(255,200,90,0.35)',
     label: '#f3f5ff',
@@ -158,6 +182,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
   },
 };
 
+/** Width of the coastal glow: grows with zoom so it reads as a band of shallow water at every scale. */
+export const shelfWidth = (base: number): ExpressionSpecification => ['interpolate', ['exponential', 1.5], ['zoom'], 0, base * 0.35, 3, base, 6, base * 2.2, 9, base * 4];
 const zoomWidth = (base: number): ExpressionSpecification => ['interpolate', ['exponential', 1.6], ['zoom'], 1, base * 0.6, 4, base * 1.2, 8, base * 2.6];
 
 /** Static skeleton of the style: every source and layer exists from the start; looks are applied afterwards. */
@@ -209,7 +235,31 @@ export function baseStyle(): StyleSpecification {
     },
     layers: [
       { id: 'ocean', type: 'background', paint: { 'background-color': '#c4def0' } },
+      // Water depth: a soft lighter band along the coasts. Drawn under the land, so only its sea side shows.
+      {
+        id: 'shelf-outer',
+        type: 'line',
+        source: 'coast',
+        paint: { 'line-color': '#d6ecf8', 'line-width': shelfWidth(26), 'line-blur': shelfWidth(20), 'line-opacity': 0.55 },
+        layout: { 'line-join': 'round' },
+      },
+      {
+        id: 'shelf-inner',
+        type: 'line',
+        source: 'coast',
+        paint: { 'line-color': '#d6ecf8', 'line-width': shelfWidth(9), 'line-blur': shelfWidth(6), 'line-opacity': 0.9 },
+        layout: { 'line-join': 'round' },
+      },
+      // Surf: two rings rolling out from the shore; only their paint changes, see MapController.waves.
+      ...(['surf-a', 'surf-b'] as const).map((id) => ({
+        id,
+        type: 'line' as const,
+        source: 'coast',
+        paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-blur': 1, 'line-opacity': 0 },
+        layout: { 'line-join': 'round' as const },
+      })),
       { id: 'graticule', type: 'line', source: 'graticule', paint: { 'line-color': 'rgba(0,0,0,0.06)', 'line-width': ['case', ['get', 'eq'], 1.4, 0.8] } },
+      { id: 'land-base', type: 'fill', source: 'regions', paint: { 'fill-color': '#e8e2d0', 'fill-antialias': false } },
       { id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0 } },
       {
         id: 'region-fill',
