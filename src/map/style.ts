@@ -8,7 +8,8 @@ const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 
 function graticule(step = 15): FeatureCollection {
   const features: FeatureCollection['features'] = [];
-  for (let lng = -180; lng <= 180; lng += step) {
+  // -180 and 180 are the same meridian: drawing both would double it.
+  for (let lng = -180; lng < 180; lng += step) {
     const coords = [];
     for (let lat = -80; lat <= 80; lat += 2) coords.push([lng, lat]);
     features.push({ type: 'Feature', properties: { eq: false }, geometry: { type: 'LineString', coordinates: coords } });
@@ -45,6 +46,10 @@ export interface Look {
   countryBorderWidth: number;
   regionBorder: string;
   coast: string;
+  /** Soft light band on the water side of every coast. */
+  coastGlow: string;
+  /** Faint shadow the land casts on the water, lifting it off the sea. */
+  coastShadow: string;
   lake: string;
   river: string;
   urban: string;
@@ -76,6 +81,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
     countryBorderWidth: 1.1,
     regionBorder: 'rgba(255,255,255,0.6)',
     coast: 'rgba(40,80,120,0.55)',
+    coastGlow: 'rgba(240,250,255,0.75)',
+    coastShadow: 'rgba(16,48,92,0.32)',
     lake: '#c9e4f4',
     river: '#6fa8d6',
     urban: 'rgba(120,90,60,0.18)',
@@ -105,6 +112,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
     countryBorderWidth: 1.4,
     regionBorder: 'rgba(179,1,158,0.22)',
     coast: 'rgba(0,140,190,0.45)',
+    coastGlow: 'rgba(255,255,255,0.85)',
+    coastShadow: 'rgba(0,90,140,0.16)',
     lake: '#e4f4fd',
     river: '#00acd4',
     urban: 'rgba(255,188,82,0.5)',
@@ -134,6 +143,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
     countryBorderWidth: 1,
     regionBorder: 'rgba(128,128,128,0.8)',
     coast: 'rgba(23,23,23,0.9)',
+    coastGlow: 'rgba(255,255,255,0.6)',
+    coastShadow: 'rgba(0,0,0,0.14)',
     lake: '#c3e4fb',
     river: '#7fb7e6',
     urban: 'rgba(0,0,0,0)',
@@ -163,6 +174,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
     countryBorderWidth: 1,
     regionBorder: 'rgba(233,236,255,0.14)',
     coast: 'rgba(140,180,255,0.45)',
+    coastGlow: 'rgba(110,190,255,0.22)',
+    coastShadow: 'rgba(0,0,0,0.55)',
     lake: '#0d203d',
     river: '#3d6fa8',
     urban: 'rgba(255,200,90,0.35)',
@@ -244,13 +257,46 @@ export function baseStyle(): StyleSpecification {
       { id: 'water-depth', type: 'color-relief', source: 'bathy', paint: { 'color-relief-color': depthRamp(LOOKS.political.depth) } },
       // The animated water surface (a custom WebGL layer, see water.ts) is inserted here, before the graticule.
       { id: 'graticule', type: 'line', source: 'graticule', paint: { 'line-color': 'rgba(0,0,0,0.06)', 'line-width': ['case', ['get', 'eq'], 1.4, 0.8] } },
+      // Under the land, so only their sea side shows: a light shoreline glow, and the land's shadow.
+      {
+        id: 'coast-glow',
+        type: 'line',
+        source: 'coast',
+        paint: {
+          'line-color': 'rgba(255,255,255,0.7)',
+          'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 1, 1.6, 4, 5, 8, 12],
+          'line-blur': ['interpolate', ['exponential', 1.5], ['zoom'], 1, 1.4, 4, 4, 8, 9],
+        },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+      },
+      {
+        id: 'coast-shadow',
+        type: 'line',
+        source: 'coast',
+        paint: {
+          'line-color': 'rgba(16,48,92,0.3)',
+          'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 1, 1, 4, 2.5, 8, 6],
+          'line-blur': ['interpolate', ['exponential', 1.5], ['zoom'], 1, 1, 4, 2, 8, 5],
+          'line-translate': [0.8, 1.4],
+        },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+      },
       { id: 'land-base', type: 'fill', source: 'regions', paint: { 'fill-color': '#e8e2d0', 'fill-antialias': false } },
       { id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0 } },
       {
         id: 'region-fill',
         type: 'fill',
         source: 'regions',
+        filter: ['!', ['to-boolean', ['get', 'polar']]],
         paint: { 'fill-color': ['to-color', ['coalesce', ['feature-state', 'color'], '#ece6d3']], 'fill-antialias': true },
+      },
+      {
+        // Regions reaching a pole: on the globe the anti-aliased outline would ring the polar cap.
+        id: 'region-fill-polar',
+        type: 'fill',
+        source: 'regions',
+        filter: ['to-boolean', ['get', 'polar']],
+        paint: { 'fill-color': ['to-color', ['coalesce', ['feature-state', 'color'], '#ece6d3']], 'fill-antialias': false },
       },
       {
         // Hairline in the fill colour hides anti-aliasing seams between same-colour regions.

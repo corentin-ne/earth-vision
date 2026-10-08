@@ -80,15 +80,26 @@ vec2 slope(vec2 p, float t) {
   return g;
 }
 
-void main() {
-  // Wave units tied to the map, sized for the screen: computed at the current and the next
-  // zoom level and cross-faded, so waves keep a similar on-screen size without popping.
+// Wave units tied to the map, sized for the screen: computed at the current and the next
+// zoom level and cross-faded, so waves keep a similar on-screen size without popping.
+vec2 waves(vec2 merc) {
   float zf = floor(u_zoom);
-  float k = fract(u_zoom);
-  vec2 px = v_merc * 512.0;
+  vec2 px = merc * 512.0;
   vec2 s0 = slope(px * exp2(zf) / 26.0, u_time);
   vec2 s1 = slope(px * exp2(zf + 1.0) / 26.0, u_time * 1.15);
-  vec2 g = mix(s0, s1, smoothstep(0.0, 1.0, k));
+  return mix(s0, s1, smoothstep(0.0, 1.0, fract(u_zoom)));
+}
+
+void main() {
+  vec2 g = waves(v_merc);
+  // The field does not wrap round the world: near the antimeridian it is blended with the
+  // field one world over, so both sides meet on the same waves instead of a seam.
+  float edge = min(v_merc.x, 1.0 - v_merc.x);
+  float band = 48.0 / (512.0 * exp2(u_zoom));
+  if (edge < band) {
+    vec2 other = waves(v_merc + vec2(v_merc.x < 0.5 ? 1.0 : -1.0, 0.0));
+    g = mix(other, g, 0.5 + 0.5 * smoothstep(0.0, band, edge));
+  }
 
   vec3 n = normalize(vec3(-g * 0.22, 1.0));
   vec3 sun = normalize(vec3(-0.45, 0.55, 0.7));
@@ -106,6 +117,8 @@ void main() {
   float alpha = aL + aD * (1.0 - aL);
   // Fade out on the whole-globe view, where the waves would only read as noise.
   float fade = smoothstep(1.2, 3.0, u_zoom);
+  // And towards the poles (from ~80°), so the waves never end on a hard edge around the polar caps.
+  fade *= smoothstep(0.0, 0.07, min(v_merc.y, 1.0 - v_merc.y));
   fragColor = vec4(col, alpha) * fade;
 }`;
 

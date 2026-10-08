@@ -2,10 +2,11 @@ import * as maplibregl from 'maplibre-gl';
 import type { GeoJSONSource, Map as MLMap, MapMouseEvent, PointLike } from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { Feature, FeatureCollection, Point } from 'geojson';
+import type { Feature, FeatureCollection, Geometry, Point } from 'geojson';
 import type { Country, LngLat } from '../types';
 import { LOOKS, baseStyle, asset, depthRamp, type Look } from './style';
 import { WaterLayer, rgb } from './water';
+import { dropCuts } from './cuts';
 import {
   useWorld,
   engine,
@@ -29,6 +30,14 @@ maplibregl.setWorkerUrl(workerUrl);
 
 const get = useWorld.getState;
 const fc = <G extends Feature['geometry']>(features: Feature<G>[]): FeatureCollection<G> => ({ type: 'FeatureCollection', features });
+
+const REGION_FILLS = ['region-fill', 'region-fill-polar'];
+
+/** Whether a region reaches beyond the mercator square (in practice: Antarctica at the south pole). */
+function touchesPole(g: Geometry): boolean {
+  const rings = g.type === 'Polygon' ? g.coordinates : g.type === 'MultiPolygon' ? g.coordinates.flat() : [];
+  return rings.some((r) => r.some((p) => Math.abs(p[1]) > 85));
+}
 
 /** Imperative bridge between the world store and MapLibre. */
 export class MapController {
@@ -207,7 +216,7 @@ export class MapController {
     const reliefOn = layers.relief && mapStyle !== 'plain';
     vis('relief', reliefOn);
     paint('relief', 'raster-brightness-max', L.reliefBrightness);
-    paint('region-fill', 'fill-opacity', L.fillOpacity);
+    for (const id of REGION_FILLS) paint(id, 'fill-opacity', L.fillOpacity);
     vis('region-seam', L.seam);
     vis('hillshade', layers.hillshade && L.hillshade);
     vis('veil', L.veil > 0);
@@ -220,6 +229,8 @@ export class MapController {
     vis('region-borders', layers.regionBorders);
     paint('region-borders', 'line-color', L.regionBorder);
     paint('coast', 'line-color', L.coast);
+    paint('coast-glow', 'line-color', L.coastGlow);
+    paint('coast-shadow', 'line-color', L.coastShadow);
     paint('country-borders', 'line-color', L.countryBorder);
     paint('country-borders', 'line-opacity', L.countryBorderOpacity);
     paint('country-borders', 'line-width', ['interpolate', ['exponential', 1.6], ['zoom'], 1, L.countryBorderWidth * 0.7, 4, L.countryBorderWidth * 1.3, 8, L.countryBorderWidth * 2.8]);
@@ -324,7 +335,7 @@ export class MapController {
       for (const a of doc.alliances) {
         if (allianceView !== 'all' && a.id !== allianceView) continue;
         const members = new Set(a.members);
-        features.push({ type: 'Feature', properties: { color: a.color }, geometry: engine.outline((rid) => members.has(doc.regions[rid]?.cid)) });
+        features.push({ type: 'Feature', properties: { color: a.color }, geometry: dropCuts(engine.outline((rid) => members.has(doc.regions[rid]?.cid))) });
       }
     }
     this.src('alliances')?.setData(fc(features));
@@ -391,7 +402,7 @@ export class MapController {
     if (!doc) return;
     const features: Feature[] = [];
     for (const [id, g] of Object.entries(geoms)) {
-      if (doc.regions[Number(id)]) features.push({ type: 'Feature', id: Number(id), properties: {}, geometry: g });
+      if (doc.regions[Number(id)]) features.push({ type: 'Feature', id: Number(id), properties: { polar: touchesPole(g) }, geometry: g });
     }
     this.src('regions')?.setData(fc(features));
     this.regionLabelKey.clear();
@@ -471,7 +482,7 @@ export class MapController {
     this.lastBorderRun = performance.now();
     const regions = doc.regions;
     const b = engine.borders((rid) => regions[rid]?.cid ?? '');
-    const asFc = (g: typeof b.coast) => fc([{ type: 'Feature', properties: {}, geometry: g }]);
+    const asFc = (g: typeof b.coast) => fc([{ type: 'Feature', properties: {}, geometry: dropCuts(g) }]);
     this.src('borders-country')?.setData(asFc(b.countries));
     this.src('borders-region')?.setData(asFc(b.regions));
     this.src('coast')?.setData(asFc(b.coast));
@@ -538,10 +549,10 @@ export class MapController {
     const features: Feature[] = [];
     if (selection.cid && engine.ready) {
       const cid = selection.cid;
-      features.push({ type: 'Feature', properties: { kind: 'country' }, geometry: engine.outline((rid) => doc.regions[rid]?.cid === cid) });
+      features.push({ type: 'Feature', properties: { kind: 'country' }, geometry: dropCuts(engine.outline((rid) => doc.regions[rid]?.cid === cid)) });
     }
     if (selection.regions.length && engine.ready) {
-      features.push({ type: 'Feature', properties: { kind: 'region' }, geometry: engine.outline((rid) => nextSel.has(rid)) });
+      features.push({ type: 'Feature', properties: { kind: 'region' }, geometry: dropCuts(engine.outline((rid) => nextSel.has(rid))) });
     }
     this.src('selection')?.setData(fc(features));
   }
@@ -648,7 +659,7 @@ export class MapController {
   // ── Interactions ─────────────────────────────────────────────────────────
 
   private regionAtPoint(p: PointLike): number | null {
-    const f = this.map.queryRenderedFeatures(p, { layers: ['region-fill'] })[0];
+    const f = this.map.queryRenderedFeatures(p, { layers: REGION_FILLS })[0];
     return f?.id != null ? Number(f.id) : null;
   }
 
@@ -867,7 +878,7 @@ export class MapController {
     if (!doc || !this.stroke) return;
     const r = brushSize;
     const q: PointLike | [PointLike, PointLike] = r > 0 ? [[x - r, y - r], [x + r, y + r]] : [x, y];
-    const feats = this.map.queryRenderedFeatures(q, { layers: ['region-fill'] });
+    const feats = this.map.queryRenderedFeatures(q, { layers: REGION_FILLS });
     const ids = new Set<number>();
     for (const f of feats) if (f.id != null && doc.regions[Number(f.id)]?.cid !== brushCid) ids.add(Number(f.id));
     const opts = { group: this.stroke.group, label: `Paint ${doc.countries[brushCid]?.name ?? 'unclaimed'}`, deferLabels: true };
