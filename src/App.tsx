@@ -1,7 +1,7 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorldBundle } from './types';
 import { useWorld, loadWorld, closeWorld, toast, currentBundle, select, setTool } from './world/store';
-import { onBackButton } from './native';
+import { onBackButton, onOpenFile } from './native';
 import { loadBundle, saveBundle, saveThumb, lastWorld } from './io/db';
 import { readWorldFile } from './io/files';
 import { flushAutosave } from './world/persist';
@@ -18,6 +18,9 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const hasDoc = useWorld((s) => !!s.doc);
   useEffect(preloadEditor, []);
+  // A .map opened from the file manager (Android): it waits until the app has booted.
+  const [incoming, setIncoming] = useState<File | null>(null);
+  useEffect(() => onOpenFile(setIncoming), []);
 
   const open = async (b: WorldBundle, isNew: boolean) => {
     setBusy('Opening…');
@@ -50,7 +53,8 @@ export default function App() {
     if (busy) return true;
     if (view !== 'editor') return false;
     const s = useWorld.getState();
-    if (s.flagMakerFor) useWorld.setState({ flagMakerFor: null });
+    if (s.zen) useWorld.setState({ zen: false });
+    else if (s.flagMakerFor) useWorld.setState({ flagMakerFor: null });
     else if (s.flagView) useWorld.setState({ flagView: null });
     else if (s.detailsOpen) useWorld.setState({ detailsOpen: false });
     else if (s.worldOpen) useWorld.setState({ worldOpen: false });
@@ -58,6 +62,7 @@ export default function App() {
     else if (s.advancedOpen) useWorld.setState({ advancedOpen: false });
     else if (s.galleryOpen) useWorld.setState({ galleryOpen: false });
     else if (s.layersOpen) useWorld.setState({ layersOpen: false });
+    else if (s.allianceView) useWorld.setState({ allianceView: null });
     else if (s.tool !== 'select') setTool('select');
     else if (s.selection.cid || s.selection.regions.length || s.selection.city != null) select({});
     else void goHome();
@@ -80,6 +85,21 @@ export default function App() {
       })
       .catch(() => setView('home'));
   }, []);
+
+  useEffect(() => {
+    if (!incoming || view === 'boot') return;
+    setIncoming(null);
+    (async () => {
+      try {
+        if (useWorld.getState().doc) await flushAutosave();
+        await open(await readWorldFile(incoming), true);
+        toast(`Opened ${incoming.name}`, 'ok');
+      } catch (err) {
+        toast('Could not open file: ' + (err as Error).message, 'error');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming, view]);
 
   // Dropping a file on the editor opens it as a new world.
   useEffect(() => {

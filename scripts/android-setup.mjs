@@ -52,6 +52,32 @@ for (const dir of fs.readdirSync(res).filter((d) => /^mipmap-[a-z]*dpi$/.test(d)
   fs.writeFileSync(path.join(res, dir, 'ic_launcher_round.png'), png);
 }
 
+// ── "Open with Earth Vision" for .map files in file managers (and attachments). Android knows no
+// MIME type for .map, so they come as application/octet-stream (or zip, which a .map is inside).
+const manifestPath = path.join(root, 'android/app/src/main/AndroidManifest.xml');
+let manifest = fs.readFileSync(manifestPath, 'utf8');
+if (!manifest.includes('ev-open-map')) {
+  const filter = `
+            <!-- ev-open-map: open .map worlds from the file manager -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+            </intent-filter>
+`;
+  const launcher = manifest.indexOf('android.intent.category.LAUNCHER');
+  const end = launcher < 0 ? -1 : manifest.indexOf('</intent-filter>', launcher);
+  if (end < 0) throw new Error('Could not find the launcher activity in AndroidManifest.xml');
+  const at = end + '</intent-filter>'.length;
+  manifest = manifest.slice(0, at) + '\n' + filter + manifest.slice(at);
+  fs.writeFileSync(manifestPath, manifest);
+}
+
 // ── Version shown in Android settings, from package.json ("2.1.0" → name 2.1.0, code 20100).
 const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const [maj, min, pat] = version.split(/[.-]/).map((n) => parseInt(n, 10) || 0);
@@ -81,4 +107,4 @@ if (keystore && !g.includes('signingConfigs')) {
 }
 fs.writeFileSync(gradle, g);
 
-console.log(`Android project set up: icon, version ${version}${keystore ? ', release signing' : ''}`);
+console.log(`Android project set up: icon, .map files, version ${version}${keystore ? ', release signing' : ''}`);

@@ -19,6 +19,34 @@ import { mapCtl } from '../map/controller';
 import { CountryPicker, Flag, NumberField, Stat, TextField } from './common';
 import { Icon } from './icons';
 import { fmtArea, fmtCompact } from '../util';
+import { loadBarriers, naturalOn } from '../geo/barriers';
+import { cutAlongNature } from '../world/natural';
+
+/** Cuts regions along the rivers and crests that cross them (the brush's setting, or big rivers + crests). */
+async function cutNatural(ids: number[]) {
+  try {
+    await loadBarriers();
+  } catch {
+    toast('Could not load the rivers and crests', 'error');
+    return;
+  }
+  const n = useWorld.getState().natural;
+  const o = naturalOn(n) ? n : ({ rivers: 'major', crests: true } as const);
+  const after = cutAlongNature(ids, { o });
+  const made = after.length - ids.length;
+  if (!made) return toast('No big river or crest runs across', 'error');
+  toast(`Cut into ${after.length} regions along rivers & crests`, 'ok');
+  const r = useWorld.getState().doc!.regions[after[0]];
+  select({ cid: r?.cid || null, regions: after });
+}
+
+function CutNaturalButton({ ids }: { ids: number[] }) {
+  return (
+    <button className="btn" title="Cut along the big rivers and mountain crests that run across" onClick={() => cutNatural(ids)}>
+      <Icon name="river" size={15} /> Cut at rivers & crests
+    </button>
+  );
+}
 
 function NewCountryForm({ ids, onDone }: { ids: number[]; onDone: () => void }) {
   const [name, setName] = useState('');
@@ -98,6 +126,7 @@ export function RegionCard({ region: r }: { region: Region }) {
         >
           <Icon name="knife" size={15} /> Split
         </button>
+        <CutNaturalButton ids={[r.id]} />
       </div>
       {creating && <NewCountryForm ids={[r.id]} onDone={() => setCreating(false)} />}
     </div>
@@ -157,6 +186,7 @@ export function MultiRegionPanel({ ids }: { ids: number[] }) {
         <button className="btn" onClick={() => mapCtl?.fitBounds(boundsOf(ids))}>
           <Icon name="target" size={15} /> Zoom
         </button>
+        <CutNaturalButton ids={ids} />
       </div>
       {creating && <NewCountryForm ids={ids} onDone={() => setCreating(false)} />}
       <div className="region-list">

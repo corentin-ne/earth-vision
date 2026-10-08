@@ -22,6 +22,8 @@ import {
   type State,
 } from '../world/store';
 import { loadIso2, iso2 } from '../world/flags';
+import { loadBarriers, barriers, naturalOn } from '../geo/barriers';
+import { activeNatural, blocked, claimUpToNature, cutAlongNature, reachable } from '../world/natural';
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -44,11 +46,14 @@ export class MapController {
   private labelTimer: ReturnType<typeof setTimeout> | null = null;
   private lastBorderRun = 0;
   private drawPts: LngLat[] = [];
-  private stroke: { group: string; last: [number, number] } | null = null;
+  /** The paint stroke under way; `anchor` is the last brush spot not cut off by a river or crest. */
+  private stroke: { group: string; last: [number, number]; anchor: LngLat | null; blockedAt?: LngLat } | null = null;
   private spaceDown = false;
   private draggingCity: number | null = null;
   onHover?: (info: { x: number; y: number; region: number | null; city: number | null } | null) => void;
   onDrawChange?: (n: number) => void;
+  /** The brush outline follows the pointer; `blocked` when a river or crest stops the stroke. */
+  onBrush?: (b: { x: number; y: number; r: number; blocked: boolean } | null) => void;
 
   constructor(container: HTMLElement) {
     const view = get().doc?.view;
@@ -98,6 +103,7 @@ export class MapController {
     } catch (e) {
       console.warn('animated water unavailable', e);
     }
+    this.addOverlays();
     this.loaded = true;
     this.applyLook();
     this.syncAll();
@@ -109,6 +115,11 @@ export class MapController {
         if (s.selection !== p.selection) this.syncSelection();
         if (s.docks !== p.docks) this.updatePadding();
         if (s.tool !== p.tool) this.onToolChange(s, p);
+        if (s.tool !== p.tool || s.natural !== p.natural) this.syncBarriers();
+        if (s.allianceView !== p.allianceView) {
+          this.recolorAll();
+          this.syncAlliances();
+        }
       }),
     );
     // The panel may have reported its size while the map was still loading.
@@ -239,6 +250,86 @@ export class MapController {
     this.recolorAll();
   }
 
+  /** Layers of the editor itself (not of the map look): alliance outlines, the rivers and crests the brush stops at. */
+  private addOverlays() {
+    const m = this.map;
+    const before = 'selection-halo';
+    m.addSource('alliances', { type: 'geojson', data: fc([]) });
+    m.addSource('barriers', { type: 'geojson', data: fc([]) });
+    m.addLayer(
+      {
+        id: 'alliance-casing',
+        type: 'line',
+        source: 'alliances',
+        paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 3, 6, 7], 'line-opacity': 0.7, 'line-blur': 1 },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+      },
+      before,
+    );
+    m.addLayer(
+      {
+        id: 'alliance-borders',
+        type: 'line',
+        source: 'alliances',
+        paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.6, 6, 3.6] },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+      },
+      before,
+    );
+    m.addLayer(
+      {
+        id: 'barrier-glow',
+        type: 'line',
+        source: 'barriers',
+        paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 3, 6, 7], 'line-opacity': 0.75, 'line-blur': 1.5 },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+      },
+      before,
+    );
+    m.addLayer(
+      {
+        id: 'barrier-lines',
+        type: 'line',
+        source: 'barriers',
+        paint: {
+          'line-color': ['match', ['get', 'kind'], 'crest', '#9a5b2e', '#1f7fd1'],
+          'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.4, 6, 3],
+          'line-dasharray': [3, 1.2],
+        },
+        layout: { 'line-join': 'round' },
+      },
+      before,
+    );
+  }
+
+  /** Shows the active rivers and crests while painting with natural borders on (loading them first). */
+  private syncBarriers() {
+    if (!this.loaded) return;
+    const { tool, natural } = get();
+    const on = tool === 'paint' && naturalOn(natural);
+    if (on && !barriers()) {
+      loadBarriers().then(() => this.syncBarriers(), () => toast('Could not load the rivers and crests', 'error'));
+      return;
+    }
+    const b = barriers();
+    this.src('barriers')?.setData(on && b ? (b.geojson(natural) as FeatureCollection) : fc([]));
+  }
+
+  /** Outlines of the alliances shown (all of them, or the focused one). */
+  private syncAlliances() {
+    if (!this.loaded) return;
+    const { doc, allianceView } = get();
+    const features: Feature[] = [];
+    if (doc && allianceView && engine.ready) {
+      for (const a of doc.alliances) {
+        if (allianceView !== 'all' && a.id !== allianceView) continue;
+        const members = new Set(a.members);
+        features.push({ type: 'Feature', properties: { color: a.color }, geometry: engine.outline((rid) => members.has(doc.regions[rid]?.cid)) });
+      }
+    }
+    this.src('alliances')?.setData(fc(features));
+  }
+
   // ── Sync ─────────────────────────────────────────────────────────────────
 
   syncAll() {
@@ -254,6 +345,8 @@ export class MapController {
     this.syncCities();
     this.syncWater();
     this.syncSelection();
+    this.syncAlliances();
+    this.syncBarriers();
     this.applyLook();
     const v = get().doc?.view;
     if (v) this.map.jumpTo({ center: v.center, zoom: v.zoom, bearing: v.bearing ?? 0, pitch: v.pitch ?? 0 });
@@ -279,7 +372,18 @@ export class MapController {
     else if (c.regions.size || c.countries.size) this.scheduleBorders();
     if (c.countries.size || c.regions.size) this.scheduleLabels();
     if (c.cities) this.syncCities();
+    if (c.alliances) this.recolorAll();
+    if (get().allianceView && (c.alliances || c.geoms || c.regions.size)) this.scheduleAlliances();
     this.syncSelection();
+  }
+
+  private allianceTimer: ReturnType<typeof setTimeout> | null = null;
+  private scheduleAlliances() {
+    if (this.allianceTimer) return;
+    this.allianceTimer = setTimeout(() => {
+      this.allianceTimer = null;
+      this.syncAlliances();
+    }, 150);
   }
 
   private syncRegionsData() {
@@ -316,8 +420,13 @@ export class MapController {
   }
 
   private colorOf(cid: string): string {
-    const { doc, mapStyle } = get();
+    const { doc, mapStyle, allianceView } = get();
     const c = doc?.countries[cid];
+    if (c && allianceView && doc) {
+      // Alliance view: members take their alliance's colour, everyone else fades to grey.
+      const a = doc.alliances.find((x) => (allianceView === 'all' || x.id === allianceView) && x.members.includes(cid));
+      return a ? a.color : mute(c.color, mapStyle === 'night');
+    }
     if (c) return c.color;
     const u = LOOKS[mapStyle].unclaimed;
     return u ?? 'rgba(0,0,0,0)';
@@ -567,6 +676,7 @@ export class MapController {
     m.on('mouseout', () => {
       this.setHover(null);
       this.onHover?.(null);
+      this.onBrush?.(null);
     });
     m.on('click', (e) => this.onClick(e));
     m.on('dblclick', (e) => this.onDblClick(e));
@@ -585,6 +695,7 @@ export class MapController {
 
   private onMove(e: MapMouseEvent) {
     const { tool } = get();
+    if (tool === 'paint') this.onBrush?.({ x: e.point.x, y: e.point.y, r: get().brushSize, blocked: !!this.stroke?.blockedAt });
     if (this.stroke) {
       this.paintTo(e.point.x, e.point.y);
       return;
@@ -692,8 +803,15 @@ export class MapController {
         return;
       }
       e.preventDefault();
-      this.stroke = { group: `paint:${Date.now()}`, last: [e.point.x, e.point.y] };
+      const natural = activeNatural();
+      this.stroke = { group: `paint:${Date.now()}`, last: [e.point.x, e.point.y], anchor: natural ? [e.lngLat.lng, e.lngLat.lat] : null };
       if (oe?.ctrlKey || oe?.metaKey || mode === 'whole') {
+        if (natural) {
+          // The country under the cursor, up to its rivers and crests.
+          const n = claimUpToNature([e.lngLat.lng, e.lngLat.lat], brushCid, { group: this.stroke.group, label: `Paint ${doc.countries[brushCid]?.name ?? 'unclaimed'}` });
+          if (!n) toast('Nothing to take here');
+          return;
+        }
         // Whole-country fill: annex the entire country under the cursor.
         const rid = this.regionAtPoint(e.point);
         const src = rid != null ? doc.regions[rid].cid : null;
@@ -721,6 +839,7 @@ export class MapController {
     if (this.stroke) {
       this.stroke = null;
       endGroup();
+      this.onBrush?.(null);
     }
     if (this.draggingCity != null) {
       const id = this.draggingCity;
@@ -751,7 +870,33 @@ export class MapController {
     const feats = this.map.queryRenderedFeatures(q, { layers: ['region-fill'] });
     const ids = new Set<number>();
     for (const f of feats) if (f.id != null && doc.regions[Number(f.id)]?.cid !== brushCid) ids.add(Number(f.id));
-    if (ids.size) transferRegions([...ids], brushCid, { group: this.stroke.group, label: `Paint ${doc.countries[brushCid]?.name ?? 'unclaimed'}` });
+    const opts = { group: this.stroke.group, label: `Paint ${doc.countries[brushCid]?.name ?? 'unclaimed'}`, deferLabels: true };
+    if (this.stroke.anchor) {
+      // Natural borders: the brush never reaches across a river or crest from where the stroke is.
+      const at = this.map.unproject([x, y]);
+      const p: LngLat = [at.lng, at.lat];
+      if (blocked(this.stroke.anchor, p)) {
+        this.stroke.blockedAt = p;
+        return;
+      }
+      this.stroke.anchor = p;
+      this.stroke.blockedAt = undefined;
+      if (!ids.size) return;
+      const samples: LngLat[] = [];
+      if (r > 0)
+        for (const k of [0.5, 1])
+          for (let i = 0; i < 8; i++) {
+            const a = (i / 8) * Math.PI * 2;
+            const s = this.map.unproject([x + Math.cos(a) * r * k, y + Math.sin(a) * r * k]);
+            samples.push([s.lng, s.lat]);
+          }
+      // Regions a river or crest runs through are cut along it first, then only this side is taken.
+      const pieces = cutAlongNature([...ids], { group: this.stroke.group }).filter((id) => get().doc!.regions[id]?.cid !== brushCid);
+      const take = reachable(p, samples, pieces);
+      if (take.length) transferRegions(take, brushCid, opts);
+      return;
+    }
+    if (ids.size) transferRegions([...ids], brushCid, opts);
   }
 
   private renderDraw(cursor?: LngLat) {
@@ -784,6 +929,7 @@ export class MapController {
 
   private onToolChange(s: State, p: State) {
     if (p.tool === 'split') this.cancelDraw();
+    if (s.tool !== 'paint') this.onBrush?.(null);
     if (s.tool === 'paint') this.map.dragPan.disable();
     else this.map.dragPan.enable();
     this.setHover(null);
@@ -833,6 +979,44 @@ export class MapController {
     this.map.easeTo({ center: p, duration: 550, essential: true });
   }
 
+  private spinRaf = 0;
+  private spinStop: (() => void) | null = null;
+
+  /** Turns the globe slowly westward; any drag, pinch or wheel stops it (and calls `onStop`). */
+  spin(on: boolean, onStop?: () => void) {
+    cancelAnimationFrame(this.spinRaf);
+    this.spinRaf = 0;
+    this.spinStop?.();
+    this.spinStop = null;
+    if (!on) return;
+    const m = this.map;
+    let last = performance.now();
+    const step = (now: number) => {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const c = m.getCenter();
+      // ~4° a second at world zoom, slower when zoomed in.
+      m.jumpTo({ center: [c.lng + (dt * 4) / Math.max(1, m.getZoom() / 2), c.lat] });
+      this.spinRaf = requestAnimationFrame(step);
+    };
+    this.spinRaf = requestAnimationFrame(step);
+    const stop = (e: { originalEvent?: Event }) => {
+      if (!e.originalEvent) return; // our own jumpTo
+      this.spin(false);
+      onStop?.();
+    };
+    m.on('dragstart', stop);
+    m.on('wheel', stop);
+    m.on('touchstart', stop);
+    m.on('mousedown', stop);
+    this.spinStop = () => {
+      m.off('dragstart', stop);
+      m.off('wheel', stop);
+      m.off('touchstart', stop);
+      m.off('mousedown', stop);
+    };
+  }
+
   flyTo(p: LngLat, zoom?: number) {
     this.map.flyTo({ center: p, zoom: zoom ?? Math.max(this.map.getZoom(), 5), duration: 900 });
   }
@@ -843,6 +1027,16 @@ export class MapController {
       this.map.triggerRepaint();
     });
   }
+}
+
+/** A country colour washed out to grey, for countries outside the alliances shown. */
+function mute(hex: string, dark: boolean): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  const [r, g, b] = m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : [200, 200, 200];
+  const grey = (r + g + b) / 3;
+  const base = dark ? 70 : 222;
+  const mix = (v: number) => Math.round(base * 0.75 + (grey * 0.15 + v * 0.1));
+  return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

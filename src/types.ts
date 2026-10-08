@@ -114,4 +114,5 @@ export interface Patch {
   countries?: Record<string, Country | null>;
   cities?: Record<number, City | null>;
   geoms?: Record<number, RegionGeom | null>;
+  alliances?: Record<string, Alliance | null>;
 }

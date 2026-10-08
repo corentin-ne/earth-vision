@@ -28,10 +28,13 @@ import { Icon, type IconName } from './icons';
 import { downloadMap, fileBase } from '../io/files';
 import { flushAutosave, onSaveState } from '../world/persist';
 import { download, fmtCompact } from '../util';
+import { AllianceLegend, viewAlliance } from './AlliancePanel';
+import { naturalOn, type RiverLevel } from '../geo/barriers';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
   const details = useWorld((s) => s.detailsOpen);
+  const zen = useWorld((s) => s.zen);
   const [ready, setReady] = useState(false);
   // Never keep the editor behind the veil, even if the map cannot load (e.g. no WebGL).
   useEffect(() => {
@@ -39,15 +42,23 @@ export function Editor({ onHome }: { onHome: () => void }) {
     return () => clearTimeout(t);
   }, []);
   return (
-    <div className={'editor' + (details ? ' details-open' : '') + (ready ? ' ready' : '')}>
+    <div className={'editor' + (details ? ' details-open' : '') + (ready ? ' ready' : '') + (zen ? ' zen' : '')}>
       <MapView onReady={() => setReady(true)} />
       <LoadingVeil ready={ready} />
-      <TopBar onHome={onHome} />
-      <ToolDock />
-      <Inspector />
-      <LayersPanel />
-      <SelectionBubble />
-      <DetailsDock />
+      {zen ? (
+        <ZenControls />
+      ) : (
+        <>
+          <TopBar onHome={onHome} />
+          <ToolDock />
+          <Inspector />
+          <LayersPanel />
+          <SelectionBubble />
+          <DetailsDock />
+          <AllianceLegend />
+          <BrushCursor />
+        </>
+      )}
       <HoverTip />
       <SplitHint />
       <ShortcutsHelp />
@@ -69,6 +80,7 @@ function MapView({ onReady }: { onReady: () => void }) {
     setMapCtl(ctl);
     ctl.onHover = (h) => hoverBus.emit(h);
     ctl.onDrawChange = (n) => drawBus.emit(n);
+    ctl.onBrush = (b) => brushBus.emit(b);
     (window as unknown as { cmaps: unknown }).cmaps = { ctl, store: useWorld };
     return () => {
       setMapCtl(null);
@@ -141,6 +153,64 @@ function bus<T>() {
 }
 const hoverBus = bus<{ x: number; y: number; region: number | null; city: number | null } | null>();
 const drawBus = bus<number>();
+const brushBus = bus<{ x: number; y: number; r: number; blocked: boolean } | null>();
+
+/** The brush's reach, following the pointer while painting; red when a river or crest stops the stroke. */
+function BrushCursor() {
+  const [b, setB] = useState<{ x: number; y: number; r: number; blocked: boolean } | null>(null);
+  useEffect(() => brushBus.on(setB), []);
+  if (!b) return null;
+  const r = Math.max(5, b.r);
+  return (
+    <div
+      className={'brush-cursor' + (b.blocked ? ' blocked' : '') + (b.r ? '' : ' point')}
+      style={{ width: r * 2, height: r * 2, transform: `translate(${b.x - r}px, ${b.y - r}px)` }}
+    />
+  );
+}
+
+/** Just the map: a discreet way back, and a slow spin of the globe. */
+function ZenControls() {
+  const [idle, setIdle] = useState(false);
+  const [spin, setSpin] = useState(false);
+  useEffect(() => {
+    let t = setTimeout(() => setIdle(true), 2500);
+    const wake = () => {
+      setIdle(false);
+      clearTimeout(t);
+      t = setTimeout(() => setIdle(true), 2500);
+    };
+    window.addEventListener('pointermove', wake);
+    window.addEventListener('pointerdown', wake);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('pointermove', wake);
+      window.removeEventListener('pointerdown', wake);
+    };
+  }, []);
+  useEffect(() => {
+    mapCtl?.spin(spin, () => setSpin(false));
+    return () => mapCtl?.spin(false);
+  }, [spin]);
+  return (
+    <div className={'zen-controls glass' + (idle ? ' idle' : '')}>
+      <button className={'icon-btn' + (spin ? ' on' : '')} onClick={() => setSpin(!spin)} title="Spin the globe">
+        <Icon name="globe" />
+      </button>
+      <button className="icon-btn" onClick={() => useWorld.setState({ zen: false })} title="Show the tools (H or Esc)">
+        <Icon name="eye" />
+      </button>
+    </div>
+  );
+}
+
+/** Hides every panel and button (H). */
+export function enterZen() {
+  setTool('select');
+  select({});
+  useWorld.setState({ zen: true, detailsOpen: false, layersOpen: false, worldOpen: false, advancedOpen: false, help: false });
+  toast('Tools hidden · H or Esc to bring them back');
+}
 
 function HoverTip() {
   const [h, setH] = useState<{ x: number; y: number; region: number | null; city: number | null } | null>(null);
@@ -322,8 +392,11 @@ const SHORTCUTS: [string, string][] = [
   ['Alt + click', 'Pick a country (paint)'],
   ['Ctrl + click', 'Take a whole country (paint)'],
   ['Space', 'Pan while painting'],
+  ['N', 'Brush stops at rivers & crests'],
   ['Shift + click', 'Select several regions'],
   ['G', 'Globe / flat map'],
+  ['H', 'Hide the tools (just the map)'],
+  ['U', 'Alliances on the map'],
   ['L', 'Map style & layers'],
   ['R', 'Surprise me: random country'],
   ['P', 'Save a picture of the view'],
@@ -504,6 +577,7 @@ function ToolDock() {
             <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
             <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
           </label>
+          <NaturalBorders />
           <p className="hint">
             Drag to paint · <kbd>Alt</kbd>+click picks a country · <kbd>Ctrl</kbd>+click takes a whole country · hold <kbd>Space</kbd> to pan
           </p>
@@ -525,6 +599,58 @@ function ToolDock() {
       )}
     </div>
   );
+}
+
+/** Stop the brush at rivers and mountain crests, cutting the regions they cross. */
+function NaturalBorders() {
+  const natural = useWorld((s) => s.natural);
+  const on = naturalOn(natural);
+  const setRivers = (rivers: RiverLevel) => useWorld.setState({ natural: { ...natural, rivers } });
+  return (
+    <div className={'natural' + (on ? ' on' : '')}>
+      <div className="natural-head">
+        <span className="grow">Stop at natural borders</span>
+        <kbd>N</kbd>
+      </div>
+      <div className="natural-row">
+        <Icon name="river" size={15} />
+        <span className="grow">Rivers</span>
+        <div className="segmented">
+          {(
+            [
+              ['off', 'Off', 'The brush crosses rivers'],
+              ['major', 'Big', 'Danube, Rhine, Elbe, Loire, Rhône, Po…'],
+              ['all', 'All', 'Every river on the map, down to the Main or the Severn'],
+            ] as const
+          ).map(([v, label, title]) => (
+            <button key={v} className={natural.rivers === v ? 'on' : ''} onClick={() => setRivers(v)} title={title}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <label className="toggle">
+        <input type="checkbox" checked={natural.crests} onChange={(e) => useWorld.setState({ natural: { ...natural, crests: e.target.checked } })} />
+        <span className="switch" />
+        <Icon name="mountain" size={15} /> Mountain crests
+      </label>
+      {on && <p className="hint">Strokes stop at the dashed lines; regions they cross are cut along them. With Whole country, you take it up to them.</p>}
+    </div>
+  );
+}
+
+/** Natural borders on or off (N), remembering which ones. */
+let lastNatural: { rivers: RiverLevel; crests: boolean } = { rivers: 'major', crests: true };
+function toggleNatural() {
+  const n = useWorld.getState().natural;
+  if (naturalOn(n)) {
+    lastNatural = n;
+    useWorld.setState({ natural: { rivers: 'off', crests: false } });
+    toast('Natural borders off');
+  } else {
+    useWorld.setState({ natural: lastNatural });
+    toast('Brush stops at rivers & crests');
+  }
 }
 
 // ── Inspector ────────────────────────────────────────────────────────────────
@@ -798,6 +924,7 @@ function LayersPanel() {
   const mapStyle = useWorld((s) => s.mapStyle);
   const globe = useWorld((s) => s.globe);
   const layers = useWorld((s) => s.layers);
+  const allianceView = useWorld((s) => s.allianceView);
   return (
     <div className="layers" ref={ref}>
       <div className="layers-buttons glass">
@@ -806,6 +933,16 @@ function LayersPanel() {
         </button>
         <button className={'icon-btn' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title="Map style & layers (L)">
           <Icon name="layers" />
+        </button>
+        <button
+          className={'icon-btn' + (allianceView ? ' on' : '')}
+          onClick={() => (allianceView ? useWorld.setState({ allianceView: null }) : viewAlliance('all'))}
+          title="Alliances on the map (U)"
+        >
+          <Icon name="shield" />
+        </button>
+        <button className="icon-btn" onClick={enterZen} title="Hide the tools, just the map (H)">
+          <Icon name="eyeOff" />
         </button>
         <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ help: true })} title="Keyboard shortcuts (?)">
           <Icon name="keyboard" />
@@ -869,6 +1006,10 @@ export function useShortcuts() {
         else if (k === 'a' && useWorld.getState().doc) useWorld.setState((s) => ({ advancedOpen: !s.advancedOpen }));
         else if (k === 'f' && useWorld.getState().doc) useWorld.setState((s) => ({ galleryOpen: !s.galleryOpen }));
         else if (k === 'p' && useWorld.getState().doc) exportWorld('png');
+        else if (k === 'h' && useWorld.getState().doc) (useWorld.getState().zen ? useWorld.setState({ zen: false }) : enterZen());
+        else if (k === 'u' && useWorld.getState().doc) (useWorld.getState().allianceView ? useWorld.setState({ allianceView: null }) : viewAlliance('all'));
+        else if (k === 'n' && useWorld.getState().doc) toggleNatural();
+        else if (k === 'escape' && useWorld.getState().zen) useWorld.setState({ zen: false });
         else if (e.key === '?') useWorld.setState((s) => ({ help: !s.help }));
         else if (k === '[') useWorld.setState((s) => ({ brushSize: Math.max(0, s.brushSize - 5) }));
         else if (k === ']') useWorld.setState((s) => ({ brushSize: Math.min(60, s.brushSize + 5) }));

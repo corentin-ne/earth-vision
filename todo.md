@@ -19,9 +19,20 @@
 - [x] Android: share-sheet exports, back button, safe areas, touch modes, app icon & version
 - [x] Faster: editor loaded on demand, flags encoded in parallel, thumbnails off the critical path
 
+## Done (2.3 – 2.7)
+- [x] Living water: sea-floor colours, GPU water surface, coastal surf
+- [x] Selection bubble, docked details, flag maker, loading veil
+- [x] Android release signed with a permanent key
+- [x] Spark UI kit re-skin
+
+## Done (2.8)
+- [x] Android: open `.map` files straight from the file manager ("Open with Earth Vision")
+- [x] Alliances editor, alliance map view and legend
+- [x] Natural borders: the brush stops at rivers and mountain crests, regions are cut along them
+- [x] Hide the tools to enjoy the map (with a globe spin)
+- [x] Brush outline, country labels placed once per stroke (faster painting)
+
 ## Next
-- [ ] Android: open `.map` files straight from the file manager ("Open with Earth Vision")
-- [ ] Alliances editor (they are imported/exported, but only listed in the UI)
 - [ ] Drag country labels to place them by hand
 - [ ] Draw brand-new land (islands) and delete regions
 - [ ] Timeline: snapshots of a world over the years, with an animated playback / video export

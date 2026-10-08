@@ -14,6 +14,7 @@ import {
 import { mapCtl } from '../map/controller';
 import { ColorField, CountryPicker, Flag, NumberField, Section, Stat, TextField } from './common';
 import { RegionCard } from './RegionPanels';
+import { CountryAlliances } from './AlliancePanel';
 import { Icon } from './icons';
 import { fmtArea, fmtInt } from '../util';
 
@@ -132,6 +133,10 @@ export function CountryPanel({ cid }: { cid: string }) {
           </Stat>
         )}
       </div>
+
+      <Section title="Alliances">
+        <CountryAlliances cid={cid} />
+      </Section>
 
       <Section title="Colour">
         <ColorField value={c.color} onChange={(color) => updateCountry(cid, { color }, 'Recolour country')} />

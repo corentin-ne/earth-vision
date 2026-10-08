@@ -1,0 +1,345 @@
+/* Brush outline, natural borders, alliances and the tools-hidden (zen) mode. */
+
+/* ── Brush outline ──────────────────────────────────────────────────────── */
+.brush-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(10, 16, 30, 0.45),
+    inset 0 0 0 1px rgba(10, 16, 30, 0.25);
+  pointer-events: none;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+.brush-cursor.point {
+  border-style: dashed;
+}
+.brush-cursor.blocked {
+  border-color: #ff4d64;
+  background: rgba(255, 77, 100, 0.16);
+  animation: brush-shake 0.3s var(--ease);
+}
+@keyframes brush-shake {
+  25% {
+    margin-left: -3px;
+  }
+  75% {
+    margin-left: 3px;
+  }
+}
+
+/* ── Natural borders (paint panel) ──────────────────────────────────────── */
+.natural {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px;
+  border-radius: var(--radius-sm);
+  background: var(--fill-1);
+  box-shadow: inset 0 0 0 1px var(--stroke);
+  transition:
+    background 0.2s,
+    box-shadow 0.2s;
+}
+.natural.on {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(62, 207, 178, 0.35);
+}
+.natural-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--fg);
+}
+.natural-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.natural-row > svg {
+  color: var(--muted);
+}
+.natural-row .segmented {
+  flex: none;
+}
+.natural .segmented button {
+  font-size: 12px;
+  padding-inline: 11px;
+}
+.natural .toggle {
+  font-size: 13px;
+}
+.natural .toggle svg {
+  color: var(--muted);
+}
+.natural .hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* ── Alliances (world panel) ────────────────────────────────────────────── */
+.list-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.list-title-row .list-title {
+  margin: 0;
+}
+.list-title-row .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.list-title-row .link.on {
+  color: var(--accent);
+}
+.alliances .hint {
+  margin: 0;
+}
+.alliances .alliance {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  border-radius: var(--radius-sm);
+  background: var(--fill-1);
+  box-shadow: inset 0 0 0 1px var(--stroke);
+  transition: box-shadow 0.2s;
+}
+.alliances .alliance.viewing {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.alliance-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+}
+.alliance-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 6px 10px 12px;
+  text-align: left;
+  color: var(--fg);
+}
+.alliance-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.alliance-main small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.alliance-flags {
+  display: inline-flex;
+  gap: 2px;
+}
+.alliance-main .chev {
+  color: var(--muted);
+  transition: transform 0.3s var(--spring);
+}
+.alliance-main .chev.up {
+  transform: rotate(180deg);
+}
+.alliance-head .icon-btn.on {
+  color: var(--accent);
+}
+.alliance-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 12px 12px;
+  animation: pop 0.3s var(--spring);
+  transform-origin: top;
+}
+.alliance-name {
+  font-weight: 650;
+}
+.member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.member .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-align: left;
+  color: var(--fg-2);
+}
+.member .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+.alliance-body .actions {
+  justify-content: flex-end;
+}
+
+/* ── Alliances (country page) ───────────────────────────────────────────── */
+.country-alliances {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.country-alliances .chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chip) 55%, transparent);
+}
+.chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px 5px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.chip-x {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 2px;
+  border-radius: 50%;
+  color: var(--fg-2);
+}
+.chip-x:hover {
+  background: var(--fill-2);
+}
+.chip-add {
+  width: auto;
+  max-width: 180px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  border-radius: 999px;
+}
+.country-alliances .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+/* ── Alliance legend (on the map) ───────────────────────────────────────── */
+.alliance-legend {
+  position: absolute;
+  left: 76px;
+  bottom: 34px;
+  z-index: 4;
+  width: 240px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 18px;
+  transform-origin: bottom left;
+  animation: pop 0.38s var(--spring);
+}
+.legend-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 6px 6px;
+  color: var(--fg);
+}
+.legend-head .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  text-align: left;
+  color: var(--fg-2);
+  font-size: 13px;
+}
+.legend-row:hover {
+  background: var(--fill-2);
+  color: var(--fg);
+}
+.legend-row small {
+  color: var(--muted);
+}
+.alliance-legend .hint {
+  margin: 4px 6px;
+  font-size: 12px;
+}
+/* The layers popover opens in the same corner. */
+.layers:has(.layers-pop) ~ .alliance-legend {
+  display: none;
+}
+
+/* ── Tools hidden ───────────────────────────────────────────────────────── */
+.zen-controls {
+  position: absolute;
+  right: calc(16px + var(--sar));
+  bottom: calc(34px + var(--sab));
+  z-index: 6;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 20px;
+  transition:
+    opacity 0.6s var(--ease),
+    transform 0.6s var(--ease-out);
+  animation: pop 0.38s var(--spring);
+}
+.zen-controls .icon-btn.on {
+  color: var(--accent);
+}
+.zen-controls.idle {
+  opacity: 0.12;
+  transform: translateY(4px);
+}
+.zen-controls.idle:hover {
+  opacity: 1;
+  transform: none;
+}
+
+@media (max-width: 760px) {
+  /* Above the world button and the map credits; the layer buttons are on the right on phones. */
+  .alliance-legend {
+    left: calc(10px + var(--sal));
+    bottom: calc(132px + var(--sab));
+    width: min(240px, calc(100vw - 84px));
+    max-height: 32vh;
+  }
+  .zen-controls.idle {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brush-cursor.blocked {
+    animation: none;
+  }
+}

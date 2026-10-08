@@ -45,3 +45,52 @@ export function onBackButton(handler: () => boolean) {
     remove?.();
   };
 }
+
+function fromBase64(b64: string): Uint8Array {
+  const s = atob(b64);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
+/** A readable name for a file the system handed over ("content://…/primary%3ADownload%2FEurope.map" → "Europe.map"). */
+function nameOf(uri: string): string {
+  const last = decodeURIComponent(uri.split(/[?#]/)[0]).split(/[/:]/).pop() || 'world';
+  return /\.\w{2,6}$/.test(last) ? last : `${last}.map`;
+}
+
+/**
+ * "Open with Earth Vision": a .map tapped in a file manager (Android VIEW intent, see
+ * scripts/android-setup.mjs) — both when it starts the app and while the app is running.
+ */
+export function onOpenFile(handler: (file: File) => void) {
+  if (!isNative) return () => {};
+  let dead = false;
+  let remove: (() => void) | null = null;
+  const read = async (uri: string) => {
+    if (!/^(content|file):/i.test(uri)) return;
+    let bytes: Uint8Array;
+    try {
+      // The WebView's local server streams content:// and file:// URIs.
+      const res = await fetch(Capacitor.convertFileSrc(uri));
+      if (!res.ok) throw new Error(String(res.status));
+      bytes = new Uint8Array(await res.arrayBuffer());
+    } catch {
+      const { Filesystem } = await import('@capacitor/filesystem');
+      const { data } = await Filesystem.readFile({ path: uri });
+      bytes = typeof data === 'string' ? fromBase64(data) : new Uint8Array(await data.arrayBuffer());
+    }
+    if (!dead) handler(new File([bytes as BlobPart], nameOf(uri)));
+  };
+  import('@capacitor/app').then(async ({ App }) => {
+    const launch = await App.getLaunchUrl();
+    if (launch?.url) void read(launch.url);
+    const h = await App.addListener('appUrlOpen', (e) => void read(e.url));
+    if (dead) h.remove();
+    else remove = () => h.remove();
+  });
+  return () => {
+    dead = true;
+    remove?.();
+  };
+}

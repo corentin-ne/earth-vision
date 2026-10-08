@@ -36,6 +36,14 @@ their code is kept under [`legacy/`](legacy/).
 - Four map looks — **Political** (colours + hill shading), **Atlas** (MillMint-style physical relief
   with fine borders), **Plain** (A+ style) and **Night** — on a globe or a flat map (`G`), with
   optional 3D mountains, rivers, lakes, urban areas, graticule…
+- **Natural borders** (`N`): the brush stops at rivers (big ones or all) and mountain crests. A region a
+  river or crest runs through is cut exactly along it and only your side is taken — France can claim
+  Germany up to the Rhine, Spain stop at the Pyrenees. With *Whole country* you take a country up to
+  them in one click; *Cut at rivers & crests* on a region page cuts it without painting.
+- **Alliances**: found one, name and colour it, add or remove members (world panel or a country's
+  page); the shield button (`U`) colours the map by alliance, outlines each one and greys out the rest.
+- **Hide the tools** (`H`): just the map, with a slow spin of the globe if you like. `H` or `Esc` brings
+  everything back.
 - **Advanced** tools (`A`): recalculate population for the current borders from real-world data (or
   spread each country's total by area), heal map borders (snap borders that almost line up), tidy stray
   pieces and holes, recolour the map so
@@ -43,7 +51,8 @@ their code is kept under [`legacy/`](legacy/).
 - **Flags**: a gallery of the world's flags (`F`), a full-size view to browse them, upload or roll a random one.
 - Search (`Ctrl+K`), undo/redo (`Ctrl+Z` / `Ctrl+Y`), autosave, a library of worlds, `.map` export
   (`Ctrl+E`), PNG snapshots (`P`) and GeoJSON export. `?` lists every shortcut.
-- On a phone / the **Android app**: touch buttons for pick-a-colour, whole-country fill and multi-select,
+- On a phone / the **Android app**: tap a `.map` in your file manager to open it in Earth Vision; touch
+  buttons for pick-a-colour, whole-country fill and multi-select,
   the back button steps out of panels, and exports open the share sheet (save to Files, Drive, send…).
 
 ## Use it
@@ -89,7 +98,7 @@ cd android && ./gradlew assembleDebug
 |---|---|
 | World model, undo/redo, all editing operations | [`src/world/store.ts`](src/world/store.ts) |
 | Shared-border topology: borders, country shapes, neighbours | [`src/geo/engine.ts`](src/geo/engine.ts) |
-| Region splitting | [`src/geo/split.ts`](src/geo/split.ts) |
+| Region splitting, and cutting along rivers and crests | [`src/geo/split.ts`](src/geo/split.ts), [`src/geo/barriers.ts`](src/geo/barriers.ts), [`src/world/natural.ts`](src/world/natural.ts) |
 | A+ `.map` import/export (a zip whose header reads `A+WM`) | [`src/io/amap.ts`](src/io/amap.ts) |
 | MapLibre rendering & map tools | [`src/map/`](src/map/) |
 | UI | [`src/ui/`](src/ui/) |
@@ -108,6 +117,7 @@ The files in `public/data`, `public/tiles` and `public/fonts` are generated; to 
 bash scripts/fetch-assets.sh        # downloads sources into .cache/
 node scripts/build-assets.mjs       # Earth template, lakes, rivers, urban areas, sea names
 python scripts/build-rasters.py     # relief + elevation tiles (needs numpy and Pillow)
+python scripts/build-crests.py      # mountain crests: watershed divides over high ground (+ scipy)
 ```
 
 ## Tests

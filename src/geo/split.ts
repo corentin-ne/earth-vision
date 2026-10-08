@@ -193,3 +193,168 @@ function onSegment(p: Position, a: Position, b: Position): boolean {
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
   return Math.abs(cross) / (len || 1) < 1e-7;
 }
+
+// ── Cutting along natural lines (rivers, crests) ─────────────────────────────
+
+type Ring = Position[];
+type Poly = Ring[];
+
+interface Hit {
+  /** Position along the line: segment index + fraction. */
+  s: number;
+  seg: number;
+  pt: Position;
+  ring: number;
+  edge: number;
+  u: number;
+}
+
+function ringArea(r: Ring): number {
+  let a = 0;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]);
+  return a / 2;
+}
+
+function polyArea(p: Poly): number {
+  let a = Math.abs(ringArea(p[0]));
+  for (let i = 1; i < p.length; i++) a -= Math.abs(ringArea(p[i]));
+  return a;
+}
+
+function inPoly(pt: Position, p: Poly): boolean {
+  return pointInGeom(pt as LngLat, { type: 'Polygon', coordinates: p });
+}
+
+/** Where the line crosses the rings of the polygon, in order along the line. */
+function lineHits(line: LngLat[], p: Poly): Hit[] {
+  const hits: Hit[] = [];
+  const boxes = p.map((r) => bbox({ type: 'LineString', coordinates: r }));
+  for (let i = 1; i < line.length; i++) {
+    const [ax, ay] = line[i - 1];
+    const [bx, by] = line[i];
+    const sx0 = Math.min(ax, bx), sx1 = Math.max(ax, bx), sy0 = Math.min(ay, by), sy1 = Math.max(ay, by);
+    for (let ri = 0; ri < p.length; ri++) {
+      const b = boxes[ri];
+      if (sx1 < b[0] || sx0 > b[2] || sy1 < b[1] || sy0 > b[3]) continue;
+      const r = p[ri];
+      for (let j = 0; j < r.length - 1; j++) {
+        const [cx, cy] = r[j];
+        const [dx, dy] = r[j + 1];
+        if (Math.max(cx, dx) < sx0 || Math.min(cx, dx) > sx1 || Math.max(cy, dy) < sy0 || Math.min(cy, dy) > sy1) continue;
+        const den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+        if (den === 0) continue;
+        const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den;
+        const u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / den;
+        if (t < 0 || t > 1 || u < -1e-12 || u >= 1) continue;
+        let pt: Position = [ax + t * (bx - ax), ay + t * (by - ay)];
+        // On a vertex: reuse it exactly, so the neighbour that shares it still matches.
+        if (Math.abs(pt[0] - cx) < 1e-9 && Math.abs(pt[1] - cy) < 1e-9) pt = r[j];
+        else if (Math.abs(pt[0] - dx) < 1e-9 && Math.abs(pt[1] - dy) < 1e-9) continue; // the next edge has it at u = 0
+        hits.push({ s: i - 1 + t, seg: i - 1, pt, ring: ri, edge: j, u: pt === r[j] ? 0 : u });
+      }
+    }
+  }
+  hits.sort((a, b) => a.s - b.s);
+  // A line through a vertex hits both edges there: keep one.
+  return hits.filter((h, k) => k === 0 || Math.abs(h.s - hits[k - 1].s) > 1e-12);
+}
+
+/** Vertices of a closed ring strictly after position (j1, u1) up to position (j2, u2), walking forward. */
+function ringBetween(r: Ring, j1: number, u1: number, j2: number, u2: number): Position[] {
+  const n = r.length - 1;
+  const out: Position[] = [];
+  if (j1 === j2 && u1 < u2) return out;
+  let k = (j1 + 1) % n;
+  out.push(r[k]);
+  while (k !== j2) {
+    k = (k + 1) % n;
+    out.push(r[k]);
+  }
+  return out;
+}
+
+function closeRing(pts: Position[]): Ring | null {
+  const out: Position[] = [];
+  for (const p of pts) {
+    const q = out[out.length - 1];
+    if (!q || q[0] !== p[0] || q[1] !== p[1]) out.push(p);
+  }
+  if (out.length > 1 && out[0][0] === out[out.length - 1][0] && out[0][1] === out[out.length - 1][1]) out.pop();
+  if (out.length < 3) return null;
+  out.push(out[0]);
+  return out;
+}
+
+/** Splits a polygon in two along a chord running inside it from one point of its outer ring to another. */
+function splitByChord(p: Poly, a: Hit, b: Hit, inner: Position[]): [Poly, Poly] | null {
+  const outer = p[0];
+  const r1 = closeRing([a.pt, ...inner, b.pt, ...ringBetween(outer, b.edge, b.u, a.edge, a.u)]);
+  const r2 = closeRing([b.pt, ...[...inner].reverse(), a.pt, ...ringBetween(outer, a.edge, a.u, b.edge, b.u)]);
+  if (!r1 || !r2) return null;
+  const p1: Poly = [r1];
+  const p2: Poly = [r2];
+  for (const hole of p.slice(1)) (inRing(hole[0], r1) ? p1 : p2).push(hole);
+  return [p1, p2];
+}
+
+function inRing(pt: Position, ring: Ring): boolean {
+  return pointInGeom(pt as LngLat, { type: 'Polygon', coordinates: [ring] });
+}
+
+/**
+ * Cuts one polygon along the first stretch of a line that crosses it from border to border and
+ * leaves two real pieces (not a sliver where a river wanders along the border). Null when none does.
+ */
+function cutOnce(p: Poly, lines: LngLat[][], minArea: number): [Poly, Poly] | null {
+  const total = polyArea(p);
+  for (const line of lines) {
+    const hits = lineHits(line, p);
+    for (let k = 0; k + 1 < hits.length; k++) {
+      const a = hits[k];
+      const b = hits[k + 1];
+      if (a.ring !== 0 || b.ring !== 0) continue;
+      const inner = line.slice(a.seg + 1, b.seg + 1) as Position[];
+      const next = inner[0] ?? b.pt;
+      if (!inPoly([(a.pt[0] + next[0]) / 2, (a.pt[1] + next[1]) / 2], p)) continue;
+      const pieces = splitByChord(p, a, b, inner);
+      if (!pieces) continue;
+      const a1 = polyArea(pieces[0]);
+      const a2 = polyArea(pieces[1]);
+      // Both pieces must be real, and together exactly the polygon (else the chord was not clean).
+      if (a1 < minArea || a2 < minArea || Math.abs(a1 + a2 - total) > total * 1e-6) continue;
+      return pieces;
+    }
+  }
+  return null;
+}
+
+/**
+ * Cuts a region along every line (river, crest…) that crosses it from border to border. The first
+ * piece is the largest and keeps the parts the lines don't touch (islands); null when nothing is cut.
+ * `minShare` is the smallest piece kept, as a share of the region.
+ */
+export function cutGeom(g: RegionGeom, lines: LngLat[][], minShare = 0.015): RegionGeom[] | null {
+  const polys: Poly[] = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  const minArea = polys.reduce((t, p) => t + polyArea(p), 0) * minShare;
+  const cutParts: Poly[] = [];
+  const untouched: Poly[] = [];
+  for (const p of polys) {
+    const queue = [p];
+    const done: Poly[] = [];
+    let cuts = 0;
+    while (queue.length) {
+      const q = queue.pop()!;
+      const two = cuts < 24 ? cutOnce(q, lines, minArea) : null;
+      if (two) {
+        cuts++;
+        queue.push(...two);
+      } else done.push(q);
+    }
+    if (cuts) cutParts.push(...done);
+    else untouched.push(p);
+  }
+  if (!cutParts.length) return null;
+  cutParts.sort((a, b) => polyArea(b) - polyArea(a));
+  const asGeom = (ps: Poly[]): RegionGeom => (ps.length === 1 ? { type: 'Polygon', coordinates: ps[0] } : { type: 'MultiPolygon', coordinates: ps });
+  return [asGeom([cutParts[0], ...untouched]), ...cutParts.slice(1).map((p) => asGeom([p]))];
+}

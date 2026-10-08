@@ -5,6 +5,7 @@ import { Flag, Stat } from './common';
 import { Icon } from './icons';
 import { fmtArea, fmtCompact, fmtInt } from '../util';
 import { countryName } from '../world/names';
+import { AllianceSection } from './AlliancePanel';
 
 type SortKey = 'area' | 'pop' | 'name' | 'regions';
 
@@ -132,18 +133,7 @@ export function WorldPanel() {
         {!rows.length && <p className="hint">No country matches.</p>}
       </div>
 
-      {doc.alliances.length > 0 && (
-        <div className="alliances">
-          <h3>Alliances</h3>
-          {doc.alliances.map((al) => (
-            <div key={al.id} className="alliance">
-              <span className="swatch-mini" style={{ background: al.color }} />
-              <strong>{al.name}</strong>
-              <small>{al.members.length} members</small>
-            </div>
-          ))}
-        </div>
-      )}
+      <AllianceSection />
     </div>
   );
 }

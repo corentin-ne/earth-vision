@@ -69,6 +69,7 @@ export class GeoEngine {
       else g.arcs.forEach((poly) => poly.forEach((ring) => ring.forEach(add)));
     }
     this.arcSides = sides;
+    this.adjacency = null;
     this.seams = new Uint8Array(topo.arcs.length);
     topo.arcs.forEach((arc, i) => (this.seams[i] = isSeam(arc as Position[]) ? 1 : 0));
     this.version++;
@@ -134,15 +135,41 @@ export class GeoEngine {
     return merge(this.topo, objs) as MultiPolygon;
   }
 
+  private adjacency: Map<number, number[]> | null = null;
+
   /** Region ids sharing at least one border arc with `rid`. */
   neighbors(rid: number): number[] {
-    const out = new Set<number>();
-    const sides = this.arcSides;
-    for (let i = 0; i < sides.length; i += 2) {
-      if (sides[i] === rid && sides[i + 1] !== -1) out.add(sides[i + 1]);
-      else if (sides[i + 1] === rid) out.add(sides[i]);
+    if (!this.adjacency) {
+      // Built once per topology: flood fills ask for the neighbours of many regions.
+      const sets = new Map<number, Set<number>>();
+      const sides = this.arcSides;
+      for (let i = 0; i < sides.length; i += 2) {
+        const a = sides[i];
+        const b = sides[i + 1];
+        if (a === -1 || b === -1 || a === b) continue;
+        (sets.get(a) ?? sets.set(a, new Set()).get(a)!).add(b);
+        (sets.get(b) ?? sets.set(b, new Set()).get(b)!).add(a);
+      }
+      this.adjacency = new Map([...sets].map(([k, v]) => [k, [...v]]));
     }
-    return [...out];
+    return this.adjacency.get(rid) ?? [];
+  }
+
+  /** A point in the middle of each border stretch regions a and b share. */
+  sharedPoints(a: number, b: number): LngLat[] {
+    const out: LngLat[] = [];
+    if (!this.topo) return out;
+    const sides = this.arcSides;
+    const arcs = this.topo.arcs as Position[][];
+    for (let i = 0; i < arcs.length; i++) {
+      const x = sides[i * 2];
+      const y = sides[i * 2 + 1];
+      if (!((x === a && y === b) || (x === b && y === a))) continue;
+      const arc = arcs[i];
+      const k = arc.length >> 1;
+      out.push(arc.length % 2 ? (arc[k] as LngLat) : [(arc[k - 1][0] + arc[k][0]) / 2, (arc[k - 1][1] + arc[k][1]) / 2]);
+    }
+    return out;
   }
 
   /** All regions bordering any region in the set (excluding the set itself). */

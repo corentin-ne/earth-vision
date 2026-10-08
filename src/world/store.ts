@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import type { City, Country, LngLat, Patch, Region, RegionGeom, WorldBundle, WorldDoc } from '../types';
+import type { Alliance, City, Country, LngLat, Patch, Region, RegionGeom, WorldBundle, WorldDoc } from '../types';
 import { GeoEngine, bbox, geomArea, labelPoint, pointInGeom } from '../geo/engine';
 import { insertCutVertices, splitGeom } from '../geo/split';
 import { healGeoms } from '../geo/heal';
+import type { NaturalOpts } from '../geo/barriers';
 import { rescale } from './stats';
 import { uid } from '../util';
 
@@ -46,6 +47,7 @@ export interface ChangeSet {
   countries: Set<string>;
   cities: boolean;
   geoms: boolean;
+  alliances: boolean;
   all: boolean;
 }
 
@@ -101,6 +103,12 @@ export interface State {
   /** Country whose flag is shown full size. */
   flagView: string | null;
   galleryOpen: boolean;
+  /** Rivers and crests the brush stops at (and cuts regions along). */
+  natural: NaturalOpts;
+  /** Colour the map by alliance: null = off, 'all', or one alliance's id. */
+  allianceView: string | null;
+  /** Every panel and button hidden: just the map. */
+  zen: boolean;
 }
 
 const DEFAULT_LAYERS: Layers = {
@@ -123,7 +131,13 @@ const PREFS = 'cmaps:prefs';
 function loadPrefs(): Partial<State> {
   try {
     const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}');
-    return { mapStyle: p.mapStyle, globe: p.globe, layers: p.layers ? { ...DEFAULT_LAYERS, ...p.layers } : undefined, brushSize: p.brushSize };
+    return {
+      mapStyle: p.mapStyle,
+      globe: p.globe,
+      layers: p.layers ? { ...DEFAULT_LAYERS, ...p.layers } : undefined,
+      brushSize: p.brushSize,
+      natural: p.natural?.rivers ? p.natural : undefined,
+    };
   } catch {
     return {};
   }
@@ -158,12 +172,15 @@ export const useWorld = create<State>(() => ({
   flagMakerFor: null,
   flagView: null,
   galleryOpen: false,
+  natural: prefs.natural ?? { rivers: 'off', crests: false },
+  allianceView: null,
+  zen: false,
 }));
 
 useWorld.subscribe((s, prev) => {
-  if (s.mapStyle !== prev.mapStyle || s.globe !== prev.globe || s.layers !== prev.layers || s.brushSize !== prev.brushSize) {
+  if (s.mapStyle !== prev.mapStyle || s.globe !== prev.globe || s.layers !== prev.layers || s.brushSize !== prev.brushSize || s.natural !== prev.natural) {
     try {
-      localStorage.setItem(PREFS, JSON.stringify({ mapStyle: s.mapStyle, globe: s.globe, layers: s.layers, brushSize: s.brushSize }));
+      localStorage.setItem(PREFS, JSON.stringify({ mapStyle: s.mapStyle, globe: s.globe, layers: s.layers, brushSize: s.brushSize, natural: s.natural }));
     } catch {
       /* ignore */
     }
@@ -185,11 +202,12 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
   const s = get();
   const doc = s.doc!;
   const inv: Patch = {};
-  const changes: ChangeSet = { regions: new Set(), countries: new Set(), cities: false, geoms: false, all: false };
+  const changes: ChangeSet = { regions: new Set(), countries: new Set(), cities: false, geoms: false, alliances: false, all: false };
   let regions = doc.regions;
   let countries = doc.countries;
   let cities = doc.cities;
   let geoms = s.geoms;
+  let alliances = doc.alliances;
 
   if (patch.regions) {
     regions = { ...regions };
@@ -238,8 +256,20 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
     rebuildGeometry(geoms);
     changes.geoms = true;
   }
+  if (patch.alliances) {
+    alliances = [...alliances];
+    inv.alliances = {};
+    for (const [id, v] of Object.entries(patch.alliances)) {
+      const i = alliances.findIndex((a) => a.id === id);
+      inv.alliances[id] = i >= 0 ? alliances[i] : null;
+      if (v && i >= 0) alliances[i] = v;
+      else if (v) alliances.push(v);
+      else if (i >= 0) alliances.splice(i, 1);
+    }
+    changes.alliances = true;
+  }
   changes.countries.delete('');
-  const nextDoc: WorldDoc = { ...doc, regions, countries, cities, meta: { ...doc.meta, modified: Date.now() } };
+  const nextDoc: WorldDoc = { ...doc, regions, countries, cities, alliances, meta: { ...doc.meta, modified: Date.now() } };
   set({ doc: nextDoc, geoms, geomVersion: patch.geoms ? s.geomVersion + 1 : s.geomVersion });
   return { inv, changes };
 }
@@ -247,7 +277,7 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
 /** Earlier values win: `a` happened first. */
 function mergeInverse(a: Patch, b: Patch): Patch {
   const out: Patch = {};
-  for (const key of ['regions', 'countries', 'cities', 'geoms'] as const) {
+  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances'] as const) {
     if (a[key] || b[key]) out[key] = { ...(b[key] as object), ...(a[key] as object) } as never;
   }
   return out;
@@ -256,7 +286,7 @@ function mergeInverse(a: Patch, b: Patch): Patch {
 /** Later values win: `b` happened last. */
 function mergeForward(a: Patch, b: Patch): Patch {
   const out: Patch = {};
-  for (const key of ['regions', 'countries', 'cities', 'geoms'] as const) {
+  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances'] as const) {
     if (a[key] || b[key]) out[key] = { ...(a[key] as object), ...(b[key] as object) } as never;
   }
   return out;
@@ -285,20 +315,34 @@ function withDerived(patch: Patch): Patch {
   }
   touched.delete('');
   if (!touched.size) return patch;
+  return { ...patch, countries: relabel(touched, nextRegions, { ...patch.countries }) };
+}
+
+/** Puts the label anchors of the `touched` countries, placed on `regions`, into `countries`. */
+function relabel(touched: Set<string>, regions: Record<number, Region>, countries: Record<string, Country | null>) {
+  const doc = get().doc!;
   const ids: Record<string, number[]> = {};
-  for (const r of Object.values(nextRegions)) if (touched.has(r.cid)) (ids[r.cid] ??= []).push(r.id);
-  const countries = { ...patch.countries };
+  for (const r of Object.values(regions)) if (touched.has(r.cid)) (ids[r.cid] ??= []).push(r.id);
   for (const cid of touched) {
     const base = countries[cid] === undefined ? doc.countries[cid] : countries[cid];
     if (!base) continue;
     const lp = ids[cid]?.length ? labelPoint(engine.merge(ids[cid])) : null;
     countries[cid] = { ...base, label: lp ?? base.label };
   }
-  return { ...patch, countries };
+  return countries;
 }
 
-export function commit(label: string, patch: Patch, opts: { group?: string } = {}) {
-  if (!get().doc) return;
+/** Countries whose labels wait for the end of the paint stroke (see commit's `deferLabels`). */
+const pendingLabels = new Set<string>();
+
+/**
+ * Applies a change and records it for undo. Commits sharing a `group` (one paint stroke) are
+ * one undo step. `deferLabels` leaves the country label anchors to `endGroup`: placing them
+ * costs a merge and a polylabel per country, too much to redo at every step of a stroke.
+ */
+export function commit(label: string, patch: Patch, opts: { group?: string; deferLabels?: boolean } = {}) {
+  const doc = get().doc;
+  if (!doc) return;
   // Geometry first so label anchors are computed on the new shapes.
   let full: Patch;
   let inv: Patch;
@@ -306,10 +350,20 @@ export function commit(label: string, patch: Patch, opts: { group?: string } = {
   if (patch.geoms) {
     const g = apply({ geoms: patch.geoms });
     const rest = withDerived({ regions: patch.regions, countries: patch.countries, cities: patch.cities, geoms: patch.geoms });
-    const r = apply({ regions: rest.regions, countries: rest.countries, cities: rest.cities });
-    full = { ...rest };
+    const r = apply({ regions: rest.regions, countries: rest.countries, cities: rest.cities, alliances: patch.alliances });
+    full = { ...rest, alliances: patch.alliances };
     inv = mergeInverse(g.inv, r.inv);
     changes = { ...r.changes, geoms: true, regions: new Set([...g.changes.regions, ...r.changes.regions]) };
+  } else if (opts.deferLabels && opts.group && patch.regions) {
+    for (const [k, v] of Object.entries(patch.regions)) {
+      const old = doc.regions[Number(k)];
+      if (old?.cid) pendingLabels.add(old.cid);
+      if (v?.cid) pendingLabels.add(v.cid);
+    }
+    full = patch;
+    const r = apply(full);
+    inv = r.inv;
+    changes = r.changes;
   } else {
     full = withDerived(patch);
     const r = apply(full);
@@ -331,12 +385,22 @@ export function commit(label: string, patch: Patch, opts: { group?: string } = {
 export function endGroup() {
   const past = get().past;
   const top = past[past.length - 1];
+  const doc = get().doc;
+  if (pendingLabels.size && top && doc) {
+    const countries = relabel(new Set(pendingLabels), doc.regions, {});
+    pendingLabels.clear();
+    const r = apply({ countries });
+    set({ past: [...past.slice(0, -1), { ...top, group: undefined, fwd: mergeForward(top.fwd, { countries }), inv: mergeInverse(top.inv, r.inv) }] });
+    emit(r.changes);
+    return;
+  }
+  pendingLabels.clear();
   if (top?.group) set({ past: [...past.slice(0, -1), { ...top, group: undefined }] });
 }
 
 function replay(entry: HistoryEntry, patch: Patch) {
   const geomFirst = patch.geoms ? apply({ geoms: patch.geoms }) : null;
-  const r = apply({ regions: patch.regions, countries: patch.countries, cities: patch.cities });
+  const r = apply({ regions: patch.regions, countries: patch.countries, cities: patch.cities, alliances: patch.alliances });
   const changes = r.changes;
   if (geomFirst) {
     changes.geoms = true;
@@ -400,8 +464,11 @@ export function loadWorld(b: WorldBundle) {
     detailsOpen: false,
     flagView: null,
     galleryOpen: false,
+    allianceView: null,
+    zen: false,
   });
-  emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, all: true });
+  pendingLabels.clear();
+  emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, alliances: true, all: true });
 }
 
 export function closeWorld() {
@@ -503,7 +570,7 @@ export function flagUrlFor(c: Country | undefined, iso2: Record<string, string>)
 
 // ── Editing operations ───────────────────────────────────────────────────────
 
-export function transferRegions(ids: number[], cid: string, opts: { group?: string; label?: string } = {}) {
+export function transferRegions(ids: number[], cid: string, opts: { group?: string; label?: string; deferLabels?: boolean } = {}) {
   const doc = get().doc;
   if (!doc) return 0;
   const regions: Record<number, Region> = {};
@@ -514,7 +581,7 @@ export function transferRegions(ids: number[], cid: string, opts: { group?: stri
   const n = Object.keys(regions).length;
   if (!n) return 0;
   const name = cid ? doc.countries[cid]?.name ?? cid : 'unclaimed land';
-  commit(opts.label ?? `Give ${n} region${n > 1 ? 's' : ''} to ${name}`, { regions }, { group: opts.group });
+  commit(opts.label ?? `Give ${n} region${n > 1 ? 's' : ''} to ${name}`, { regions }, { group: opts.group, deferLabels: opts.deferLabels });
   return n;
 }
 
@@ -577,7 +644,7 @@ export function deleteCountry(cid: string) {
   if (!c) return;
   const regions: Record<number, Region> = {};
   for (const r of Object.values(doc.regions)) if (r.cid === cid) regions[r.id] = { ...r, cid: '' };
-  commit(`Dissolve ${c.name}`, { countries: { [cid]: null }, regions });
+  commit(`Dissolve ${c.name}`, { countries: { [cid]: null }, regions, alliances: leaveAll(cid) });
   const sel = get().selection;
   if (sel.cid === cid) select({});
 }
@@ -589,7 +656,7 @@ export function annexCountry(src: string, dst: string) {
   if (!a || !b || src === dst) return;
   const regions: Record<number, Region> = {};
   for (const r of Object.values(doc.regions)) if (r.cid === src) regions[r.id] = { ...r, cid: dst };
-  commit(`${b.name} annexes ${a.name}`, { countries: { [src]: null }, regions });
+  commit(`${b.name} annexes ${a.name}`, { countries: { [src]: null }, regions, alliances: leaveAll(src) });
   select({ cid: dst });
 }
 
@@ -624,54 +691,85 @@ export function nextRegionId(): number {
 
 /** Cuts every region the line crosses. Returns how many regions were split. */
 export function splitAlong(line: LngLat[], only?: number[]): number {
-  const { doc, geoms } = get();
+  const { doc } = get();
   if (!doc || line.length < 2) return 0;
   const [lx0, ly0, lx1, ly1] = bbox({ type: 'LineString', coordinates: line });
   const candidates = only ?? [...bboxes].filter(([, b]) => !(b[2] < lx0 || b[0] > lx1 || b[3] < ly0 || b[1] > ly1)).map(([id]) => id);
+  const cut = cutRegions(candidates, (g) => {
+    try {
+      return splitGeom(g, line);
+    } catch (e) {
+      console.warn('split failed', e);
+      return null;
+    }
+  });
+  return Object.keys(cut).length;
+}
+
+const COMPASS = ['east', 'north-east', 'north', 'north-west', 'west', 'south-west', 'south', 'south-east'];
+
+/**
+ * Replaces regions by the pieces `cut` makes of them (null leaves a region whole), in one undo
+ * step. The largest piece keeps the region's id; areas and scaling stats are shared by area.
+ * `names: 'compass'` names the pieces after where they lie ("Bavaria (west)"), else "(2)", "(3)"…
+ * Returns, for every region cut, the ids of its pieces.
+ */
+export function cutRegions(
+  ids: number[],
+  cut: (g: RegionGeom, r: Region) => RegionGeom[] | null,
+  opts: { label?: string; group?: string; names?: 'compass' | 'number' } = {},
+): Record<number, number[]> {
+  const { doc, geoms } = get();
+  const out: Record<number, number[]> = {};
+  if (!doc) return out;
   const patch: Required<Pick<Patch, 'regions' | 'geoms'>> = { regions: {}, geoms: {} };
   let nextId = nextRegionId();
-  let count = 0;
-  const workGeoms: Record<number, RegionGeom> = { ...geoms };
-  for (const id of candidates) {
-    const g = workGeoms[id];
+  const work: Record<number, RegionGeom> = { ...geoms };
+  for (const id of ids) {
+    const g = work[id];
     const r = doc.regions[id];
-    if (!g || !r) continue;
-    let pieces: [RegionGeom, RegionGeom] | null = null;
-    try {
-      pieces = splitGeom(g, line);
-    } catch (e) {
-      console.warn('split failed', id, e);
-    }
-    if (!pieces) continue;
-    count++;
-    // Keep the old id on the larger piece.
-    const [big, small] = geomArea(pieces[0]) >= geomArea(pieces[1]) ? pieces : [pieces[1], pieces[0]];
-    const sid = nextId++;
-    const aBig = geomArea(big);
-    const aSmall = geomArea(small);
-    const total = aBig + aSmall || 1;
+    if (!g || !r || out[id]) continue;
+    const pieces = cut(g, r);
+    if (!pieces || pieces.length < 2) continue;
+    pieces.sort((a, b) => geomArea(b) - geomArea(a));
+    const areas = pieces.map(geomArea);
+    const total = areas.reduce((a, b) => a + b, 0) || 1;
     const share = (k: number) => (r.vals ? Object.fromEntries(Object.entries(r.vals).map(([key, v]) => [key, v * k])) : undefined);
-    const lpB = labelPoint(big) ?? [r.cx, r.cy];
-    const lpS = labelPoint(small) ?? [r.cx, r.cy];
-    patch.geoms[id] = big;
-    patch.geoms[sid] = small;
-    // Areas are shares of the stored area so totals never drift.
-    patch.regions[id] = { ...r, area: (r.area * aBig) / total, cx: lpB[0], cy: lpB[1], vals: share(aBig / total) };
-    patch.regions[sid] = { id: sid, name: `${r.name} (2)`, cid: r.cid, area: (r.area * aSmall) / total, cx: lpS[0], cy: lpS[1], vals: share(aSmall / total) };
-    workGeoms[id] = big;
-    workGeoms[sid] = small;
-    // Make sure neighbours carry the new border vertices.
-    const nbIds = engine.neighbors(id);
+    const lps = pieces.map((p) => labelPoint(p) ?? ([r.cx, r.cy] as LngLat));
+    // Compass names from the middle of the pieces: "(west)", "(east)"; numbers if two agree.
+    let names = pieces.map((_, i) => (i ? `${r.name} (${i + 1})` : r.name));
+    if (opts.names === 'compass') {
+      const mx = lps.reduce((t, p) => t + p[0], 0) / lps.length;
+      const my = lps.reduce((t, p) => t + p[1], 0) / lps.length;
+      const angle = ([x, y]: LngLat) => (Math.atan2(y - my, (x - mx) * Math.cos((my * Math.PI) / 180)) * 180) / Math.PI + 360;
+      // Four directions when they tell the pieces apart, else eight.
+      for (const n of [4, 8]) {
+        const dirs = lps.map((p) => COMPASS[((Math.round(angle(p) / (360 / n)) % n) * 8) / n]);
+        if (new Set(dirs).size === dirs.length) {
+          names = dirs.map((d) => `${r.name} (${d})`);
+          break;
+        }
+      }
+    }
+    const pids = pieces.map((_, i) => (i ? nextId++ : id));
+    pieces.forEach((p, i) => {
+      patch.geoms[pids[i]] = p;
+      work[pids[i]] = p;
+      // Areas are shares of the stored area so totals never drift.
+      patch.regions[pids[i]] = { ...r, id: pids[i], name: names[i], area: (r.area * areas[i]) / total, cx: lps[i][0], cy: lps[i][1], vals: share(areas[i] / total) };
+    });
+    out[id] = pids;
+    // Neighbours (and the pieces of neighbours cut just before) get the new border vertices.
     const nb: Record<number, RegionGeom> = {};
-    for (const n of nbIds) if (workGeoms[n]) nb[n] = workGeoms[n];
-    const fixed = insertCutVertices([big, small], g, nb);
-    for (const [k, v] of Object.entries(fixed)) {
+    for (const n of engine.neighbors(id)) for (const m of out[n] ?? [n]) if (work[m]) nb[m] = work[m];
+    for (const [k, v] of Object.entries(insertCutVertices(pieces, g, nb))) {
       patch.geoms[Number(k)] = v;
-      workGeoms[Number(k)] = v;
+      work[Number(k)] = v;
     }
   }
-  if (count) commit(`Split ${count} region${count > 1 ? 's' : ''}`, patch);
-  return count;
+  const n = Object.keys(out).length;
+  if (n) commit(opts.label ?? `Split ${n} region${n > 1 ? 's' : ''}`, patch, { group: opts.group });
+  return out;
 }
 
 export function mergeRegions(ids: number[]): number | null {
@@ -767,6 +865,49 @@ export function makeCapital(cityId: number) {
   const prev = c.capital != null ? doc.cities[c.capital] : null;
   if (prev && prev.id !== cityId) patch.cities![prev.id] = { ...prev, capital: false };
   commit(`${city.name} becomes capital of ${c.name}`, patch);
+}
+
+// ── Alliances ────────────────────────────────────────────────────────────────
+
+/** Patch taking a country out of every alliance it belongs to. */
+function leaveAll(cid: string): Record<string, Alliance> {
+  const out: Record<string, Alliance> = {};
+  for (const a of get().doc?.alliances ?? []) if (a.members.includes(cid)) out[a.id] = { ...a, members: a.members.filter((m) => m !== cid) };
+  return out;
+}
+
+const ALLIANCE_COLORS = ['#2F6FDE', '#D9363E', '#1E9E6A', '#E08A12', '#8A4FD8', '#0FA3B1', '#C2417A', '#6B7A1F'];
+
+export function createAlliance(name: string, members: string[] = []): string {
+  const doc = get().doc!;
+  const used = new Set(doc.alliances.map((a) => a.color.toUpperCase()));
+  const color = ALLIANCE_COLORS.find((c) => !used.has(c)) ?? ALLIANCE_COLORS[doc.alliances.length % ALLIANCE_COLORS.length];
+  const id = uid();
+  commit(`Found ${name}`, { alliances: { [id]: { id, name, color, members } } });
+  return id;
+}
+
+export function updateAlliance(id: string, changes: Partial<Alliance>, label = 'Edit alliance') {
+  const a = get().doc?.alliances.find((x) => x.id === id);
+  if (!a) return;
+  commit(label, { alliances: { [id]: { ...a, ...changes } } }, { group: `alliance:${id}:${Object.keys(changes).join(',')}` });
+}
+
+export function deleteAlliance(id: string) {
+  const a = get().doc?.alliances.find((x) => x.id === id);
+  if (!a) return;
+  commit(`Disband ${a.name}`, { alliances: { [id]: null } });
+  if (get().allianceView === id) set({ allianceView: 'all' });
+}
+
+/** Adds a country to an alliance, or takes it out. */
+export function setMember(id: string, cid: string, member: boolean) {
+  const doc = get().doc;
+  const a = doc?.alliances.find((x) => x.id === id);
+  const c = doc?.countries[cid];
+  if (!a || !c || a.members.includes(cid) === member) return;
+  const members = member ? [...a.members, cid] : a.members.filter((m) => m !== cid);
+  commit(member ? `${c.name} joins ${a.name}` : `${c.name} leaves ${a.name}`, { alliances: { [id]: { ...a, members } } });
 }
 
 // ── Flags ────────────────────────────────────────────────────────────────────
