@@ -22,13 +22,12 @@ function graticule(step = 15): FeatureCollection {
 }
 
 export interface Look {
-  /** Deep water. */
+  /** Beyond the depth tiles (polar caps). */
   ocean: string;
-  /** Lighter water glowing along the coasts (continental shelf). */
-  shelf: string;
-  /** Colour of the animated surf rings. */
-  surf: string;
-  surfOpacity: number;
+  /** Water colour by depth (metres, negative), shallowest first. */
+  depth: [number, string][];
+  /** Strength of the drifting ripple shimmer over the water (0 = none). */
+  ripples: number;
   /** Land under everything else, so water effects never show through bare land. */
   landBase: string;
   /** Colour of land nobody owns; null lets the relief show through. */
@@ -61,10 +60,9 @@ export interface Look {
 
 export const LOOKS: Record<MapStyleId, Look> = {
   political: {
-    ocean: '#a9d0ea',
-    shelf: '#d6ecf8',
-    surf: '#ffffff',
-    surfOpacity: 0.55,
+    ocean: '#7fb0d8',
+    depth: [[0, '#d3eef4'], [-40, '#bfe4f1'], [-160, '#a9d6ec'], [-700, '#93c6e4'], [-2500, '#84b9de'], [-5000, '#77acd6'], [-8000, '#6a9fcd']],
+    ripples: 0.55,
     landBase: '#e8e2d0',
     unclaimed: null,
     fillOpacity: 1,
@@ -91,10 +89,9 @@ export const LOOKS: Record<MapStyleId, Look> = {
     selection: '#ff2d55',
   },
   atlas: {
-    ocean: '#cde8f8',
-    shelf: '#eef8fe',
-    surf: '#ffffff',
-    surfOpacity: 0.6,
+    ocean: '#c4e2f5',
+    depth: [[0, '#f2fbfe'], [-60, '#e6f6fc'], [-200, '#d9f0fa'], [-2000, '#cfe9f8'], [-6000, '#c4e2f5']],
+    ripples: 0.6,
     landBase: '#efe9dc',
     unclaimed: null,
     fillOpacity: 0.14,
@@ -121,10 +118,9 @@ export const LOOKS: Record<MapStyleId, Look> = {
     selection: '#ff0f5f',
   },
   plain: {
-    ocean: '#a8d5f6',
-    shelf: '#c9e7fc',
-    surf: '#ffffff',
-    surfOpacity: 0.45,
+    ocean: '#9ccdf2',
+    depth: [[0, '#cbe9fc'], [-200, '#b8e0fa'], [-3000, '#a8d6f6'], [-7000, '#9ccdf2']],
+    ripples: 0.4,
     landBase: '#f2efe6',
     unclaimed: '#f2efe6',
     fillOpacity: 1,
@@ -151,10 +147,9 @@ export const LOOKS: Record<MapStyleId, Look> = {
     selection: '#ff0000',
   },
   night: {
-    ocean: '#060c18',
-    shelf: '#10284a',
-    surf: '#4fd8ff',
-    surfOpacity: 0.5,
+    ocean: '#040a17',
+    depth: [[0, '#1b4a73'], [-60, '#143a61'], [-200, '#0e2a4b'], [-1500, '#0a1d38'], [-4000, '#07142a'], [-8000, '#040a17']],
+    ripples: 0.3,
     landBase: '#161d2b',
     unclaimed: null,
     fillOpacity: 1,
@@ -182,8 +177,11 @@ export const LOOKS: Record<MapStyleId, Look> = {
   },
 };
 
-/** Width of the coastal glow: grows with zoom so it reads as a band of shallow water at every scale. */
-export const shelfWidth = (base: number): ExpressionSpecification => ['interpolate', ['exponential', 1.5], ['zoom'], 0, base * 0.35, 3, base, 6, base * 2.2, 9, base * 4];
+/** A `color-relief` ramp from depth stops (any order). */
+export function depthRamp(stops: [number, string][]): ExpressionSpecification {
+  const sorted = [...stops].sort((a, b) => a[0] - b[0]);
+  return ['interpolate', ['linear'], ['elevation'], ...sorted.flat()] as unknown as ExpressionSpecification;
+}
 const zoomWidth = (base: number): ExpressionSpecification => ['interpolate', ['exponential', 1.6], ['zoom'], 1, base * 0.6, 4, base * 1.2, 8, base * 2.6];
 
 /** Static skeleton of the style: every source and layer exists from the start; looks are applied afterwards. */
@@ -216,6 +214,13 @@ export function baseStyle(): StyleSpecification {
         maxzoom: 4,
         encoding: 'terrarium',
       },
+      bathy: {
+        type: 'raster-dem',
+        tiles: [asset('tiles/bathy/{z}/{x}/{y}.png')],
+        tileSize: 256,
+        maxzoom: 3,
+        encoding: 'terrarium',
+      },
       graticule: { type: 'geojson', data: graticule() },
       veil: { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]]] } } },
       lakes: { type: 'geojson', data: asset('data/lakes.json') },
@@ -235,29 +240,11 @@ export function baseStyle(): StyleSpecification {
     },
     layers: [
       { id: 'ocean', type: 'background', paint: { 'background-color': '#c4def0' } },
-      // Water depth: a soft lighter band along the coasts. Drawn under the land, so only its sea side shows.
-      {
-        id: 'shelf-outer',
-        type: 'line',
-        source: 'coast',
-        paint: { 'line-color': '#d6ecf8', 'line-width': shelfWidth(26), 'line-blur': shelfWidth(20), 'line-opacity': 0.55 },
-        layout: { 'line-join': 'round' },
-      },
-      {
-        id: 'shelf-inner',
-        type: 'line',
-        source: 'coast',
-        paint: { 'line-color': '#d6ecf8', 'line-width': shelfWidth(9), 'line-blur': shelfWidth(6), 'line-opacity': 0.9 },
-        layout: { 'line-join': 'round' },
-      },
-      // Surf: two rings rolling out from the shore; only their paint changes, see MapController.waves.
-      ...(['surf-a', 'surf-b'] as const).map((id) => ({
-        id,
-        type: 'line' as const,
-        source: 'coast',
-        paint: { 'line-color': '#ffffff', 'line-width': 1, 'line-blur': 1, 'line-opacity': 0 },
-        layout: { 'line-join': 'round' as const },
-      })),
+      // Water coloured by real sea-floor depth.
+      { id: 'water-depth', type: 'color-relief', source: 'bathy', paint: { 'color-relief-color': depthRamp(LOOKS.political.depth) } },
+      // Two ripple textures over the whole sphere (the land hides them); MapController.waves sways them.
+      { id: 'ripples-a', type: 'fill', source: 'veil', paint: { 'fill-opacity': 0, 'fill-antialias': false } },
+      { id: 'ripples-b', type: 'fill', source: 'veil', paint: { 'fill-opacity': 0, 'fill-antialias': false } },
       { id: 'graticule', type: 'line', source: 'graticule', paint: { 'line-color': 'rgba(0,0,0,0.06)', 'line-width': ['case', ['get', 'eq'], 1.4, 0.8] } },
       { id: 'land-base', type: 'fill', source: 'regions', paint: { 'fill-color': '#e8e2d0', 'fill-antialias': false } },
       { id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0 } },

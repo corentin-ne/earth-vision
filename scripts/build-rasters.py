@@ -6,6 +6,8 @@
   out with the admin-0 land polygons, reprojected to Web Mercator 512px WebP tiles.
 - dem: AWS terrarium elevation tiles with the sea floor flattened to 0 m so
   hillshade and 3D terrain only show relief on land.
+- bathy: the same tiles the other way round — land flattened to 0 m, sea floor kept
+  (quantized below the shelf so the PNGs compress well) — coloured as water depth.
 """
 import io
 import json
@@ -108,8 +110,50 @@ def build_dem():
     print('dem tiles', count)
 
 
+def build_bathy():
+    src = os.path.join(CACHE, 'dem')
+    dest = os.path.join(OUT, 'bathy')
+    shutil.rmtree(dest, ignore_errors=True)
+    count = 0
+    # Land as the map draws it: islets the elevation data knows but the map lacks become
+    # shallow water, past the animated surf zone, so no surf ring floats around nothing.
+    mw, mh = 8192, 4096
+    mask = np.asarray(land_mask(mw, mh)) > 96
+    # Up to z3 only (~2 MB): the sea floor is smooth, so overzooming it further loses little.
+    for z in [z for z in sorted(os.listdir(src), key=int) if int(z) <= 3]:
+        for x in os.listdir(os.path.join(src, z)):
+            for name in os.listdir(os.path.join(src, z, x)):
+                a = np.asarray(Image.open(os.path.join(src, z, x, name)).convert('RGB')).astype(np.float64)
+                elev = a[..., 0] * 256 + a[..., 1] + a[..., 2] / 256 - 32768
+                size = elev.shape[0]
+                n = 1 << int(z)
+                ty = int(name.split('.')[0])
+                gx = (int(x) * size + np.arange(size) + 0.5) / (n * size)
+                gy = (ty * size + np.arange(size) + 0.5) / (n * size)
+                lng = gx * 360 - 180
+                lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * gy))))
+                mx = np.clip(((lng + 180) / 360 * mw).astype(np.int32), 0, mw - 1)
+                my = np.clip(((90 - lat) / 180 * mh).astype(np.int32), 0, mh - 1)
+                on_land = mask[my[:, None], mx[None, :]]
+                elev = np.where(on_land, np.minimum(elev, 0), np.where(elev >= -1, -25, elev))
+                elev = np.clip(elev, None, 0)
+                # 2 m steps on the shelf (where the surf animates), 100 m steps in the deep.
+                elev = np.where(elev > -250, np.round(elev / 2) * 2, np.round(elev / 100) * 100)
+                v = elev + 32768
+                r = (v // 256).astype(np.uint8)
+                g = (np.floor(v) % 256).astype(np.uint8)
+                b = np.zeros_like(r)
+                d = os.path.join(dest, z, x)
+                os.makedirs(d, exist_ok=True)
+                Image.fromarray(np.dstack([r, g, b]), 'RGB').save(os.path.join(d, name), optimize=True)
+                count += 1
+    print('bathy tiles', count)
+
+
 if __name__ == '__main__':
-    what = sys.argv[1:] or ['relief', 'dem']
+    what = sys.argv[1:] or ['relief', 'dem', 'bathy']
+    if 'bathy' in what:
+        build_bathy()
     if 'relief' in what:
         build_relief()
     if 'dem' in what:

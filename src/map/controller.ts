@@ -4,7 +4,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import type { Country, LngLat } from '../types';
-import { LOOKS, baseStyle, asset } from './style';
+import { LOOKS, baseStyle, asset, depthRamp, type Look } from './style';
 import {
   useWorld,
   engine,
@@ -145,9 +145,7 @@ export class MapController {
     });
     paint('ocean', 'background-color', L.ocean);
     paint('land-base', 'fill-color', L.landBase);
-    for (const id of ['shelf-outer', 'shelf-inner']) paint(id, 'line-color', L.shelf);
-    for (const id of ['surf-a', 'surf-b']) paint(id, 'line-color', L.surf);
-    this.waves.configure(layers.waves, L.surfOpacity);
+    this.waves.configure(layers.waves, L);
     vis('graticule', layers.graticule);
     paint('graticule', 'line-color', L.graticule);
 
@@ -405,6 +403,29 @@ export class MapController {
       draw(ctx, size);
       return ctx.getImageData(0, 0, size, size);
     };
+    // Tileable ripple textures for the water: short soft arcs, wrapped at the edges.
+    const ripples = (seed: number, count: number, len: number) =>
+      make(256, (ctx, s) => {
+        let a = seed;
+        const rand = () => ((a = (a * 16807) % 2147483647) / 2147483647);
+        ctx.lineCap = 'round';
+        for (let i = 0; i < count; i++) {
+          const x = rand() * s;
+          const y = rand() * s;
+          const w = len * (0.6 + rand() * 0.8);
+          ctx.strokeStyle = `rgba(255,255,255,${0.35 + rand() * 0.45})`;
+          ctx.lineWidth = 1.6 + rand() * 1.6;
+          for (const dx of [-s, 0, s])
+            for (const dy of [-s, 0, s]) {
+              ctx.beginPath();
+              ctx.moveTo(x + dx - w / 2, y + dy);
+              ctx.quadraticCurveTo(x + dx, y + dy - w * 0.28, x + dx + w / 2, y + dy);
+              ctx.stroke();
+            }
+        }
+      });
+    this.map.addImage('ripples-a', ripples(7, 26, 22), { pixelRatio: 2 });
+    this.map.addImage('ripples-b', ripples(4242, 18, 30), { pixelRatio: 2 });
     this.map.addImage(
       'city-dot',
       make(20, (ctx, s) => {
@@ -811,38 +832,40 @@ export function setMapCtl(c: MapController | null) {
 }
 
 /**
- * Surf rolling out from the coasts: two staggered rings whose width and opacity follow a
- * slow cycle. Only paint properties change (no data, no layout), and frames are throttled,
- * skipped while the page is hidden and stopped after a minute without any interaction —
- * so an idle map costs (almost) nothing. Off for people who prefer reduced motion.
+ * Moving water: two ripple textures over the sea sway back and forth on different paths,
+ * so their highlights shimmer like a light swell. Only `fill-translate` changes (no data,
+ * no layout, no tiles), frames are throttled, skipped while the page is hidden and stopped
+ * after 30 s without interaction. Off for people who prefer reduced motion.
  */
 class Waves {
   private raf = 0;
   private last = 0;
   private lastInput = performance.now();
   private on = false;
-  private peak = 0.5;
-  private readonly period = 4200;
   private readonly frameMs: number;
   private readonly reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   private bound = false;
 
   constructor(private ctl: MapController) {
     const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-    // The surf moves ~4 px/s, so 8–10 steps a second already look continuous: each frame
-    // is a full map redraw (~5 ms on a laptop), and this keeps an idle map nearly free.
-    this.frameMs = 1000 / (coarse ? 8 : 10);
+    // Each frame is a full map redraw (~5 ms on a laptop); the ripples move a few pixels a
+    // second, so ~15 steps a second look continuous and keep an idle map cheap.
+    this.frameMs = 1000 / (coarse ? 12 : 16);
   }
 
-  configure(on: boolean, peak: number) {
-    this.on = on && !this.reduced;
-    this.peak = peak;
+  configure(on: boolean, look: Look) {
+    const m = this.map;
+    m.setPaintProperty('water-depth', 'color-relief-color', depthRamp(look.depth));
+    this.on = on && !this.reduced && look.ripples > 0;
+    for (const [id, k] of [['ripples-a', 1], ['ripples-b', 0.8]] as const) {
+      m.setPaintProperty(id, 'fill-pattern', id);
+      // Faded out on the whole-globe view, where the fine texture would read as noise.
+      const a = on && look.ripples > 0 ? look.ripples * k : 0;
+      m.setPaintProperty(id, 'fill-opacity', ['interpolate', ['linear'], ['zoom'], 1.5, 0, 3.5, a]);
+    }
     if (!this.bound) this.bind();
     if (this.on) this.start();
-    else {
-      this.stop();
-      for (const id of ['surf-a', 'surf-b']) this.map.setPaintProperty(id, 'line-opacity', 0);
-    }
+    else this.stop();
   }
 
   private get map() {
@@ -882,16 +905,9 @@ class Waves {
   }
 
   private frame(now: number) {
-    const m = this.map;
-    const base = (now % this.period) / this.period;
-    (['surf-a', 'surf-b'] as const).forEach((id, i) => {
-      const p = (base + i * 0.5) % 1;
-      // Grows from the shore outwards, fades in quickly and out slowly.
-      const w = 2 + p * 16;
-      const alpha = this.peak * Math.min(1, p * 6) * (1 - p) ** 1.6;
-      m.setPaintProperty(id, 'line-width', ['interpolate', ['exponential', 1.5], ['zoom'], 0, w * 0.3, 3, w, 6, w * 2, 9, w * 3.5]);
-      m.setPaintProperty(id, 'line-blur', ['interpolate', ['exponential', 1.5], ['zoom'], 0, w * 0.2, 3, w * 0.55, 6, w * 1.1, 9, w * 2]);
-      m.setPaintProperty(id, 'line-opacity', alpha);
-    });
+    const t = now / 1000;
+    // Lissajous-like sways (bounded, so the textured sphere never drifts off its edges).
+    this.map.setPaintProperty('ripples-a', 'fill-translate', [Math.sin(t * 0.55) * 14, Math.sin(t * 0.37 + 1) * 6]);
+    this.map.setPaintProperty('ripples-b', 'fill-translate', [Math.sin(t * 0.42 + 2) * -12, Math.cos(t * 0.5) * 8]);
   }
 }
