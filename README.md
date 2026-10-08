@@ -93,6 +93,7 @@ cd android && ./gradlew assembleDebug
 | A+ `.map` import/export (a zip whose header reads `A+WM`) | [`src/io/amap.ts`](src/io/amap.ts) |
 | MapLibre rendering & map tools | [`src/map/`](src/map/) |
 | UI | [`src/ui/`](src/ui/) |
+| Look: Spark UI kit tokens and components, SchneiderPocket's corners, lit rim and condensed titles | [`src/theme/spark.css`](src/theme/spark.css), [`src/ui/rimlight.ts`](src/ui/rimlight.ts) |
 
 Regions are kept as a TopoJSON topology, so each border is stored once and knows the region on each
 side. Moving a region to another country therefore never clips polygons: country borders are just the
