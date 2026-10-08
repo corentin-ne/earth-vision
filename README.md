@@ -26,8 +26,11 @@ their code is kept under [`legacy/`](legacy/).
 - **Split** (`K`) regions along a line you draw; borders stay exact with the neighbours.
 - **Cities** (`C`): add, drag, rename, hide, set as capital.
 - Populations travel with the land: they are stored per region and summed per country.
-- Living water: the sea is coloured by the real sea-floor depth (pale shelves, deep trenches) and a
-  soft ripple shimmer sways over it (throttled, paused when idle or hidden; toggle *Animated water*).
+- Living water: the sea is coloured by the real sea-floor depth (pale shelves, deep trenches) and its
+  surface is a small GPU shader — drifting swell lit by the sun, with glints — that costs next to nothing
+  (throttled, paused when idle or hidden; toggle *Animated water*).
+- Click a country, region or city: a bubble shows its flag and name and the map glides it into view;
+  *Details* opens its full page in a large window (full screen on phones).
 - Four map looks — **Political** (colours + hill shading), **Atlas** (MillMint-style physical relief
   with fine borders), **Plain** (A+ style) and **Night** — on a globe or a flat map (`G`), with
   optional 3D mountains, rivers, lakes, urban areas, graticule…

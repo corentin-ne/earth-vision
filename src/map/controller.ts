@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import type { Country, LngLat } from '../types';
 import { LOOKS, baseStyle, asset, depthRamp, type Look } from './style';
+import { WaterLayer, rgb } from './water';
 import {
   useWorld,
   engine,
@@ -77,10 +78,12 @@ export class MapController {
 
   /** Keeps the visual centre of the map in the part not covered by the inspector. */
   private updatePadding = () => {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const mobile = w <= 760;
-    this.map.setPadding({ top: mobile ? 56 : 0, left: 0, bottom: mobile ? Math.round(h * 0.3) : 0, right: mobile ? 0 : 372 });
+    const mobile = window.innerWidth <= 760;
+    const { right, bottom } = get().inspectorInset;
+    // Never pad away more than most of the map (a full-height sheet still leaves a strip).
+    const h = this.map.getContainer().clientHeight;
+    const w = this.map.getContainer().clientWidth;
+    this.map.setPadding({ top: mobile ? 56 : 0, left: 0, bottom: Math.min(bottom, h * 0.6), right: Math.min(right, w * 0.6) });
   };
 
   private async onLoad() {
@@ -88,6 +91,11 @@ export class MapController {
     window.addEventListener('resize', this.updatePadding);
     await loadIso2();
     this.addIcons();
+    try {
+      this.map.addLayer(this.waves.layer, 'graticule');
+    } catch (e) {
+      console.warn('animated water unavailable', e);
+    }
     this.loaded = true;
     this.applyLook();
     this.syncAll();
@@ -97,9 +105,12 @@ export class MapController {
       useWorld.subscribe((s, p) => {
         if (s.mapStyle !== p.mapStyle || s.layers !== p.layers || s.globe !== p.globe) this.applyLook();
         if (s.selection !== p.selection) this.syncSelection();
+        if (s.inspectorInset !== p.inspectorInset) this.updatePadding();
         if (s.tool !== p.tool) this.onToolChange(s, p);
       }),
     );
+    // The panel may have reported its size while the map was still loading.
+    this.updatePadding();
     this.map.on('moveend', () => {
       const doc = get().doc;
       if (!doc) return;
@@ -403,29 +414,6 @@ export class MapController {
       draw(ctx, size);
       return ctx.getImageData(0, 0, size, size);
     };
-    // Tileable ripple textures for the water: short soft arcs, wrapped at the edges.
-    const ripples = (seed: number, count: number, len: number) =>
-      make(256, (ctx, s) => {
-        let a = seed;
-        const rand = () => ((a = (a * 16807) % 2147483647) / 2147483647);
-        ctx.lineCap = 'round';
-        for (let i = 0; i < count; i++) {
-          const x = rand() * s;
-          const y = rand() * s;
-          const w = len * (0.6 + rand() * 0.8);
-          ctx.strokeStyle = `rgba(255,255,255,${0.35 + rand() * 0.45})`;
-          ctx.lineWidth = 1.6 + rand() * 1.6;
-          for (const dx of [-s, 0, s])
-            for (const dy of [-s, 0, s]) {
-              ctx.beginPath();
-              ctx.moveTo(x + dx - w / 2, y + dy);
-              ctx.quadraticCurveTo(x + dx, y + dy - w * 0.28, x + dx + w / 2, y + dy);
-              ctx.stroke();
-            }
-        }
-      });
-    this.map.addImage('ripples-a', ripples(7, 26, 22), { pixelRatio: 2 });
-    this.map.addImage('ripples-b', ripples(4242, 18, 30), { pixelRatio: 2 });
     this.map.addImage(
       'city-dot',
       make(20, (ctx, s) => {
@@ -602,7 +590,9 @@ export class MapController {
     if (tool === 'select') {
       const city = this.cityAtPoint(e.point);
       if (city != null) {
-        select({ city });
+        const c = doc.cities[city];
+        select({ city, anchor: [c.lng, c.lat] });
+        this.centerOn([c.lng, c.lat]);
         return;
       }
       const rid = this.regionAtPoint(e.point);
@@ -611,15 +601,19 @@ export class MapController {
         return;
       }
       const r = doc.regions[rid];
+      const anchor: LngLat = [e.lngLat.lng, e.lngLat.lat];
       if (oe.shiftKey || oe.ctrlKey || oe.metaKey || get().multiSelect) {
+        // Picking several regions: the map stays still under the finger.
         const ids = selection.regions.includes(rid) ? selection.regions.filter((x) => x !== rid) : [...selection.regions, rid];
-        select({ cid: selection.cid ?? (r.cid || null), regions: ids });
+        select({ cid: selection.cid ?? (r.cid || null), regions: ids, anchor });
+        return;
       } else if (selection.regions.length === 1 && selection.regions[0] === rid) {
         // Second click on the same region: back to the whole country.
-        select({ cid: r.cid || null, regions: [] });
+        select({ cid: r.cid || null, regions: [], anchor });
       } else {
-        select({ cid: r.cid || null, regions: [rid] });
+        select({ cid: r.cid || null, regions: [rid], anchor });
       }
+      this.centerOn(anchor);
     } else if (tool === 'split') {
       this.drawPts.push([e.lngLat.lng, e.lngLat.lat]);
       this.renderDraw();
@@ -788,6 +782,8 @@ export class MapController {
   // ── Camera ───────────────────────────────────────────────────────────────
 
   fitBounds(b: [number, number, number, number] | null, maxZoom = 6) {
+    // Showing something on the map means getting the details window out of the way.
+    useWorld.setState({ detailsOpen: false });
     if (!b) return;
     const pad = Math.min(120, Math.min(this.map.getContainer().clientWidth, this.map.getContainer().clientHeight) / 6);
     this.map.fitBounds(
@@ -799,7 +795,13 @@ export class MapController {
     );
   }
 
+  /** Glides `p` to the middle of the part of the map the panels leave visible (zoom unchanged). */
+  centerOn(p: LngLat) {
+    this.map.easeTo({ center: p, duration: 550, essential: true });
+  }
+
   flyTo(p: LngLat, zoom?: number) {
+    useWorld.setState({ detailsOpen: false });
     this.map.flyTo({ center: p, zoom: zoom ?? Math.max(this.map.getZoom(), 5), duration: 900 });
   }
 
@@ -832,12 +834,12 @@ export function setMapCtl(c: MapController | null) {
 }
 
 /**
- * Moving water: two ripple textures over the sea sway back and forth on different paths,
- * so their highlights shimmer like a light swell. Only `fill-translate` changes (no data,
- * no layout, no tiles), frames are throttled, skipped while the page is hidden and stopped
- * after 30 s without interaction. Off for people who prefer reduced motion.
+ * Drives the animated water layer: advances its clock and asks the map to redraw, throttled,
+ * skipped while the page is hidden and stopped after 30 s without interaction (the waves then
+ * stay still but keep their shading). Frozen for people who prefer reduced motion.
  */
 class Waves {
+  readonly layer = new WaterLayer();
   private raf = 0;
   private last = 0;
   private lastInput = performance.now();
@@ -848,24 +850,20 @@ class Waves {
 
   constructor(private ctl: MapController) {
     const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-    // Each frame is a full map redraw (~5 ms on a laptop); the ripples move a few pixels a
-    // second, so ~15 steps a second look continuous and keep an idle map cheap.
-    this.frameMs = 1000 / (coarse ? 12 : 16);
+    // Each frame is one map redraw plus the water shader; the swell is slow, so ~20 steps a
+    // second look fluid while leaving the GPU mostly idle.
+    this.frameMs = 1000 / (coarse ? 15 : 22);
   }
 
   configure(on: boolean, look: Look) {
     const m = this.map;
     m.setPaintProperty('water-depth', 'color-relief-color', depthRamp(look.depth));
-    this.on = on && !this.reduced && look.ripples > 0;
-    for (const [id, k] of [['ripples-a', 1], ['ripples-b', 0.8]] as const) {
-      m.setPaintProperty(id, 'fill-pattern', id);
-      // Faded out on the whole-globe view, where the fine texture would read as noise.
-      const a = on && look.ripples > 0 ? look.ripples * k : 0;
-      m.setPaintProperty(id, 'fill-opacity', ['interpolate', ['linear'], ['zoom'], 1.5, 0, 3.5, a]);
-    }
+    this.layer.look = { light: rgb(look.water.light), shade: rgb(look.water.shade), strength: on ? look.water.strength : 0 };
+    this.on = on && !this.reduced && look.water.strength > 0;
     if (!this.bound) this.bind();
     if (this.on) this.start();
     else this.stop();
+    m.triggerRepaint();
   }
 
   private get map() {
@@ -885,16 +883,18 @@ class Waves {
 
   start() {
     if (this.raf) return;
+    this.last = performance.now();
     const loop = (now: number) => {
       this.raf = requestAnimationFrame(loop);
       if (document.hidden || now - this.last < this.frameMs) return;
       if (now - this.lastInput > 30_000) {
-        // Idle for half a minute: freeze on the current frame until the user comes back.
         this.stop();
         return;
       }
+      // Clamp the step so coming back from a pause doesn't jump the waves.
+      this.layer.time += Math.min(0.1, (now - this.last) / 1000);
       this.last = now;
-      this.frame(now);
+      this.map.triggerRepaint();
     };
     this.raf = requestAnimationFrame(loop);
   }
@@ -902,12 +902,5 @@ class Waves {
   stop() {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
-  }
-
-  private frame(now: number) {
-    const t = now / 1000;
-    // Lissajous-like sways (bounded, so the textured sphere never drifts off its edges).
-    this.map.setPaintProperty('ripples-a', 'fill-translate', [Math.sin(t * 0.55) * 14, Math.sin(t * 0.37 + 1) * 6]);
-    this.map.setPaintProperty('ripples-b', 'fill-translate', [Math.sin(t * 0.42 + 2) * -12, Math.cos(t * 0.5) * 8]);
   }
 }

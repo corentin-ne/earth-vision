@@ -21,11 +21,11 @@ import { WorldPanel } from './WorldPanel';
 import { AdvancedPanel } from './AdvancedPanel';
 import { FlagGallery, FlagLightbox } from './FlagViewer';
 import { CountryPicker, Flag, TextField } from './common';
-import type { Country } from '../types';
+import type { LngLat } from '../types';
 import { Icon, type IconName } from './icons';
 import { downloadMap, fileBase } from '../io/files';
 import { flushAutosave, onSaveState } from '../world/persist';
-import { download } from '../util';
+import { download, fmtCompact } from '../util';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
@@ -36,6 +36,8 @@ export function Editor({ onHome }: { onHome: () => void }) {
       <ToolDock />
       <Inspector />
       <LayersPanel />
+      <SelectionBubble />
+      <DetailsWindow />
       <HoverTip />
       <SplitHint />
       <ShortcutsHelp />
@@ -490,52 +492,175 @@ type Snap = 'peek' | 'half' | 'full';
 const PEEK = 64;
 const snapHeight = (s: Snap) => (s === 'peek' ? PEEK : Math.round(window.innerHeight * (s === 'half' ? 0.48 : 0.86)));
 
-function Inspector() {
+/** What the selection is, for the bubble and the details window. */
+function useSelectionView() {
   const sel = useWorld((s) => s.selection);
   const doc = useWorld((s) => s.doc)!;
+  const agg = countryAggregates(doc);
+  if (sel.city != null && doc.cities[sel.city]) {
+    const c = doc.cities[sel.city];
+    const of = Object.values(doc.countries).find((k) => k.capital === c.id);
+    return { key: `city:${c.id}`, kind: 'City', title: c.name, sub: of ? `Capital of ${of.name}` : c.capital ? 'Capital' : 'City', anchor: sel.anchor ?? ([c.lng, c.lat] as LngLat), body: <CityPanel id={c.id} /> };
+  }
+  if (sel.regions.length > 1) {
+    const first = doc.regions[sel.regions[0]];
+    return { key: 'multi', kind: 'Selection', title: `${sel.regions.length} regions`, sub: 'Give away, merge or found a country', anchor: sel.anchor ?? ([first?.cx ?? 0, first?.cy ?? 0] as LngLat), body: <MultiRegionPanel ids={sel.regions} /> };
+  }
+  const region = sel.regions.length === 1 ? doc.regions[sel.regions[0]] : undefined;
+  if (sel.cid && doc.countries[sel.cid]) {
+    const c = doc.countries[sel.cid];
+    const a = agg[c.cid];
+    const popKey = doc.settings.stats.find((s) => s.scale)?.key;
+    const facts = [a ? fmtCompact(a.area) + ' km²' : null, popKey && a?.vals[popKey] ? fmtCompact(a.vals[popKey]) + ' people' : null].filter(Boolean).join(' · ');
+    return {
+      key: `country:${c.cid}`,
+      kind: 'Country',
+      title: c.name,
+      flag: c,
+      sub: region ? region.name : facts,
+      anchor: sel.anchor ?? (region ? ([region.cx, region.cy] as LngLat) : c.label ?? ([0, 0] as LngLat)),
+      body: <CountryPanel cid={c.cid} />,
+    };
+  }
+  if (region)
+    return {
+      key: `region:${region.id}`,
+      kind: 'Region',
+      title: region.name,
+      sub: 'Unclaimed land',
+      anchor: sel.anchor ?? ([region.cx, region.cy] as LngLat),
+      body: (
+        <div className="panel-body">
+          <RegionCard region={region} />
+        </div>
+      ),
+    };
+  return null;
+}
+
+/** True when `p` is on the hidden hemisphere of the globe (more than ~80° of arc from the view centre). */
+function farSide(center: { lng: number; lat: number }, p: LngLat, globe: boolean) {
+  if (!globe) return false;
+  const r = Math.PI / 180;
+  const cos = Math.sin(center.lat * r) * Math.sin(p[1] * r) + Math.cos(center.lat * r) * Math.cos(p[1] * r) * Math.cos((p[0] - center.lng) * r);
+  return cos < Math.cos(80 * r);
+}
+
+/** A small card pointing at the selection on the map; opens the full details. */
+function SelectionBubble() {
+  const view = useSelectionView();
+  const tool = useWorld((s) => s.tool);
+  const details = useWorld((s) => s.detailsOpen);
+  const ref = useRef<HTMLDivElement>(null);
+  const anchor = view?.anchor;
+  useEffect(() => {
+    const map = mapCtl?.map;
+    if (!map || !anchor) return;
+    let raf = 0;
+    const place = () => {
+      raf = 0;
+      const el = ref.current;
+      if (!el) return;
+      const p = map.project(anchor);
+      const c = map.getContainer();
+      // Hidden when its spot is off screen or on the far side of the globe.
+      const hidden = p.x < 0 || p.y < 0 || p.x > c.clientWidth || p.y > c.clientHeight || farSide(map.getCenter(), anchor, useWorld.getState().globe);
+      el.style.visibility = hidden ? 'hidden' : '';
+      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+    };
+    const queue = () => (raf ||= requestAnimationFrame(place));
+    place();
+    map.on('move', queue);
+    map.on('resize', queue);
+    return () => {
+      map.off('move', queue);
+      map.off('resize', queue);
+      cancelAnimationFrame(raf);
+    };
+  }, [anchor, view?.key]);
+  if (!view || details || (tool !== 'select' && tool !== 'city')) return null;
+  return (
+    <div ref={ref} className="sel-bubble-anchor">
+      <div className="sel-bubble glass" key={view.key + (view.sub ?? '')}>
+        <button className="sel-bubble-main" onClick={() => useWorld.setState({ detailsOpen: true })} title="Open the details">
+          {view.flag ? <Flag country={view.flag} size={26} /> : <span className="sel-bubble-icon"><Icon name={view.kind === 'City' ? 'city' : 'flat'} size={16} /></span>}
+          <span className="grow">
+            <strong>{view.title}</strong>
+            {view.sub && <small>{view.sub}</small>}
+          </span>
+          <span className="sel-bubble-go">
+            Details <Icon name="chevron" size={14} />
+          </span>
+        </button>
+        <button className="icon-btn sel-bubble-x" onClick={() => select({})} title="Close (Esc)">
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The selection's full page, in a large window (full screen on phones). */
+function DetailsWindow() {
+  const open = useWorld((s) => s.detailsOpen);
+  const view = useSelectionView();
+  if (!open || !view) return null;
+  const close = () => useWorld.setState({ detailsOpen: false });
+  return (
+    <div className="modal-back details-back" onClick={close}>
+      <div className="modal glass details" onClick={(e) => e.stopPropagation()}>
+        <div className="details-head">
+          <span className="details-kind">{view.kind}</span>
+          <div className="grow" />
+          <button className="icon-btn" onClick={close} title="Back to the map (Esc)">
+            <Icon name="x" />
+          </button>
+        </div>
+        <div className="details-body page" key={view.key}>
+          {view.body}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Inspector() {
+  const doc = useWorld((s) => s.doc)!;
+  const hasSelection = useWorld((s) => !!(s.selection.cid || s.selection.regions.length || s.selection.city != null));
   const mobile = useMobile();
   const [collapsed, setCollapsed] = useState(false);
   const [snap, setSnap] = useState<Snap>('half');
   const ref = useRef<HTMLElement>(null);
   const drag = useRef<{ y: number; h: number; t: number; moved: boolean } | null>(null);
 
-  let title = doc.meta.title;
-  let body = <WorldPanel />;
-  let back = false;
-  let key = 'world';
-  let flag: Country | undefined;
-  if (sel.city != null && doc.cities[sel.city]) {
-    title = doc.cities[sel.city].name;
-    body = <CityPanel id={sel.city} />;
-    back = true;
-    key = `city:${sel.city}`;
-  } else if (sel.regions.length > 1) {
-    title = `${sel.regions.length} regions`;
-    body = <MultiRegionPanel ids={sel.regions} />;
-    back = true;
-    key = 'multi';
-  } else if (sel.cid && doc.countries[sel.cid]) {
-    flag = doc.countries[sel.cid];
-    title = flag.name;
-    body = <CountryPanel cid={sel.cid} />;
-    back = true;
-    key = `country:${sel.cid}`;
-  } else if (sel.regions.length === 1 && doc.regions[sel.regions[0]]) {
-    title = doc.regions[sel.regions[0]].name;
-    body = (
-      <div className="panel-body">
-        <RegionCard region={doc.regions[sel.regions[0]]} />
-      </div>
-    );
-    back = true;
-    key = `region:${sel.regions[0]}`;
-  }
+  const title = doc.meta.title;
+  const body = <WorldPanel />;
+  const key = 'world';
 
-  // Selecting something on a phone lifts the sheet so its page is visible.
-  const page = key.split(':')[0];
+  // On a phone, selecting something lowers the sheet so the map (and the bubble) can be seen.
   useEffect(() => {
-    if (mobile && page !== 'world') setSnap((s) => (s === 'peek' ? 'half' : s));
-  }, [mobile, key, page]);
+    if (mobile && hasSelection) setSnap('peek');
+  }, [mobile, hasSelection]);
+
+  // Tell the map which part of the screen the panel covers, so "centre" means the visible part.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const report = () => {
+      const r = el.getBoundingClientRect();
+      const inset = mobile ? { right: 0, bottom: Math.max(0, window.innerHeight - r.top) } : { right: collapsed ? 0 : Math.max(0, window.innerWidth - r.left), bottom: 0 };
+      const cur = useWorld.getState().inspectorInset;
+      if (cur.right !== inset.right || cur.bottom !== inset.bottom) useWorld.setState({ inspectorInset: inset });
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    window.addEventListener('resize', report);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', report);
+    };
+  }, [mobile, collapsed, snap]);
 
   const setHeight = (h: number | null) => {
     const el = ref.current;
@@ -589,16 +714,9 @@ function Inspector() {
     <aside ref={ref} className={'inspector glass' + (mobile ? ' sheet' : '') + (closed ? ' collapsed' : '')}>
       <div className="inspector-head" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
         {mobile && <span className="grabber" aria-hidden />}
-        {back ? (
-          <button className="icon-btn" onClick={() => select({})} title="Back to world overview (Esc)">
-            <Icon name="list" />
-          </button>
-        ) : (
-          <span className="head-icon">
-            <Icon name="globe" />
-          </span>
-        )}
-        {flag && <Flag country={flag} size={18} />}
+        <span className="head-icon">
+          <Icon name="globe" />
+        </span>
         <h2 className="grow" key={key}>
           {title}
         </h2>
@@ -726,6 +844,7 @@ export function useShortcuts() {
         else if (e.key === '?') useWorld.setState((s) => ({ help: !s.help }));
         else if (k === '[') useWorld.setState((s) => ({ brushSize: Math.max(0, s.brushSize - 5) }));
         else if (k === ']') useWorld.setState((s) => ({ brushSize: Math.min(60, s.brushSize + 5) }));
+        else if (k === 'escape' && useWorld.getState().detailsOpen) useWorld.setState({ detailsOpen: false });
         else if (k === 'escape' && useWorld.getState().help) useWorld.setState({ help: false });
         else if (k === 'escape' && useWorld.getState().advancedOpen) useWorld.setState({ advancedOpen: false });
         else if (k === 'escape' && useWorld.getState().galleryOpen) useWorld.setState({ galleryOpen: false });

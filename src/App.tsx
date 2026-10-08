@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorldBundle } from './types';
 import { useWorld, loadWorld, closeWorld, toast, currentBundle, select, setTool } from './world/store';
 import { onBackButton } from './native';
@@ -51,6 +51,7 @@ export default function App() {
     if (view !== 'editor') return false;
     const s = useWorld.getState();
     if (s.flagView) useWorld.setState({ flagView: null });
+    else if (s.detailsOpen) useWorld.setState({ detailsOpen: false });
     else if (s.help) useWorld.setState({ help: false });
     else if (s.advancedOpen) useWorld.setState({ advancedOpen: false });
     else if (s.galleryOpen) useWorld.setState({ galleryOpen: false });
@@ -117,6 +118,7 @@ export default function App() {
         </div>
       )}
       {view === 'editor' && hasDoc && (
+        <Boundary>
         <Suspense
           fallback={
             <div className="boot">
@@ -129,6 +131,7 @@ export default function App() {
           onHome={goHome}
         />
         </Suspense>
+        </Boundary>
       )}
       <Toast />
     </>
@@ -144,4 +147,27 @@ function Toast() {
       <span>{t.text}</span>
     </div>
   );
+}
+
+/** A crash in one screen shows a way out instead of a blank app; the world itself is already saved. */
+class Boundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error) {
+    console.error(error);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="boot crash">
+        <strong>Something went wrong.</strong>
+        <span>Your world is saved. {this.state.error.message}</span>
+        <button className="btn primary" onClick={() => location.reload()}>
+          Reload
+        </button>
+      </div>
+    );
+  }
 }

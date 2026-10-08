@@ -26,8 +26,8 @@ export interface Look {
   ocean: string;
   /** Water colour by depth (metres, negative), shallowest first. */
   depth: [number, string][];
-  /** Strength of the drifting ripple shimmer over the water (0 = none). */
-  ripples: number;
+  /** Animated water surface: glint colour, shaded-side colour, strength (0 = none). */
+  water: { light: string; shade: string; strength: number };
   /** Land under everything else, so water effects never show through bare land. */
   landBase: string;
   /** Colour of land nobody owns; null lets the relief show through. */
@@ -62,7 +62,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
   political: {
     ocean: '#7fb0d8',
     depth: [[0, '#d3eef4'], [-40, '#bfe4f1'], [-160, '#a9d6ec'], [-700, '#93c6e4'], [-2500, '#84b9de'], [-5000, '#77acd6'], [-8000, '#6a9fcd']],
-    ripples: 0.55,
+    water: { light: '#ffffff', shade: '#1d4f7a', strength: 0.5 },
     landBase: '#e8e2d0',
     unclaimed: null,
     fillOpacity: 1,
@@ -91,7 +91,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
   atlas: {
     ocean: '#c4e2f5',
     depth: [[0, '#f2fbfe'], [-60, '#e6f6fc'], [-200, '#d9f0fa'], [-2000, '#cfe9f8'], [-6000, '#c4e2f5']],
-    ripples: 0.6,
+    water: { light: '#ffffff', shade: '#3a7aa8', strength: 0.4 },
     landBase: '#efe9dc',
     unclaimed: null,
     fillOpacity: 0.14,
@@ -120,7 +120,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
   plain: {
     ocean: '#9ccdf2',
     depth: [[0, '#cbe9fc'], [-200, '#b8e0fa'], [-3000, '#a8d6f6'], [-7000, '#9ccdf2']],
-    ripples: 0.4,
+    water: { light: '#ffffff', shade: '#2a6aa0', strength: 0.3 },
     landBase: '#f2efe6',
     unclaimed: '#f2efe6',
     fillOpacity: 1,
@@ -149,7 +149,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
   night: {
     ocean: '#040a17',
     depth: [[0, '#1b4a73'], [-60, '#143a61'], [-200, '#0e2a4b'], [-1500, '#0a1d38'], [-4000, '#07142a'], [-8000, '#040a17']],
-    ripples: 0.3,
+    water: { light: '#9fe8ff', shade: '#000814', strength: 0.45 },
     landBase: '#161d2b',
     unclaimed: null,
     fillOpacity: 1,
@@ -242,9 +242,7 @@ export function baseStyle(): StyleSpecification {
       { id: 'ocean', type: 'background', paint: { 'background-color': '#c4def0' } },
       // Water coloured by real sea-floor depth.
       { id: 'water-depth', type: 'color-relief', source: 'bathy', paint: { 'color-relief-color': depthRamp(LOOKS.political.depth) } },
-      // Two ripple textures over the whole sphere (the land hides them); MapController.waves sways them.
-      { id: 'ripples-a', type: 'fill', source: 'veil', paint: { 'fill-opacity': 0, 'fill-antialias': false } },
-      { id: 'ripples-b', type: 'fill', source: 'veil', paint: { 'fill-opacity': 0, 'fill-antialias': false } },
+      // The animated water surface (a custom WebGL layer, see water.ts) is inserted here, before the graticule.
       { id: 'graticule', type: 'line', source: 'graticule', paint: { 'line-color': 'rgba(0,0,0,0.06)', 'line-width': ['case', ['get', 'eq'], 1.4, 0.8] } },
       { id: 'land-base', type: 'fill', source: 'regions', paint: { 'fill-color': '#e8e2d0', 'fill-antialias': false } },
       { id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0 } },

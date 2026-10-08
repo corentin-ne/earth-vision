@@ -30,6 +30,8 @@ export interface Selection {
   cid: string | null;
   regions: number[];
   city: number | null;
+  /** Where the selection bubble points (the clicked spot); defaults to the thing's label point. */
+  anchor?: LngLat;
 }
 
 interface HistoryEntry {
@@ -88,6 +90,10 @@ export interface State {
   /** Touch-friendly stand-in for Shift+click: clicks add regions to the selection. */
   multiSelect: boolean;
   advancedOpen: boolean;
+  /** The full details window of the current selection. */
+  detailsOpen: boolean;
+  /** Screen space the side panel / bottom sheet covers (px), so the map centres in what's left. */
+  inspectorInset: { right: number; bottom: number };
   /** Country whose flag is shown full size. */
   flagView: string | null;
   galleryOpen: boolean;
@@ -142,6 +148,8 @@ export const useWorld = create<State>(() => ({
   brushMode: 'paint',
   multiSelect: false,
   advancedOpen: false,
+  detailsOpen: false,
+  inspectorInset: { right: 0, bottom: 0 },
   flagView: null,
   galleryOpen: false,
 }));
@@ -383,6 +391,7 @@ export function loadWorld(b: WorldBundle) {
     brushCid: Object.keys(b.doc.countries)[0] ?? '',
     help: false,
     advancedOpen: false,
+    detailsOpen: false,
     flagView: null,
     galleryOpen: false,
   });
@@ -411,11 +420,15 @@ export function toast(text: string, kind?: 'error' | 'ok') {
 }
 
 export function select(sel: Partial<Selection>) {
-  set({ selection: { cid: null, regions: [], city: null, ...sel } });
+  const selection = { cid: null, regions: [], city: null, ...sel };
+  const empty = !selection.cid && !selection.regions.length && selection.city == null;
+  set(empty ? { selection, detailsOpen: false } : { selection });
 }
 
 export function setTool(tool: Tool) {
   const { selection, doc } = get();
+  // Every tool but select works on the map: get the details window out of the way.
+  if (tool !== 'select') set({ detailsOpen: false });
   // Painting starts with the selected country as the brush.
   if (tool === 'paint' && selection.cid && doc?.countries[selection.cid]) set({ tool, brushCid: selection.cid });
   else set({ tool });
