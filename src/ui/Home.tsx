@@ -395,7 +395,7 @@ function Hero({ w, thumb, pinned, actions }: { w: WorldMeta; thumb?: string; pin
   return (
     <section className="hero">
       <button className="hero-map" onClick={() => actions.open(w)} title="Continue editing">
-        {thumb ? <img src={thumb} alt="" draggable={false} /> : <div className="thumb-empty"><Icon name="globe" size={40} /></div>}
+        {thumb ? <img onLoad={(e) => e.currentTarget.classList.add('loaded')} src={thumb} alt="" draggable={false} /> : <div className="thumb-empty"><Icon name="globe" size={40} /></div>}
         <span className="hero-play">
           <Icon name="play" size={20} /> Continue
         </span>
@@ -475,7 +475,7 @@ function WorldCard({ w, thumb, actions }: { w: WorldMeta; thumb?: string; action
   return (
     <div className="world-card">
       <button className="world-thumb" onClick={() => actions.open(w)} title={`Open ${w.title}`}>
-        {thumb ? <img src={thumb} alt="" loading="lazy" draggable={false} /> : <div className="thumb-empty"><Icon name="globe" size={26} /></div>}
+        {thumb ? <img onLoad={(e) => e.currentTarget.classList.add('loaded')} src={thumb} alt="" loading="lazy" draggable={false} /> : <div className="thumb-empty"><Icon name="globe" size={26} /></div>}
       </button>
       <div className="world-card-body">
         {editing ? (

@@ -113,6 +113,7 @@ export class MapController {
     );
     // The panel may have reported its size while the map was still loading.
     this.updatePadding();
+    this.intro();
     this.map.on('moveend', () => {
       const doc = get().doc;
       if (!doc) return;
@@ -123,7 +124,37 @@ export class MapController {
     });
   }
 
+  /** Called once, when the world is drawn and the loading veil can lift. */
+  onReady?: () => void;
+  private readyTimer = 0;
+
+  /**
+   * Waits for the first tiles, then reveals the map with a short glide into the saved view
+   * (from a little further out and turned). Gives up waiting after a few seconds so a slow or
+   * hidden page never stays behind the veil.
+   */
+  private intro() {
+    const m = this.map;
+    const reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const target = { center: m.getCenter(), zoom: m.getZoom(), bearing: m.getBearing(), pitch: m.getPitch() };
+    if (!reduced) m.jumpTo({ zoom: Math.max(0.6, target.zoom - 0.9), bearing: target.bearing - 16 });
+    const started = performance.now();
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      clearInterval(this.readyTimer);
+      this.onReady?.();
+      if (!reduced) m.easeTo({ ...target, duration: 1700, easing: (t) => 1 - (1 - t) ** 3, essential: true });
+    };
+    // Polling instead of the 'idle' event: the animated water keeps the map from ever being idle.
+    this.readyTimer = window.setInterval(() => {
+      if ((m.isStyleLoaded() && m.areTilesLoaded()) || performance.now() - started > 3500) go();
+    }, 120);
+  }
+
   destroy() {
+    clearInterval(this.readyTimer);
     this.waves.stop();
     this.unsubs.forEach((u) => u());
     window.removeEventListener('keydown', this.onKeyDown);

@@ -3050,3 +3050,110 @@ input.num-field {
     position: static;
   }
 }
+
+/* ── Loading: veil, staged entrance ──────────────────────────────────────── */
+.loading-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: radial-gradient(800px 500px at 50% 45%, rgba(62, 207, 178, 0.1), transparent 70%), #0b111d;
+  transition: opacity 0.7s ease, visibility 0.7s;
+}
+.loading-veil strong {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  animation: fade-up 0.5s ease-out backwards;
+}
+.loading-step {
+  color: var(--muted);
+  font-size: 13px;
+  animation: step-in 0.4s ease-out;
+}
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.loading-veil.out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* The map fades in under the lifting veil. */
+.editor .maplibregl-canvas {
+  transition: opacity 0.9s ease;
+}
+.editor:not(.ready) .maplibregl-canvas {
+  opacity: 0;
+}
+/* Interface pieces wait for the map, then come in one after another. */
+.editor:not(.ready) :is(.topbar, .tooldock, .layers, .inspector, .world-fab, .sel-bubble-anchor) {
+  visibility: hidden;
+  animation: none !important;
+}
+.editor.ready .topbar {
+  animation: slide-down 0.6s var(--ease-out, ease-out) 0.15s backwards;
+}
+.editor.ready .tooldock {
+  animation: slide-right 0.6s var(--ease-out, ease-out) 0.3s backwards;
+}
+.editor.ready .layers {
+  animation: slide-right 0.6s var(--ease-out, ease-out) 0.4s backwards;
+}
+.editor.ready .inspector:not(.dock-bottom) {
+  animation: dock-in 0.65s var(--ease-out, ease-out) 0.35s backwards;
+}
+.editor.ready .world-fab {
+  animation: fab-in 0.5s var(--ease-out, ease-out) 0.55s backwards;
+}
+/* Country rows cascade in. */
+.country-list > button {
+  animation: fade-up 0.4s ease-out backwards;
+}
+.country-list > button:nth-child(1) { animation-delay: 0.45s; }
+.country-list > button:nth-child(2) { animation-delay: 0.49s; }
+.country-list > button:nth-child(3) { animation-delay: 0.53s; }
+.country-list > button:nth-child(4) { animation-delay: 0.57s; }
+.country-list > button:nth-child(5) { animation-delay: 0.61s; }
+.country-list > button:nth-child(6) { animation-delay: 0.65s; }
+.country-list > button:nth-child(7) { animation-delay: 0.69s; }
+.country-list > button:nth-child(8) { animation-delay: 0.73s; }
+.country-list > button:nth-child(9) { animation-delay: 0.77s; }
+.country-list > button:nth-child(n + 10) { animation-delay: 0.8s; }
+/* Home: world cards cascade, pictures fade in once decoded. */
+.world-card:nth-child(1) { animation-delay: 0.05s; }
+.world-card:nth-child(2) { animation-delay: 0.1s; }
+.world-card:nth-child(3) { animation-delay: 0.15s; }
+.world-card:nth-child(4) { animation-delay: 0.2s; }
+.world-card:nth-child(n + 5) { animation-delay: 0.25s; }
+.world-card {
+  animation-fill-mode: backwards;
+}
+.hero-map img,
+.world-thumb img {
+  opacity: 0;
+  transition: opacity 0.6s ease, transform 0.5s ease;
+}
+.hero-map img.loaded,
+.world-thumb img.loaded {
+  opacity: 1;
+}
+.hero .pills,
+.hero .leaders {
+  animation: fade-up 0.5s ease-out 0.15s backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-veil,
+  .editor .maplibregl-canvas,
+  .hero-map img,
+  .world-thumb img {
+    transition: none;
+  }
+}

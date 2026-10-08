@@ -32,9 +32,16 @@ import { download, fmtCompact } from '../util';
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
   const details = useWorld((s) => s.detailsOpen);
+  const [ready, setReady] = useState(false);
+  // Never keep the editor behind the veil, even if the map cannot load (e.g. no WebGL).
+  useEffect(() => {
+    const t = setTimeout(() => setReady(true), 10_000);
+    return () => clearTimeout(t);
+  }, []);
   return (
-    <div className={'editor' + (details ? ' details-open' : '')}>
-      <MapView />
+    <div className={'editor' + (details ? ' details-open' : '') + (ready ? ' ready' : '')}>
+      <MapView onReady={() => setReady(true)} />
+      <LoadingVeil ready={ready} />
       <TopBar onHome={onHome} />
       <ToolDock />
       <Inspector />
@@ -52,10 +59,13 @@ export function Editor({ onHome }: { onHome: () => void }) {
   );
 }
 
-function MapView() {
+function MapView({ onReady }: { onReady: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const readyRef = useRef(onReady);
+  readyRef.current = onReady;
   useEffect(() => {
     const ctl = new MapController(ref.current!);
+    ctl.onReady = () => readyRef.current();
     setMapCtl(ctl);
     ctl.onHover = (h) => hoverBus.emit(h);
     ctl.onDrawChange = (n) => drawBus.emit(n);
@@ -66,6 +76,33 @@ function MapView() {
     };
   }, []);
   return <div ref={ref} className="map" />;
+}
+
+const LOADING_STEPS = ['Unrolling the map', 'Drawing borders', 'Raising mountains', 'Filling the oceans', 'Naming places'];
+
+/** Covers the map while it loads, then fades away; the world's name and a few status lines meanwhile. */
+function LoadingVeil({ ready }: { ready: boolean }) {
+  const title = useWorld((s) => s.doc?.meta.title ?? '');
+  const [step, setStep] = useState(0);
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    if (ready) {
+      const t = setTimeout(() => setGone(true), 700);
+      return () => clearTimeout(t);
+    }
+    const t = setInterval(() => setStep((s) => Math.min(LOADING_STEPS.length - 1, s + 1)), 650);
+    return () => clearInterval(t);
+  }, [ready]);
+  if (gone) return null;
+  return (
+    <div className={'loading-veil' + (ready ? ' out' : '')} aria-busy={!ready}>
+      <div className="boot-globe" />
+      <strong>{title}</strong>
+      <span className="loading-step" key={step}>
+        {LOADING_STEPS[step]}…
+      </span>
+    </div>
+  );
 }
 
 /** Closes a popover when the user presses anywhere outside `ref`. */
