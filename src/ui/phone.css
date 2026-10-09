@@ -51,6 +51,23 @@
     height: var(--tool);
     border-radius: 15px;
   }
+  /* Five tools and three buttons: slimmer on narrow phones so the bar fits. */
+  @media (max-width: 420px) {
+    .phonebar {
+      --tool: 37px;
+      gap: 0;
+      padding: 0 4px;
+    }
+    .phonebar .tools {
+      gap: 3px;
+    }
+    .phonebar .tool-indicator {
+      transform: translateX(calc(var(--i, 0) * (var(--tool) + 3px)));
+    }
+    .phonebar .phonebar-sep {
+      margin: 0 2px;
+    }
+  }
   .phonebar-sep {
     width: 1px;
     height: 26px;

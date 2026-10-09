@@ -32,9 +32,21 @@
 - [x] Hide the tools to enjoy the map (with a globe spin)
 - [x] Brush outline, country labels placed once per stroke (faster painting)
 
+## Done (2.14)
+- [x] A click selects the region; the country is one more click away
+- [x] Lore with [[links]] on countries, regions, cities and pins; "mentioned in"
+- [x] Draw tool: new land, roads, railways, trade routes, sea lanes, fronts, claimed borders, names, pins; sink regions
+- [x] Occupied land (stripes), states & provinces, vassals and realms
+- [x] Colour the map by any figure / field / realm / state, with a legend
+- [x] Statistics window (rankings, comparisons); world stats on the home screen
+- [x] Poster export (cartouche, legend, compass rose, scale bar)
+- [x] Drag country names; curved names along long countries
+- [x] Find & replace
+- [x] Data layers from free sources (reefs, glaciers, peaks, plates, time zones, quakes, NASA events…)
+- [x] Relief tiles at zoom 5 (1:10m source)
+
 ## Next
-- [ ] Drag country labels to place them by hand
-- [ ] Draw brand-new land (islands) and delete regions
 - [ ] Timeline: snapshots of a world over the years, with an animated playback / video export
-- [ ] Higher-resolution relief tiles (z5–z6) for close-up work
+- [ ] Wars & events: front lines and battles tied to dates on the timeline
+- [ ] Relief at zoom 6 (would need a finer source than Natural Earth)
 - [ ] Native desktop wrapper (Tauri) once a Rust toolchain is installed — the PWA covers offline use meanwhile

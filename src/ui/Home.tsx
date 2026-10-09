@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorldBundle, WorldDoc, WorldMeta } from '../types';
-import { listWorlds, deleteWorld, loadBundle, loadDoc, loadFlags, renameWorld, duplicateWorld, loadThumbs, saveThumb, mainWorld, storageUsage } from '../io/db';
+import { listWorlds, deleteWorld, loadBundle, loadDoc, renameWorld, duplicateWorld, loadThumbs, saveThumb, mainWorld, storageUsage } from '../io/db';
 import { readWorldFile, downloadMap } from '../io/files';
 import { loadEarth } from '../io/earth';
 import { fantasyEarth } from '../world/generate';
 import { randomFlag } from '../world/flagGen';
 import { seeded } from '../world/names';
-import { iso2 } from '../world/flags';
 import { UpdateRow } from './Updates';
 import { Icon, type IconName } from './icons';
 import { isNative } from '../native';
@@ -342,55 +341,39 @@ interface Facts {
   land: number;
   claimed: number;
   capitals: number;
-  top: { cid: string; name: string; color: string; flag?: string; area: number; pop: number }[];
+  cities: number;
+  alliances: number;
+  /** Countries that own land. */
+  nations: number;
   popKey?: string;
 }
 
 function factsOf(doc: WorldDoc): Facts {
   const popKey = doc.settings.stats.find((s) => s.scale)?.key;
-  const agg: Record<string, { area: number; pop: number }> = {};
+  const owners = new Set<string>();
   let land = 0;
   let claimed = 0;
   let pop = 0;
   for (const r of Object.values(doc.regions)) {
     land += r.area;
-    const p = popKey ? r.vals?.[popKey] ?? 0 : 0;
-    pop += p;
-    if (!r.cid) continue;
+    pop += popKey ? r.vals?.[popKey] ?? 0 : 0;
+    if (!r.cid || !doc.countries[r.cid]) continue;
     claimed += r.area;
-    const a = (agg[r.cid] ??= { area: 0, pop: 0 });
-    a.area += r.area;
-    a.pop += p;
+    owners.add(r.cid);
   }
-  const top = Object.entries(agg)
-    .filter(([cid]) => doc.countries[cid])
-    .sort((a, b) => b[1].area - a[1].area)
-    .slice(0, 5)
-    .map(([cid, a]) => ({ cid, name: doc.countries[cid].name, color: doc.countries[cid].color, flag: doc.countries[cid].flag, ...a }));
   const capitals = Object.values(doc.countries).filter((c) => c.capital != null).length;
-  return { pop, land, claimed, capitals, top, popKey };
+  return { pop, land, claimed, capitals, cities: Object.keys(doc.cities).length, alliances: doc.alliances?.length ?? 0, nations: owners.size, popKey };
 }
 
 function Hero({ w, thumb, pinned, actions }: { w: WorldMeta; thumb?: string; pinned: boolean; actions: WorldActions }) {
   const [facts, setFacts] = useState<Facts | null>(null);
-  const [flagUrls, setFlagUrls] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
   useEffect(() => {
     let live = true;
-    let urls: Record<string, string> = {};
     setFacts(null);
-    loadDoc(w.id).then(async (d) => {
-      if (!live || !d) return;
-      const f = factsOf(d);
-      setFacts(f);
-      const blobs = await loadFlags(w.id, f.top.flatMap((c) => (c.flag ? [c.flag] : [])));
-      if (!live) return;
-      urls = Object.fromEntries(Object.entries(blobs).map(([k, b]) => [k, URL.createObjectURL(b)]));
-      setFlagUrls(urls);
-    });
+    loadDoc(w.id).then((d) => live && d && setFacts(factsOf(d)));
     return () => {
       live = false;
-      Object.values(urls).forEach((u) => URL.revokeObjectURL(u));
     };
   }, [w.id, w.modified]);
 
@@ -427,18 +410,19 @@ function Hero({ w, thumb, pinned, actions }: { w: WorldMeta; thumb?: string; pin
           {facts && facts.pop > 0 && <Pill label={facts.popKey?.toLowerCase() ?? 'people'} value={fmtCompact(facts.pop)} />}
           {facts && facts.land > 0 && <Pill label="claimed" value={`${Math.round((facts.claimed / facts.land) * 100)}%`} />}
         </div>
-        {facts && facts.top.length > 0 && (
-          <div className="leaders">
-            <small>Largest nations</small>
-            {facts.top.map((c, i) => (
-              <div key={c.cid} className="leader">
-                <span className="rank">{i + 1}</span>
-                <MiniFlag cid={c.cid} color={c.color} url={c.flag ? flagUrls[c.flag] : undefined} />
-                <span className="grow name">{c.name}</span>
-                <span className="bar" style={{ width: `${Math.max(6, (c.area / facts.top[0].area) * 70)}px`, background: c.color }} />
-                <small>{fmtCompact(c.area)} km²</small>
-              </div>
-            ))}
+        {facts && (
+          <div className="world-facts">
+            <small>This world</small>
+            <div className="world-facts-grid">
+              <Fact label="Land" value={`${fmtCompact(facts.land)} km²`} />
+              <Fact label="Claimed" value={facts.land ? `${Math.round((facts.claimed / facts.land) * 100)}%` : '—'} />
+              <Fact label={facts.popKey ?? 'People'} value={facts.pop ? fmtCompact(facts.pop) : '—'} />
+              <Fact label="Nations with land" value={fmtInt(facts.nations)} />
+              <Fact label="Avg. nation" value={facts.nations ? `${fmtCompact(facts.claimed / facts.nations)} km²` : '—'} />
+              <Fact label="Cities" value={fmtInt(facts.cities)} />
+              <Fact label="Capitals" value={fmtInt(facts.capitals)} />
+              <Fact label="Alliances" value={fmtInt(facts.alliances)} />
+            </div>
           </div>
         )}
         <div className="hero-actions">
@@ -463,12 +447,15 @@ function Pill({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MiniFlag({ cid, color, url }: { cid: string; color: string; url?: string }) {
-  const code = iso2[cid];
-  const src = url ?? (code ? new URL(`flags/${code}.png`, document.baseURI).href : null);
-  if (src) return <img className="flag" src={src} alt="" style={{ width: 21, height: 14 }} />;
-  return <span className="flag flag-none" style={{ width: 21, height: 14, background: color }} />;
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="fact">
+      <strong>{value}</strong>
+      <small>{label}</small>
+    </div>
+  );
 }
+
 
 // ── Other worlds ─────────────────────────────────────────────────────────────
 

@@ -30,4 +30,9 @@ done; done; done
 # Natural Earth I shaded relief, 1:50m.
 [ -s NE1_50M_SR_W.zip ] || curl -sfL https://naciscdn.org/naturalearth/50m/raster/NE1_50M_SR_W.zip -o NE1_50M_SR_W.zip
 [ -d relief/NE1_50M_SR_W ] || unzip -q -o NE1_50M_SR_W.zip -d relief
-echo "done — now run: node scripts/build-assets.mjs && python scripts/build-rasters.py"
+# The same at 1:10m, for the zoom 5 tiles (~320 MB; the CDN wants a browser user agent).
+if [ ! -s relief/NE1_HR_LC_SR_W/NE1_HR_LC_SR_W.tif ]; then
+  curl -sfL -A "Mozilla/5.0" https://naciscdn.org/naturalearth/10m/raster/NE1_HR_LC_SR_W.zip -o NE1_HR_LC_SR_W.zip
+  mkdir -p relief/NE1_HR_LC_SR_W && unzip -q -o NE1_HR_LC_SR_W.zip -d relief/NE1_HR_LC_SR_W && rm NE1_HR_LC_SR_W.zip
+fi
+echo "done — now run: node scripts/build-assets.mjs && python scripts/build-rasters.py relief relief-hi dem bathy"

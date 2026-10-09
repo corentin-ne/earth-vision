@@ -42,6 +42,35 @@ their code is kept under [`legacy/`](legacy/).
   them in one click; *Cut at rivers & crests* on a region page cuts it without painting.
 - **Alliances**: found one, name and colour it, add or remove members (world panel or a country's
   page); the shield button (`U`) colours the map by alliance, outlines each one and greys out the rest.
+- **Regions first**: a click on the map selects the region under it (its page shows the country it
+  belongs to); a second click, or *Part of …*, opens the whole country. Clicking a country's name
+  selects that country.
+- **Lore** on every country, region, city and pin, with `[[links]]`: write `[[France]]` or
+  `[[Paris|the capital]]` and it becomes a link to it (suggestions appear as you type); pages list
+  where they are *mentioned*.
+- **Draw** (`D`): raise **new land** (click around it over the sea: it fits exactly against the coast
+  it touches), draw **roads, railways, trade routes, sea lanes, front lines and claimed borders**,
+  place **names** (seas, mountain ranges, regions — size, angle, colour) and **pins** (battles,
+  treaties, ruins, temples, ports…, each with its story). Drag names and pins to move them. Regions
+  can be **sunk** into the sea.
+- **Occupation**: a region can be *occupied by* another country while its owner keeps the claim —
+  drawn as stripes in the occupier's colours; the country page lists what it holds and has lost.
+- **States & provinces** inside a country (dashed borders), and **vassals**: give a country an
+  overlord; *Realms* colours vassals in their overlord's colours.
+- **Colour the map by** (layers panel): any figure in classes (population, density, GDP per person,
+  area…), any text field as categories (language, government…), realms or states — with a legend.
+- **Statistics** (`S`): rank every country by any figure, or compare several side by side. The home
+  screen sums up the world (land, claimed share, people, cities, alliances…).
+- **Poster** (Export menu): the view in 2–4× resolution, framed like an atlas page, with a title
+  cartouche, a legend, a compass rose and a scale bar.
+- **Drag a country's name** to place it by hand; **curved names** (layers panel) bend the names of
+  long countries along their shape, atlas style.
+- **Find & replace** (`Ctrl+H`) across country, state, region and city names, details, lore and map
+  names, with a preview, as one undo step.
+- **Data layers** (`O`) from free, open sources: coral reefs, glaciers, ice shelves, mountain ranges
+  and deserts, peaks, tectonic plates, time zones, ports, airports, live earthquakes (USGS) and
+  natural events (NASA EONET). Each downloads once, then works offline.
+- Sharper relief: zoom 5 tiles from Natural Earth's 1:10m shaded relief.
 - **Hide the tools** (`H`): just the map, with a slow spin of the globe if you like. `H` or `Esc` brings
   everything back.
 - **Advanced** tools (`A`): recalculate population for the current borders from real-world data (or

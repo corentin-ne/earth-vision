@@ -150,36 +150,48 @@ export function insertCutVertices(
   const polysO = original.type === 'Polygon' ? [original.coordinates] : original.coordinates;
   for (const p of polysO) for (const r of p) for (const c of r) old.add(key(c[0], c[1]));
   const fresh: Position[] = [];
+  const seen = new Set<string>();
   for (const g of pieces) {
     const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
-    for (const p of polys) for (const r of p) for (const c of r) if (!old.has(key(c[0], c[1]))) fresh.push(c);
+    for (const p of polys)
+      for (const r of p)
+        for (const c of r) {
+          const k = key(c[0], c[1]);
+          if (old.has(k) || seen.has(k)) continue;
+          seen.add(k);
+          fresh.push(c);
+        }
   }
   const changed: Record<number, RegionGeom> = {};
   if (!fresh.length) return changed;
   for (const [id, g] of Object.entries(neighbors)) {
-    let touched = false;
-    const fixRing = (ring: Position[]): Position[] => {
-      const out: Position[] = [ring[0]];
-      for (let i = 1; i < ring.length; i++) {
-        const a = ring[i - 1];
-        const b = ring[i];
-        const on = fresh.filter((v) => onSegment(v, a, b));
-        if (on.length) {
-          on.sort((u, v) => dist2(a, u) - dist2(a, v));
-          out.push(...on);
-          touched = true;
-        }
-        out.push(b);
-      }
-      return out;
-    };
-    const ng: RegionGeom =
-      g.type === 'Polygon'
-        ? { type: 'Polygon', coordinates: g.coordinates.map(fixRing) }
-        : { type: 'MultiPolygon', coordinates: g.coordinates.map((p) => p.map(fixRing)) };
-    if (touched) changed[Number(id)] = ng;
+    const ng = withVertices(g, fresh);
+    if (ng) changed[Number(id)] = ng;
   }
   return changed;
+}
+
+/** `g` with each of `pts` that lies on one of its edges added as a vertex there (null when none does). */
+function withVertices(g: RegionGeom, pts: Position[]): RegionGeom | null {
+  let touched = false;
+  const fixRing = (ring: Position[]): Position[] => {
+    const out: Position[] = [ring[0]];
+    for (let i = 1; i < ring.length; i++) {
+      const a = ring[i - 1];
+      const b = ring[i];
+      const on = pts.filter((v) => onSegment(v, a, b));
+      if (on.length) {
+        on.sort((u, v) => dist2(a, u) - dist2(a, v));
+        out.push(...on);
+        touched = true;
+      }
+      out.push(b);
+    }
+    return out;
+  };
+  const ng: RegionGeom =
+    g.type === 'Polygon' ? { type: 'Polygon', coordinates: g.coordinates.map(fixRing) } : { type: 'MultiPolygon', coordinates: g.coordinates.map((p) => p.map(fixRing)) };
+  return touched ? ng : null;
 }
 
 const dist2 = (a: Position, b: Position) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
@@ -358,4 +370,44 @@ export function cutGeom(g: RegionGeom, lines: LngLat[][], minShare = 0.015): Reg
   cutParts.sort((a, b) => polyArea(b) - polyArea(a));
   const asGeom = (ps: Poly[]): RegionGeom => (ps.length === 1 ? { type: 'Polygon', coordinates: ps[0] } : { type: 'MultiPolygon', coordinates: ps });
   return [asGeom([cutParts[0], ...untouched]), ...cutParts.slice(1).map((p) => asGeom([p]))];
+}
+
+// ── New land ─────────────────────────────────────────────────────────────────
+
+/**
+ * New land drawn as an outline: the part of it not already land, fitted exactly against the
+ * regions it touches (their border vertices are reused, and the points where the outline meets
+ * them are added to their side too). Returns null when the outline covers no new land.
+ */
+export function carveLand(outline: LngLat[], others: Record<number, RegionGeom>): { geom: RegionGeom; neighbours: Record<number, RegionGeom> } | null {
+  if (outline.length < 3) return null;
+  const ring: Position[] = outline.map((p) => [p[0], p[1]]);
+  if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) ring.push([...ring[0]]);
+  const drawn: RegionGeom = { type: 'Polygon', coordinates: [ring] };
+  let subject = [[ring]] as Geom;
+  const [x0, y0, x1, y1] = bbox(drawn);
+  const near: Record<number, RegionGeom> = {};
+  for (const [id, g] of Object.entries(others)) {
+    const b = bbox(g);
+    if (b[0] > x1 || b[2] < x0 || b[1] > y1 || b[3] < y0) continue;
+    near[Number(id)] = g;
+    subject = difference(subject, (g.type === 'Polygon' ? [g.coordinates] : g.coordinates) as Geom);
+  }
+  let geom = toGeom(subject);
+  if (!geom) return null;
+  // Slivers the clipper leaves along shared borders are dropped.
+  const polys = (geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates).filter((p) => Math.abs(ringArea(p[0])) > Math.abs(ringArea(ring)) * 0.002);
+  if (!polys.length) return null;
+  geom = polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] } : { type: 'MultiPolygon', coordinates: polys };
+  for (const g of Object.values(near)) geom = snapTo(geom, g);
+  // Both sides of a shared stretch need the same vertices: the neighbours get the points where
+  // the outline meets them, and the new land gets their corners along it.
+  const neighbours = insertCutVertices([geom], drawn, near);
+  const corners: Position[] = [];
+  for (const [id, g] of Object.entries(near)) {
+    const gg = neighbours[Number(id)] ?? g;
+    for (const p of gg.type === 'Polygon' ? [gg.coordinates] : gg.coordinates) for (const r of p) corners.push(...r);
+  }
+  geom = withVertices(geom, corners) ?? geom;
+  return { geom, neighbours };
 }

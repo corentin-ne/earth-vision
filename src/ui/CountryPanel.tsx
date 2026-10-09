@@ -16,6 +16,8 @@ import { ColorField, CountryPicker, Flag, NumberField, Section, Stat, TextField 
 import { RegionCard } from './RegionPanels';
 import { CountryAlliances } from './AlliancePanel';
 import { startSnap } from './SnapCard';
+import { LoreField, Backlinks } from './Lore';
+import { CountryOccupations, CountryRealm, CountryStates, LabelControl } from './WorldbuildPanels';
 import { Icon } from './icons';
 import { fmtArea, fmtInt } from '../util';
 
@@ -159,8 +161,25 @@ export function CountryPanel({ cid }: { cid: string }) {
         </Section>
       )}
 
-      <Section title="Notes">
-        <TextField multiline value={c.notes ?? ''} placeholder="History, culture, lore…" onCommit={(notes) => updateCountry(cid, { notes }, 'Edit notes')} />
+      <Section title="Lore">
+        <LoreField value={c.notes ?? ''} onCommit={(notes) => updateCountry(cid, { notes }, 'Edit lore')} />
+        <Backlinks name={c.name} />
+      </Section>
+
+      <Section title="Realm">
+        <CountryRealm cid={cid} />
+      </Section>
+
+      <Section title={`States (${Object.keys(c.states ?? {}).length})`}>
+        <CountryStates cid={cid} />
+      </Section>
+
+      <Section title="Occupation">
+        <CountryOccupations cid={cid} />
+      </Section>
+
+      <Section title="Name on the map">
+        <LabelControl cid={cid} />
       </Section>
 
       <Section

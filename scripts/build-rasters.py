@@ -4,6 +4,7 @@
 
 - relief: Natural Earth I shaded relief (equirectangular GeoTIFF), ocean masked
   out with the map's own regions, reprojected to Web Mercator 512px WebP tiles.
+- relief-hi: zoom 5 from the 1:10m edition, for close-up work (not run by default).
 - dem: AWS terrarium elevation tiles with the sea floor flattened to 0 m so
   hillshade and 3D terrain only show relief on land.
 - bathy: the same tiles the other way round — land flattened to 0 m, sea floor kept
@@ -155,7 +156,8 @@ def build_relief():
     del out
 
     dest = os.path.join(OUT, 'relief')
-    shutil.rmtree(dest, ignore_errors=True)
+    for z in range(MAX_Z + 1):
+        shutil.rmtree(os.path.join(dest, str(z)), ignore_errors=True)
     count = 0
     for z in range(MAX_Z, -1, -1):
         size = TILE << z
@@ -171,6 +173,53 @@ def build_relief():
                 tile.save(os.path.join(d, f'{y}.webp'), 'WEBP', quality=80, method=6)
                 count += 1
     print('relief tiles', count)
+
+
+HI_Z = 5  # 512px tiles at z5 == 16384px world, matches the 21600px 1:10m source
+
+
+def build_relief_hi():
+    """Zoom 5 relief from Natural Earth I at 1:10m, for close-up work. Built one row of tiles
+    at a time (the whole z5 world would not fit in memory); polar rows are
+    faded like the lower zooms."""
+    src_path = os.path.join(CACHE, 'relief', 'NE1_HR_LC_SR_W', 'NE1_HR_LC_SR_W.tif')
+    src = Image.open(src_path).convert('RGB')
+    w, h = src.size
+    print('relief (1:10m) source', w, h, flush=True)
+    rgba = src.convert('RGBA')
+    del src
+    rgba.putalpha(region_mask(w, h))
+    arr = np.asarray(rgba)
+    del rgba
+    dest = os.path.join(OUT, 'relief', str(HI_Z))
+    shutil.rmtree(dest, ignore_errors=True)
+    n = 1 << HI_Z
+    world = TILE * n
+    xs = (np.arange(world) + 0.5) / world
+    sx = np.clip((xs * w).astype(np.int32), 0, w - 1)
+    count = 0
+    for ty in range(n):
+        rows = (ty * TILE + np.arange(TILE) + 0.5) / world
+        lat = merc_lat(rows)
+        sy = np.clip(((90 - lat) / 180 * h).astype(np.int32), 0, h - 1)
+        strip = arr[sy][:, sx]
+        if polar_weight(lat).max() > 0:
+            # Uniform polar caps, as in build_relief (premultiplied, whole rows).
+            px = strip.astype(np.float64)
+            a = px[..., 3:] / 255
+            pm = polar_fade(np.concatenate([px[..., :3] * a, px[..., 3:]], axis=2), lat)
+            alpha = np.maximum(pm[..., 3:], 1e-6) / 255
+            rgb = np.where(pm[..., 3:] > 0, pm[..., :3] / alpha, 0)
+            strip = np.clip(np.concatenate([rgb, pm[..., 3:]], axis=2) + 0.5, 0, 255).astype(np.uint8)
+        for tx in range(n):
+            tile = Image.fromarray(strip[:, tx * TILE:(tx + 1) * TILE], 'RGBA')
+            if tile.getchannel('A').getextrema()[1] == 0:
+                tile = Image.new('RGBA', (16, 16), (0, 0, 0, 0))
+            d = os.path.join(dest, str(tx))
+            os.makedirs(d, exist_ok=True)
+            tile.save(os.path.join(d, f'{ty}.webp'), 'WEBP', quality=78, method=6)
+            count += 1
+    print('relief z5 tiles', count)
 
 
 def read_elev(path):
@@ -293,5 +342,7 @@ if __name__ == '__main__':
         build_bathy()
     if 'relief' in what:
         build_relief()
+    if 'relief-hi' in what:
+        build_relief_hi()
     if 'dem' in what:
         build_dem()

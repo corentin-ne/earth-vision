@@ -16,11 +16,13 @@ import {
   toast,
 } from '../world/store';
 import { mapCtl } from '../map/controller';
-import { CountryPicker, Flag, NumberField, Stat, TextField } from './common';
+import { CountryPicker, Flag, NumberField, Section, Stat, TextField } from './common';
 import { Icon } from './icons';
 import { fmtArea, fmtCompact } from '../util';
 import { loadBarriers, naturalOn } from '../geo/barriers';
 import { cutAlongNature } from '../world/natural';
+import { MultiExtras } from './WorldbuildPanels';
+import { LoreField, Backlinks } from './Lore';
 
 /** Cuts regions along the rivers and crests that cross them (the brush's setting, or big rivers + crests). */
 async function cutNatural(ids: number[]) {
@@ -189,6 +191,7 @@ export function MultiRegionPanel({ ids }: { ids: number[] }) {
         <CutNaturalButton ids={ids} />
       </div>
       {creating && <NewCountryForm ids={ids} onDone={() => setCreating(false)} />}
+      <MultiExtras ids={ids} />
       <div className="region-list">
         {regions.map((r) => (
           <button key={r.id} onClick={() => select({ cid: r.cid || null, regions: [r.id] })}>
@@ -255,6 +258,10 @@ export function CityPanel({ id }: { id: number }) {
           <Icon name="trash" size={15} />
         </button>
       </div>
+      <Section title="Lore">
+        <LoreField value={city.notes ?? ''} placeholder="Founding, landmarks, people…" onCommit={(notes) => updateCity(id, { notes: notes || undefined }, 'Edit lore')} />
+        <Backlinks name={city.name} />
+      </Section>
       <p className="hint">With the City tool (C) you can drag cities around and click the map to add new ones.</p>
     </div>
   );

@@ -116,7 +116,6 @@ button {
 .stat strong,
 .pill strong,
 .count,
-.leader small,
 .country-list small,
 .range-row strong,
 .hero-kicker {
@@ -127,7 +126,7 @@ button {
 .details-kind,
 .section header h3,
 .worlds-head h2,
-.leaders > small,
+.world-facts > small,
 .fm-controls h3,
 .list-title,
 .panel-title,
@@ -608,8 +607,7 @@ kbd {
 .menu button:hover {
   background: var(--glass-hover);
 }
-.country-list .rank,
-.leader .rank {
+.country-list .rank {
   font-family: var(--font-display);
   font-weight: 700;
   color: var(--text-muted);

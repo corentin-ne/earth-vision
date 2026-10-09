@@ -11,6 +11,7 @@ import '@fontsource/barlow-condensed/latin-700.css';
 import './styles.css';
 import './theme/spark.css';
 import './ui/features.css';
+import './ui/worldbuild.css';
 import './ui/phone.css';
 
 if (!isNative && 'serviceWorker' in navigator) import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true }));

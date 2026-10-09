@@ -1,9 +1,9 @@
 import * as maplibregl from 'maplibre-gl';
-import type { GeoJSONSource, Map as MLMap, MapMouseEvent, PointLike } from 'maplibre-gl';
+import type { ExpressionSpecification, GeoJSONSource, Map as MLMap, MapMouseEvent, PointLike } from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection, Geometry, Point } from 'geojson';
-import type { Country, LngLat } from '../types';
+import type { Country, LngLat, Mark, Region } from '../types';
 import { LOOKS, baseStyle, asset, depthRamp, type Look } from './style';
 import { WaterLayer, rgb } from './water';
 import { dropCuts } from './cuts';
@@ -21,9 +21,15 @@ import {
   addCity,
   updateCity,
   toast,
+  mainBody,
   type ChangeSet,
   type State,
 } from '../world/store';
+import { computeThematic, type ThematicResult } from '../world/thematic';
+import { addLand, addMark, moveLabel, newMarkId, updateMark, LINE_KINDS, LABEL_KINDS } from '../world/edits';
+import { countryCurve } from './curves';
+import { syncOverlays, setOverlayWanted, overlayLayerIds } from './overlays';
+import { drawPin } from './pins';
 import { loadIso2, iso2 } from '../world/flags';
 import { measureImage } from '../world/flagShape';
 import { loadBarriers, barriers, naturalOn } from '../geo/barriers';
@@ -35,6 +41,8 @@ const get = useWorld.getState;
 const fc = <G extends Feature['geometry']>(features: Feature<G>[]): FeatureCollection<G> => ({ type: 'FeatureCollection', features });
 
 const REGION_FILLS = ['region-fill', 'region-fill-polar'];
+const MARK_LAYERS = ['mark-labels', 'mark-pins', 'mark-solid', 'mark-dash', 'mark-dot', 'mark-casing'];
+const LABEL_LAYERS = ['country-labels', 'country-flags', 'country-labels-curved'];
 
 /** Whether a region reaches beyond the mercator square (in practice: Antarctica at the south pole). */
 function touchesPole(g: Geometry): boolean {
@@ -64,7 +72,10 @@ export class MapController {
   private stroke: { group: string; last: [number, number]; anchor: LngLat | null; blockedAt?: LngLat } | null = null;
   private spaceDown = false;
   private draggingCity: number | null = null;
-  onHover?: (info: { x: number; y: number; region: number | null; city: number | null } | null) => void;
+  /** Dragging a country's name, a hand-placed name or a pin. */
+  private dragging: { kind: 'label'; cid: string; at: LngLat | null } | { kind: 'mark'; id: string; at: LngLat | null } | null = null;
+  private thematic: ThematicResult | null = null;
+  onHover?: (info: { x: number; y: number; region: number | null; city: number | null; text?: string } | null) => void;
   onDrawChange?: (n: number) => void;
   /** The brush outline follows the pointer; `blocked` when a river or crest stops the stroke. */
   onBrush?: (b: { x: number; y: number; r: number; blocked: boolean } | null) => void;
@@ -151,6 +162,7 @@ export class MapController {
       console.warn('animated water unavailable', e);
     }
     this.addOverlays();
+    setOverlayWanted(() => get().doc?.overlays ?? []);
     this.loaded = true;
     this.applyLook();
     this.syncAll();
@@ -168,6 +180,10 @@ export class MapController {
           this.recolorAll();
           this.syncAlliances();
         }
+        if (s.thematic !== p.thematic) this.recolorAll();
+        if (s.markSel !== p.markSel) this.syncMarks();
+        if (s.drawKind !== p.drawKind && s.tool === 'draw') this.cancelDraw();
+        if (s.doc?.overlays !== p.doc?.overlays) this.syncData();
       }),
     );
     // The panel may have reported its size while the map was still loading.
@@ -293,8 +309,22 @@ export class MapController {
     vis('country-labels', layers.countryLabels);
     paint('country-labels', 'text-color', L.label);
     paint('country-labels', 'text-halo-color', L.labelHalo);
-    m.setLayoutProperty('country-labels', 'text-field', L.labelUpper ? ['upcase', ['get', 'name']] : ['get', 'name']);
     m.setLayoutProperty('country-labels', 'icon-image', layers.flags ? ['get', 'flag'] : '');
+
+    for (const id of ['mark-casing', 'mark-solid', 'mark-rail-ties', 'mark-dash', 'mark-dot', 'mark-sel', 'mark-line-labels', 'mark-labels', 'mark-pins']) vis(id, layers.marks);
+    vis('occupation', layers.occupation);
+    vis('state-borders', layers.stateBorders);
+    paint('state-borders', 'line-color', mapStyle === 'night' ? 'rgba(220,225,240,0.5)' : 'rgba(43,43,61,0.55)');
+    // Curved names: from the zoom where a name fits its arc it moves there, and its flag stays put.
+    vis('country-labels-curved', layers.countryLabels && layers.curvedLabels);
+    vis('country-flags', layers.countryLabels && layers.curvedLabels && layers.flags);
+    paint('country-labels-curved', 'text-color', L.label);
+    paint('country-labels-curved', 'text-halo-color', L.labelHalo);
+    const name: ExpressionSpecification = L.labelUpper ? ['upcase', ['get', 'name']] : ['get', 'name'];
+    m.setLayoutProperty('country-labels-curved', 'text-field', name);
+    m.setLayoutProperty('country-labels', 'text-field', name);
+    m.setFilter('country-labels', layers.curvedLabels ? ['<', ['zoom'], ['get', 'zfit']] : null);
+    this.syncCurves();
 
     m.setTerrain(layers.terrain ? { source: 'dem-terrain', exaggeration: 18 } : null);
     this.recolorAll();
@@ -401,6 +431,9 @@ export class MapController {
     this.syncSelection();
     this.syncAlliances();
     this.syncBarriers();
+    this.syncMarks();
+    this.syncOccupation();
+    this.syncData();
     this.applyLook();
     const v = get().doc?.view;
     if (v) this.map.jumpTo({ center: v.center, zoom: v.zoom, bearing: v.bearing ?? 0, pitch: v.pitch ?? 0 });
@@ -426,7 +459,11 @@ export class MapController {
     else if (c.regions.size || c.countries.size) this.scheduleBorders();
     if (c.countries.size || c.regions.size) this.scheduleLabels();
     if (c.cities) this.syncCities();
+    if (c.marks) this.syncMarks();
+    if (c.regions.size || c.geoms) this.scheduleOccupation();
     if (c.alliances) this.recolorAll();
+    // Thematic colours depend on every country's figures: recolour all when any changes.
+    if (this.thematicOn() && (c.countries.size || c.regions.size)) this.recolorAll();
     if (get().allianceView && (c.alliances || c.geoms || c.regions.size)) this.scheduleAlliances();
     this.syncSelection();
   }
@@ -473,9 +510,16 @@ export class MapController {
     this.src('region-labels')?.setData(fc(features));
   }
 
-  private colorOf(cid: string): string {
+  private thematicOn() {
+    return !!get().thematic && !get().allianceView;
+  }
+
+  private colorOf(cid: string, r?: Region): string {
     const { doc, mapStyle, allianceView } = get();
     const c = doc?.countries[cid];
+    if (c && doc && this.thematicOn() && this.thematic) {
+      return (r && this.thematic.regionColor?.(r)) || this.thematic.colors[cid] || mute(c.color, mapStyle === 'night');
+    }
     if (c && allianceView && doc) {
       // Alliance view: members take their alliance's colour, everyone else fades to grey.
       const a = doc.alliances.find((x) => (allianceView === 'all' || x.id === allianceView) && x.members.includes(cid));
@@ -493,19 +537,20 @@ export class MapController {
   }
 
   private recolorAll() {
-    const doc = get().doc;
+    const { doc, thematic } = get();
     if (!doc || !this.loaded) return;
-    for (const r of Object.values(doc.regions)) this.setColor(r.id, this.colorOf(r.cid));
+    this.thematic = thematic && this.thematicOn() ? computeThematic(doc, thematic) : null;
+    for (const r of Object.values(doc.regions)) this.setColor(r.id, this.colorOf(r.cid, r));
   }
 
   private recolor(regionIds: Set<number>, countries: Set<string>) {
     const doc = get().doc!;
     for (const id of regionIds) {
       const r = doc.regions[id];
-      if (r) this.setColor(id, this.colorOf(r.cid));
+      if (r) this.setColor(id, this.colorOf(r.cid, r));
     }
     if (countries.size) {
-      for (const r of Object.values(doc.regions)) if (countries.has(r.cid)) this.setColor(r.id, this.colorOf(r.cid));
+      for (const r of Object.values(doc.regions)) if (countries.has(r.cid)) this.setColor(r.id, this.colorOf(r.cid, r));
     }
   }
 
@@ -529,6 +574,12 @@ export class MapController {
     this.src('borders-country')?.setData(asFc(b.countries));
     this.src('borders-region')?.setData(asFc(b.regions));
     this.src('coast')?.setData(asFc(b.coast));
+    // Borders between the states of a country (country borders are drawn over the rest).
+    const anyStates = Object.values(doc.countries).some((c) => c.states && Object.keys(c.states).length);
+    if (anyStates) {
+      const st = engine.borders((rid) => (regions[rid] ? `${regions[rid].cid}|${regions[rid].state ?? ''}` : ''));
+      this.src('borders-state')?.setData(asFc(st.countries));
+    } else this.src('borders-state')?.setData(fc([]));
   }
 
   private scheduleLabels() {
@@ -550,11 +601,145 @@ export class MapController {
       const s = Math.min(1, Math.max(0, (Math.log10(Math.max(a.area, 1)) - 3.3) / 3.6));
       features.push({
         type: 'Feature',
-        properties: { cid: c.cid, name: c.name, s: +s.toFixed(3), flag: this.flagImage(c) },
-        geometry: { type: 'Point', coordinates: c.label },
+        properties: {
+          cid: c.cid,
+          name: c.name,
+          s: +s.toFixed(3),
+          flag: this.flagImage(c),
+          // From this zoom the name follows its arc (and only the flag stays here).
+          zfit: this.dragging?.kind === 'label' && this.dragging.cid === c.cid ? 99 : this.curved.get(c.cid) ?? 99,
+        },
+        geometry: { type: 'Point', coordinates: this.dragging?.kind === 'label' && this.dragging.cid === c.cid && this.dragging.at ? this.dragging.at : c.label },
       });
     }
     this.src('country-labels')?.setData(fc(features));
+    if (get().layers.curvedLabels && !this.inCurves) this.syncCurves();
+  }
+
+  /** Countries whose name follows an arc, with the zoom from which the name fits along it. */
+  private curved = new Map<string, number>();
+  private curveCache = new Map<string, { key: string; line: ReturnType<typeof countryCurve> }>();
+  private inCurves = false;
+
+  private syncCurves() {
+    const { doc, layers } = get();
+    if (!doc || !this.loaded) return;
+    const before = [...this.curved].sort().join();
+    const upper = !!LOOKS[get().mapStyle].labelUpper;
+    this.curved.clear();
+    const features: Feature[] = [];
+    if (layers.curvedLabels && layers.countryLabels && engine.ready) {
+      const agg = countryAggregates(doc);
+      for (const c of Object.values(doc.countries)) {
+        const a = agg[c.cid];
+        if (!a?.regions || a.area < 20000) continue;
+        const key = `${a.area.toFixed(0)}|${a.regions}|${c.labelFixed ? c.label?.join() : ''}|${engine.version}`;
+        let hit = this.curveCache.get(c.cid);
+        if (!hit || hit.key !== key) {
+          hit = { key, line: countryCurve(engine.merge(mainBody(c.cid)), c.labelFixed ? c.label : undefined) };
+          this.curveCache.set(c.cid, hit);
+        }
+        if (!hit.line) continue;
+        const s = Math.min(1, Math.max(0, (Math.log10(Math.max(a.area, 1)) - 3.3) / 3.6));
+        const zfit = fitZoom(hit.line.coordinates as LngLat[], c.name.length, s, upper);
+        if (zfit == null) continue;
+        this.curved.set(c.cid, zfit);
+        features.push({ type: 'Feature', properties: { cid: c.cid, name: c.name, s: +s.toFixed(3), zfit }, geometry: hit.line });
+      }
+    }
+    this.src('country-curves')?.setData(fc(features));
+    if ([...this.curved].sort().join() !== before) {
+      this.inCurves = true;
+      this.syncCountryLabels();
+      this.inCurves = false;
+    }
+  }
+
+  // ── Marks, occupation, data layers ────────────────────────────────────────
+
+  private syncMarks() {
+    const { doc, markSel } = get();
+    if (!doc || !this.loaded) return;
+    const features: Feature[] = [];
+    for (const m of Object.values(doc.marks ?? {})) {
+      const at: LngLat | null = this.dragging?.kind === 'mark' && this.dragging.id === m.id ? this.dragging.at : null;
+      if (m.type === 'line') {
+        if (m.coords.length < 2) continue;
+        features.push({ type: 'Feature', properties: { id: m.id, type: 'line', kind: m.kind, name: m.name, color: m.color, sel: m.id === markSel }, geometry: { type: 'LineString', coordinates: m.coords } });
+      } else if (m.type === 'label') {
+        features.push({
+          type: 'Feature',
+          properties: { id: m.id, type: 'label', kind: m.kind, text: m.text, size: m.size, angle: m.angle, color: m.color ?? null, sel: m.id === markSel },
+          geometry: { type: 'Point', coordinates: at ?? [m.lng, m.lat] },
+        });
+      } else {
+        const icon = this.ensurePin(m);
+        features.push({
+          type: 'Feature',
+          properties: { id: m.id, type: 'pin', name: m.name, icon, sel: m.id === markSel },
+          geometry: { type: 'Point', coordinates: at ?? [m.lng, m.lat] },
+        });
+      }
+    }
+    this.src('marks')?.setData(fc(features));
+  }
+
+  /** The pin's image (made on first use); returns the part after "pin-". */
+  private ensurePin(m: Extract<Mark, { type: 'pin' }>): string {
+    const key = m.color ? `${m.icon}:${m.color}` : m.icon;
+    if (!this.map.hasImage(`pin-${key}`)) this.map.addImage(`pin-${key}`, drawPin(m.icon, m.color), { pixelRatio: 2 });
+    return key;
+  }
+
+  private occTimer: ReturnType<typeof setTimeout> | null = null;
+  private scheduleOccupation() {
+    if (this.occTimer) return;
+    this.occTimer = setTimeout(() => {
+      this.occTimer = null;
+      this.syncOccupation();
+    }, 150);
+  }
+
+  private syncOccupation() {
+    const { doc, geoms } = get();
+    if (!doc || !this.loaded) return;
+    const features: Feature[] = [];
+    for (const r of Object.values(doc.regions)) {
+      if (!r.occ || !geoms[r.id]) continue;
+      const color = doc.countries[r.occ]?.color ?? '#888888';
+      features.push({ type: 'Feature', properties: { pat: this.hatch(color) }, geometry: geoms[r.id] });
+    }
+    this.src('occupied')?.setData(fc(features));
+  }
+
+  /** Diagonal stripes in `color`, as a fill pattern. */
+  private hatch(color: string): string {
+    const id = `hatch:${color}`;
+    if (this.map.hasImage(id)) return id;
+    const n = 16;
+    const c = document.createElement('canvas');
+    c.width = c.height = n;
+    const ctx = c.getContext('2d')!;
+    const stripes = (style: string, width: number, dx: number) => {
+      ctx.strokeStyle = style;
+      ctx.lineWidth = width;
+      for (const o of [-n, 0, n]) {
+        ctx.beginPath();
+        ctx.moveTo(o + dx, n);
+        ctx.lineTo(o + n + dx, 0);
+        ctx.stroke();
+      }
+    };
+    stripes(color, 4.5, 0);
+    // A thin dark edge keeps light stripes readable on light land.
+    stripes('rgba(0,0,0,0.22)', 1, 2.6);
+    this.map.addImage(id, ctx.getImageData(0, 0, n, n), { pixelRatio: 2 });
+    return id;
+  }
+
+  private syncData() {
+    if (!this.loaded) return;
+    syncOverlays(this.map, get().doc?.overlays ?? [], (o) => toast(`Could not load ${o.name} (offline?)`, 'error'));
   }
 
   private syncCities() {
@@ -726,6 +911,42 @@ export class MapController {
     return f ? Number(f.properties.id) : null;
   }
 
+  /** The hand-drawn mark under the pointer (lines get a few pixels of slack). */
+  private markAtPoint(p: { x: number; y: number }, pad = 5): string | null {
+    if (!get().layers.marks) return null;
+    const box: [PointLike, PointLike] = [
+      [p.x - pad, p.y - pad],
+      [p.x + pad, p.y + pad],
+    ];
+    const layers = MARK_LAYERS.filter((l) => this.map.getLayer(l));
+    const f = this.map.queryRenderedFeatures(box, { layers })[0];
+    return f ? String(f.properties.id) : null;
+  }
+
+  /** The country whose name is under the pointer. */
+  private labelAtPoint(p: { x: number; y: number }): string | null {
+    if (!get().layers.countryLabels) return null;
+    const layers = LABEL_LAYERS.filter((l) => this.map.getLayer(l) && this.map.getLayoutProperty(l, 'visibility') !== 'none');
+    const f = this.map.queryRenderedFeatures([p.x, p.y], { layers })[0];
+    return f ? String(f.properties.cid) : null;
+  }
+
+  /** Name of the data-layer feature under the pointer, for the hover tip. */
+  private overlayTextAt(p: { x: number; y: number }): string | undefined {
+    const ids = overlayLayerIds(get().doc?.overlays ?? []).filter((x) => this.map.getLayer(x.layer));
+    if (!ids.length) return undefined;
+    const box: [PointLike, PointLike] = [
+      [p.x - 4, p.y - 4],
+      [p.x + 4, p.y + 4],
+    ];
+    const f = this.map.queryRenderedFeatures(box, { layers: ids.map((x) => x.layer) })[0];
+    if (!f) return undefined;
+    const o = ids.find((x) => x.layer === f.layer.id)?.o;
+    const v = o?.label ? f.properties[o.label] : undefined;
+    if (o?.id === 'quakes') return `M${f.properties.mag} · ${v}`;
+    return v ? `${v} · ${o!.name}` : undefined;
+  }
+
   private setHover(region: number | null) {
     if (region === this.hovered) return;
     if (this.hovered != null) this.map.setFeatureState({ source: 'regions', id: this.hovered }, { hover: false });
@@ -762,8 +983,23 @@ export class MapController {
     window.addEventListener('keyup', this.onKeyUp);
   }
 
+  private pressed: { x: number; y: number; cid?: string; mark?: string } | null = null;
+
   private onMove(e: MapMouseEvent) {
     if (this.lasso) return this.extendLasso(e);
+    if (this.pressed && !this.dragging && Math.hypot(e.point.x - this.pressed.x, e.point.y - this.pressed.y) > 4) {
+      // A press on a name or a mark that moves: drag it.
+      if (this.pressed.mark) this.dragging = { kind: 'mark', id: this.pressed.mark, at: null };
+      else if (this.pressed.cid) this.dragging = { kind: 'label', cid: this.pressed.cid, at: null };
+      if (this.dragging) this.map.dragPan.disable();
+    }
+    if (this.dragging) {
+      this.dragging.at = [e.lngLat.lng, e.lngLat.lat];
+      this.map.getCanvas().style.cursor = 'grabbing';
+      if (this.dragging.kind === 'mark') this.syncMarks();
+      else this.syncCountryLabels();
+      return;
+    }
     if (get().snap?.drawing) {
       this.map.getCanvas().style.cursor = 'crosshair';
       return;
@@ -791,21 +1027,37 @@ export class MapController {
       }
       return;
     }
-    if (tool === 'split' && this.drawPts.length) {
+    if ((tool === 'split' || tool === 'draw') && this.drawPts.length) {
       this.renderDraw([e.lngLat.lng, e.lngLat.lat]);
     }
-    const city = tool !== 'paint' ? this.cityAtPoint(e.point) : null;
-    const region = city == null ? this.regionAtPoint(e.point) : null;
-    this.setHover(tool === 'split' ? null : region);
-    this.map.getCanvas().style.cursor = tool === 'select' ? (city != null || region != null ? 'pointer' : '') : tool === 'city' ? (city != null ? 'move' : 'copy') : 'crosshair';
-    this.onHover?.({ x: e.point.x, y: e.point.y, region, city });
+    const mark = tool === 'select' ? this.markAtPoint(e.point) : null;
+    const label = tool === 'select' && !mark ? this.labelAtPoint(e.point) : null;
+    const city = tool !== 'paint' && tool !== 'draw' && !mark ? this.cityAtPoint(e.point) : null;
+    const region = city == null && !mark ? this.regionAtPoint(e.point) : null;
+    this.setHover(tool === 'split' || tool === 'draw' || mark || label ? null : region);
+    this.map.getCanvas().style.cursor =
+      tool === 'select' ? (mark || label ? 'move' : city != null || region != null ? 'pointer' : '') : tool === 'city' ? (city != null ? 'move' : 'copy') : 'crosshair';
+    const m = mark ? get().doc?.marks?.[mark] : null;
+    const text = m ? (m.type === 'label' ? m.text : m.name || LINE_KINDS[m.type === 'line' ? m.kind : 'road'].label) : this.overlayTextAt(e.point);
+    this.onHover?.({ x: e.point.x, y: e.point.y, region: m ? null : region, city: m ? null : city, text });
   }
 
   private onClick(e: MapMouseEvent) {
     const { tool, doc, selection } = get();
     if (!doc || get().snap?.drawing) return;
     const oe = e.originalEvent as MouseEvent;
+    if (this.dragJustEnded) {
+      this.dragJustEnded = false;
+      return;
+    }
     if (tool === 'select') {
+      const mark = this.markAtPoint(e.point);
+      if (mark) {
+        select({});
+        useWorld.setState({ markSel: mark });
+        return;
+      }
+      if (get().markSel) useWorld.setState({ markSel: null });
       const city = this.cityAtPoint(e.point);
       if (city != null) {
         const c = doc.cities[city];
@@ -815,7 +1067,10 @@ export class MapController {
       }
       const rid = this.regionAtPoint(e.point);
       if (rid == null) {
-        select({});
+        // A country's name (or flag) over the sea: that country.
+        const cid = this.labelAtPoint(e.point);
+        if (cid && doc.countries[cid]) select({ cid, anchor: doc.countries[cid].label });
+        else select({});
         return;
       }
       const r = doc.regions[rid];
@@ -835,6 +1090,20 @@ export class MapController {
     } else if (tool === 'split') {
       this.drawPts.push([e.lngLat.lng, e.lngLat.lat]);
       this.renderDraw();
+    } else if (tool === 'draw') {
+      const at: LngLat = [+e.lngLat.lng.toFixed(4), +e.lngLat.lat.toFixed(4)];
+      const kind = get().drawKind;
+      if (kind === 'label') {
+        const k = 'land' as const;
+        const id = addMark({ id: newMarkId(), type: 'label', kind: k, text: 'New name', lng: at[0], lat: at[1], size: LABEL_KINDS[k].size, angle: 0 }, 'Place a name');
+        useWorld.setState({ markSel: id, detailsOpen: true });
+      } else if (kind === 'pin') {
+        const id = addMark({ id: newMarkId(), type: 'pin', name: 'New place', icon: 'star', lng: at[0], lat: at[1] }, 'Place a pin');
+        useWorld.setState({ markSel: id, detailsOpen: true });
+      } else {
+        this.drawPts.push(at);
+        this.renderDraw();
+      }
     } else if (tool === 'city') {
       if (this.cityAtPoint(e.point) != null) return;
       const id = addCity(+e.lngLat.lng.toFixed(4), +e.lngLat.lat.toFixed(4));
@@ -848,6 +1117,9 @@ export class MapController {
       // The dblclick's two clicks already added the final point (twice).
       this.drawPts.pop();
       this.finishSplit();
+    } else if (tool === 'draw' && this.drawPts.length) {
+      this.drawPts.pop();
+      this.finishDraw();
     } else if (tool === 'select') {
       const rid = this.regionAtPoint(e.point);
       if (rid != null) this.map.easeTo({ center: e.lngLat, zoom: this.map.getZoom() + 1.2, duration: 450 });
@@ -904,6 +1176,16 @@ export class MapController {
         return;
       }
       this.paintAt(e.point.x, e.point.y);
+    } else if (tool === 'select') {
+      // Names and pins can be dragged: remember what was pressed, the drag starts once it moves.
+      const mark = this.markAtPoint(e.point, 2);
+      const m = mark ? doc.marks?.[mark] : null;
+      if (m && m.type !== 'line') this.pressed = { x: e.point.x, y: e.point.y, mark: m.id };
+      else if (!mark) {
+        const cid = this.labelAtPoint(e.point);
+        if (cid) this.pressed = { x: e.point.x, y: e.point.y, cid };
+      }
+      if (this.pressed) e.preventDefault();
     } else if (tool === 'city') {
       const city = this.cityAtPoint(e.point);
       if (city != null) {
@@ -915,7 +1197,23 @@ export class MapController {
     }
   }
 
+  private dragJustEnded = false;
+
   private onUp() {
+    this.pressed = null;
+    if (this.dragging) {
+      const d = this.dragging;
+      this.dragging = null;
+      this.map.dragPan.enable();
+      this.dragJustEnded = true;
+      // The click that ends a drag is ignored; it may not come at all (touch), so reset soon.
+      setTimeout(() => (this.dragJustEnded = false), 50);
+      if (d.at && d.kind === 'label') moveLabel(d.cid, d.at);
+      else if (d.at && d.kind === 'mark') updateMark(d.id, { lng: +d.at[0].toFixed(4), lat: +d.at[1].toFixed(4) }, 'Move');
+      else if (d.kind === 'mark') this.syncMarks();
+      else this.syncCountryLabels();
+      return;
+    }
     if (this.lasso) {
       const pts = this.lasso.pts;
       this.cancelLasso();
@@ -1020,7 +1318,9 @@ export class MapController {
   private renderDraw(cursor?: LngLat) {
     const pts = cursor ? [...this.drawPts, cursor] : this.drawPts;
     const features: Feature[] = this.drawPts.map((p) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: p } }));
-    if (pts.length > 1) features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: pts } });
+    const land = get().tool === 'draw' && get().drawKind === 'land';
+    if (land && pts.length > 2) features.push({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[...pts, pts[0]]] } });
+    else if (pts.length > 1) features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: pts } });
     this.src('draw')?.setData(fc(features));
     this.onDrawChange?.(this.drawPts.length);
   }
@@ -1040,13 +1340,28 @@ export class MapController {
     else toast('The line has to cross a region from side to side', 'error');
   }
 
+  /** Ends the outline or line being drawn with the Draw tool. */
+  finishDraw() {
+    const pts = this.drawPts;
+    this.cancelDraw();
+    const kind = get().drawKind;
+    if (kind === 'land') {
+      if (pts.length < 3) return toast('Click at least three points around the new land', 'error');
+      if (addLand(pts, get().landCid) != null) toast('New land raised', 'ok');
+    } else if (kind !== 'label' && kind !== 'pin') {
+      if (pts.length < 2) return;
+      const id = addMark({ id: newMarkId(), type: 'line', kind, name: '', color: LINE_KINDS[kind].color, coords: pts });
+      useWorld.setState({ markSel: id });
+    }
+  }
+
   undoDrawPoint() {
     this.drawPts.pop();
     this.renderDraw();
   }
 
   private onToolChange(s: State, p: State) {
-    if (p.tool === 'split') this.cancelDraw();
+    if (p.tool === 'split' || p.tool === 'draw') this.cancelDraw();
     if (s.tool !== 'paint') this.onBrush?.(null);
     if (s.tool === 'paint') this.map.dragPan.disable();
     else this.map.dragPan.enable();
@@ -1060,6 +1375,11 @@ export class MapController {
       this.map.dragPan.enable();
       this.map.getCanvas().style.cursor = 'grab';
       e.preventDefault();
+    }
+    if (get().tool === 'draw' && !isTyping(e)) {
+      if (e.key === 'Enter') this.finishDraw();
+      else if (e.key === 'Escape') this.cancelDraw();
+      else if (e.key === 'Backspace') this.undoDrawPoint();
     }
     if (get().tool === 'split' && !isTyping(e)) {
       if (e.key === 'Enter') this.finishSplit();
@@ -1147,6 +1467,31 @@ export class MapController {
   }
 }
 
+/**
+ * The first whole zoom at which a name of `chars` letters fits along `line` (the curved label
+ * layer's size and spacing), or null when it never does before zoom 9. Below it the name stays
+ * straight: MapLibre silently drops a name that does not fit its line.
+ */
+function fitZoom(line: LngLat[], chars: number, s: number, upper: boolean): number | null {
+  let km = 0;
+  const r = Math.PI / 180;
+  for (let i = 1; i < line.length; i++) {
+    const [a, b] = [line[i - 1], line[i]];
+    const h = Math.sin(((b[1] - a[1]) * r) / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(((b[0] - a[0]) * r) / 2) ** 2;
+    km += 2 * 6371 * Math.asin(Math.sqrt(h));
+  }
+  const lat = line[Math.floor(line.length / 2)][1];
+  const size = (z: number) => (z <= 1 ? 8 + 7 * s : z <= 4 ? 8 + 7 * s + ((z - 1) / 3) * (3 + 5 * s) : z <= 7 ? 11 + 12 * s + ((z - 4) / 3) * (3 + 4 * s) : 14 + 16 * s);
+  // Letters plus the layer's 0.28em spacing; capitals are wider.
+  const em = upper ? 0.78 : 0.66;
+  // MapLibre lays the text out in the tile of whole zoom z, at the size of zoom z + 1.
+  for (let z = 1; z <= 9; z++) {
+    const px = (km * 512 * 2 ** z) / (40075 * Math.max(0.2, Math.cos(lat * r)));
+    if (chars * size(z + 1) * (em + 0.28) <= px * 0.92) return z;
+  }
+  return null;
+}
+
 /** A country colour washed out to grey, for countries outside the alliances shown. */
 function mute(hex: string, dark: boolean): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
@@ -1226,7 +1571,7 @@ class Waves {
   }
 
   start() {
-    if (this.raf) return;
+    if (this.raf || this.held) return;
     this.last = performance.now();
     const loop = (now: number) => {
       this.raf = requestAnimationFrame(loop);
@@ -1247,4 +1592,12 @@ class Waves {
     cancelAnimationFrame(this.raf);
     this.raf = 0;
   }
+
+  /** Holds the waves still (e.g. while a poster renders, which needs the map to go idle). */
+  hold(on: boolean) {
+    this.held = on;
+    if (on) this.stop();
+    else if (this.on) this.start();
+  }
+  private held = false;
 }

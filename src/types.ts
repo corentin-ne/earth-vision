@@ -16,6 +16,18 @@ export interface Region {
   cy: number;
   /** Values of the "scaling" stats (e.g. population) that travel with the region. */
   vals?: Record<string, number>;
+  /** Lore; `[[Name]]` links to a country, region or city. */
+  notes?: string;
+  /** Country occupying the region while `cid` keeps the legal claim (drawn as stripes). */
+  occ?: string;
+  /** Key into the owner's `states` (a subdivision of the country). */
+  state?: string;
+}
+
+/** A first-level subdivision of a country (a state, province, duchy…), grouping regions. */
+export interface CountryState {
+  name: string;
+  color?: string;
 }
 
 export interface Country {
@@ -31,8 +43,14 @@ export interface Country {
   /** Free text fields (leader, language, currency…). */
   fields: Record<string, string>;
   notes?: string;
-  /** Label anchor, recomputed whenever the territory changes. */
+  /** Label anchor, recomputed whenever the territory changes (unless placed by hand). */
   label?: LngLat;
+  /** The label was dragged into place: keep it there when the territory changes. */
+  labelFixed?: boolean;
+  /** Country this one is a vassal / puppet of. */
+  overlord?: string;
+  /** Subdivisions, by key (regions point at them with `state`). */
+  states?: Record<string, CountryState>;
 }
 
 export interface City {
@@ -43,6 +61,7 @@ export interface City {
   capital: boolean;
   hidden?: boolean;
   pop?: number;
+  notes?: string;
 }
 
 export interface WaterLabel {
@@ -58,6 +77,15 @@ export interface Alliance {
   color: string;
   members: string[];
 }
+
+export type LineKind = 'road' | 'rail' | 'route' | 'sea' | 'front' | 'border';
+export type LabelKind = 'sea' | 'land' | 'mountains' | 'note';
+
+/** Something drawn on the map by hand: a line (road, railway, trade route…), a name, or a pin. */
+export type Mark =
+  | { id: string; type: 'line'; kind: LineKind; name: string; color: string; coords: LngLat[] }
+  | { id: string; type: 'label'; kind: LabelKind; text: string; lng: number; lat: number; size: number; angle: number; color?: string }
+  | { id: string; type: 'pin'; name: string; icon: string; lng: number; lat: number; notes?: string; color?: string };
 
 export interface StatDef {
   key: string;
@@ -97,6 +125,10 @@ export interface WorldDoc {
   cities: Record<number, City>;
   water: WaterLabel[];
   alliances: Alliance[];
+  /** Hand-drawn lines, names and pins. */
+  marks?: Record<string, Mark>;
+  /** Ids of the extra data layers (reefs, volcanoes…) shown on this world. */
+  overlays?: string[];
   view?: ViewState;
 }
 
@@ -115,4 +147,5 @@ export interface Patch {
   cities?: Record<number, City | null>;
   geoms?: Record<number, RegionGeom | null>;
   alliances?: Record<string, Alliance | null>;
+  marks?: Record<string, Mark | null>;
 }

@@ -31,6 +31,10 @@ import { download, fmtCompact } from '../util';
 import { AllianceLegend, viewAlliance } from './AlliancePanel';
 import { SnapCard } from './SnapCard';
 import { naturalOn, type RiverLevel } from '../geo/barriers';
+import { DrawOptions, MarkPanel, RegionExtras, DRAW_KINDS } from './WorldbuildPanels';
+import { DataWindow, FindReplaceWindow, StatsWindow, ThematicLegend, ThematicPicker } from './Windows';
+import { PosterDialog } from './PosterDialog';
+import { markNoun } from '../world/edits';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
@@ -57,6 +61,7 @@ export function Editor({ onHome }: { onHome: () => void }) {
           <SelectionBubble />
           <DetailsDock />
           <AllianceLegend />
+          <ThematicLegend />
           <SnapCard />
           <BrushCursor />
         </>
@@ -65,6 +70,10 @@ export function Editor({ onHome }: { onHome: () => void }) {
       <SplitHint />
       <ShortcutsHelp />
       <AdvancedPanel />
+      <StatsWindow />
+      <FindReplaceWindow />
+      <DataWindow />
+      <PosterDialog />
       <FlagGallery />
       <FlagLightbox />
       <FlagMaker />
@@ -155,7 +164,8 @@ function bus<T>() {
   const subs = new Set<(v: T) => void>();
   return { emit: (v: T) => subs.forEach((s) => s(v)), on: (s: (v: T) => void) => (subs.add(s), () => void subs.delete(s)) };
 }
-const hoverBus = bus<{ x: number; y: number; region: number | null; city: number | null } | null>();
+type HoverInfo = { x: number; y: number; region: number | null; city: number | null; text?: string };
+const hoverBus = bus<HoverInfo | null>();
 const drawBus = bus<number>();
 const brushBus = bus<{ x: number; y: number; r: number; blocked: boolean } | null>();
 
@@ -217,11 +227,17 @@ export function enterZen() {
 }
 
 function HoverTip() {
-  const [h, setH] = useState<{ x: number; y: number; region: number | null; city: number | null } | null>(null);
+  const [h, setH] = useState<HoverInfo | null>(null);
   const doc = useWorld((s) => s.doc);
   const tool = useWorld((s) => s.tool);
   useEffect(() => hoverBus.on(setH), []);
-  if (!h || !doc || (h.region == null && h.city == null) || tool === 'split') return null;
+  if (h?.text && doc && tool === 'select')
+    return (
+      <div className="hover-tip" style={{ transform: `translate(${h.x + 16}px, ${h.y + 14}px)` }}>
+        <strong>{h.text}</strong>
+      </div>
+    );
+  if (!h || !doc || (h.region == null && h.city == null) || tool === 'split' || tool === 'draw') return null;
   const r = h.region != null ? doc.regions[h.region] : null;
   const c = r ? doc.countries[r.cid] : undefined;
   const city = h.city != null ? doc.cities[h.city] : null;
@@ -249,9 +265,27 @@ function HoverTip() {
 function SplitHint() {
   const tool = useWorld((s) => s.tool);
   const sel = useWorld((s) => s.selection.regions.length);
+  const drawKind = useWorld((s) => s.drawKind);
   const mobile = useMobile();
   const [n, setN] = useState(0);
   useEffect(() => drawBus.on(setN), []);
+  if (tool === 'draw' && drawKind !== 'label' && drawKind !== 'pin' && n > 0) {
+    const enough = n >= (drawKind === 'land' ? 3 : 2);
+    return (
+      <div className="split-hint">
+        <Icon name={drawKind === 'land' ? 'island' : 'route'} size={16} />
+        <span>{enough ? (mobile ? 'Keep tapping, then Done.' : 'Keep clicking · double-click or Enter to finish · Backspace removes a point · Esc cancels') : 'Add more points…'}</span>
+        {enough && (
+          <button className="btn primary small" onClick={() => mapCtl?.finishDraw()}>
+            Done
+          </button>
+        )}
+        <button className="btn small" onClick={() => mapCtl?.cancelDraw()}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
   if (tool !== 'split') return null;
   const target = sel ? 'the selected region' + (sel > 1 ? 's' : '') : 'the region(s) to cut';
   return (
@@ -312,6 +346,15 @@ function TopBar({ onHome }: { onHome: () => void }) {
       <button className="icon-btn hide-phone" onClick={surprise} title="Surprise me: visit a random country (R)">
         <Icon name="dice" />
       </button>
+      <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ statsOpen: true })} title="Statistics: rankings & comparisons (S)">
+        <Icon name="chart" />
+      </button>
+      <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ dataOpen: true })} title="Data layers: reefs, peaks, earthquakes… (O)">
+        <Icon name="database" />
+      </button>
+      <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ findOpen: true })} title="Find & replace (Ctrl+H)">
+        <Icon name="replace" />
+      </button>
       <button className="icon-btn" onClick={() => useWorld.setState({ advancedOpen: true })} title="Advanced: population, heal borders, colours… (A)">
         <Icon name="tune" />
       </button>
@@ -329,6 +372,14 @@ function TopBar({ onHome }: { onHome: () => void }) {
             <button onClick={() => exportAs('png')}>
               <Icon name="camera" size={15} /> <span className="grow">Image of this view (.png)</span>
               <kbd>P</kbd>
+            </button>
+            <button
+              onClick={() => {
+                setMenu(false);
+                useWorld.setState({ posterOpen: true });
+              }}
+            >
+              <Icon name="frame" size={15} /> <span className="grow">Poster: title, legend, compass…</span>
             </button>
             <button onClick={() => exportAs('geojson')}>
               <Icon name="globe" size={15} /> <span className="grow">Regions (.geojson)</span>
@@ -400,6 +451,11 @@ const SHORTCUTS: [string, string][] = [
   ['B', 'Paint regions'],
   ['K', 'Split regions'],
   ['C', 'Cities'],
+  ['D', 'Draw: new land, roads, names, pins'],
+  ['Drag a name', 'Move a country name (Select)'],
+  ['S', 'Statistics'],
+  ['O', 'Data layers (reefs, peaks…)'],
+  ['Ctrl + H', 'Find & replace'],
   ['[  ]', 'Smaller / bigger brush'],
   ['Alt + click', 'Pick a country (paint)'],
   ['Ctrl + click', 'Take a whole country (paint)'],
@@ -543,6 +599,7 @@ const TOOLS: { id: Tool; icon: IconName; label: string; key: string }[] = [
   { id: 'paint', icon: 'brush', label: 'Paint regions', key: 'B' },
   { id: 'split', icon: 'knife', label: 'Split regions', key: 'K' },
   { id: 'city', icon: 'city', label: 'Cities', key: 'C' },
+  { id: 'draw', icon: 'pen', label: 'Draw: land, routes, names, pins', key: 'D' },
 ];
 
 function ToolDock() {
@@ -621,6 +678,11 @@ function DesktopToolDock() {
           <p className="hint">Click the map to place a city · drag a city to move it · click one to edit it</p>
         </div>
       )}
+      {tool === 'draw' && (
+        <div className="brush glass">
+          <DrawOptions />
+        </div>
+      )}
     </div>
   );
 }
@@ -633,7 +695,7 @@ function PhoneDock() {
   const tool = useWorld((s) => s.tool);
   const multi = useWorld((s) => s.multiSelect);
   const worldOpen = useWorld((s) => s.worldOpen);
-  const sheet = useWorld((s) => s.worldOpen || (s.detailsOpen && !!(s.selection.cid || s.selection.regions.length || s.selection.city != null)));
+  const sheet = useWorld((s) => s.worldOpen || (s.detailsOpen && !!(s.selection.cid || s.selection.regions.length || s.selection.city != null || s.markSel)));
   const layersOpen = useWorld((s) => s.layersOpen);
   const snapping = useWorld((s) => !!s.snap);
   const globe = useWorld((s) => s.globe);
@@ -656,6 +718,11 @@ function PhoneDock() {
             </button>
           )}
           {tool === 'city' && <div className="phone-hint glass">Tap to place a city · drag one to move it</div>}
+          {tool === 'draw' && (
+            <div className="phone-brush glass">
+              <DrawOptions compact />
+            </div>
+          )}
         </div>
       )}
       <nav className="phonebar glass">
@@ -692,6 +759,18 @@ function PhoneDock() {
               </button>
               <button onClick={pick(surprise)}>
                 <Icon name="dice" size={16} /> <span className="grow">Surprise me</span>
+              </button>
+              <button onClick={pick(() => useWorld.setState({ statsOpen: true }))}>
+                <Icon name="chart" size={16} /> <span className="grow">Statistics</span>
+              </button>
+              <button onClick={pick(() => useWorld.setState({ dataOpen: true }))}>
+                <Icon name="database" size={16} /> <span className="grow">Data layers</span>
+              </button>
+              <button onClick={pick(() => useWorld.setState({ findOpen: true }))}>
+                <Icon name="replace" size={16} /> <span className="grow">Find & replace</span>
+              </button>
+              <button onClick={pick(() => useWorld.setState({ posterOpen: true }))}>
+                <Icon name="frame" size={16} /> <span className="grow">Poster</span>
               </button>
               <button onClick={pick(enterZen)}>
                 <Icon name="eyeOff" size={16} /> <span className="grow">Hide the tools</span>
@@ -816,7 +895,15 @@ function toggleNatural() {
 function useSelectionView() {
   const sel = useWorld((s) => s.selection);
   const doc = useWorld((s) => s.doc)!;
+  const markSel = useWorld((s) => s.markSel);
   const agg = countryAggregates(doc);
+  const mark = markSel ? doc.marks?.[markSel] : undefined;
+  if (mark) {
+    const noun = markNoun(mark);
+    const title = mark.type === 'label' ? mark.text : mark.name || noun[0].toUpperCase() + noun.slice(1);
+    const anchor: LngLat = mark.type === 'line' ? mark.coords[Math.floor(mark.coords.length / 2)] : [mark.lng, mark.lat];
+    return { key: `mark:${mark.id}`, kind: noun[0].toUpperCase() + noun.slice(1), title, sub: mark.type === 'line' ? DRAW_KINDS.find((k) => k.id === mark.kind)?.label : 'On the map', anchor, body: <MarkPanel id={mark.id} /> };
+  }
   if (sel.city != null && doc.cities[sel.city]) {
     const c = doc.cities[sel.city];
     const of = Object.values(doc.countries).find((k) => k.capital === c.id);
@@ -827,6 +914,34 @@ function useSelectionView() {
     return { key: 'multi', kind: 'Selection', title: `${sel.regions.length} regions`, sub: 'Give away, merge or found a country', anchor: sel.anchor ?? ([first?.cx ?? 0, first?.cy ?? 0] as LngLat), body: <MultiRegionPanel ids={sel.regions} /> };
   }
   const region = sel.regions.length === 1 ? doc.regions[sel.regions[0]] : undefined;
+  // A region picked on the map is the selection itself; its country is one click (or link) away.
+  if (region && doc.countries[region.cid]) {
+    const c = doc.countries[region.cid];
+    const st = region.state ? c.states?.[region.state]?.name : undefined;
+    const occ = region.occ ? doc.countries[region.occ]?.name : undefined;
+    return {
+      key: `region:${region.id}`,
+      kind: 'Region',
+      title: region.name,
+      flag: c,
+      sub: [st, c.name, occ ? `held by ${occ}` : null].filter(Boolean).join(' · '),
+      anchor: sel.anchor ?? ([region.cx, region.cy] as LngLat),
+      body: (
+        <div className="panel-body">
+          <button className="part-of" onClick={() => select({ cid: c.cid, anchor: sel.anchor })} title="Open the country">
+            <Flag country={c} size={22} />
+            <span className="grow">
+              <small>Part of</small>
+              <strong>{c.name}</strong>
+            </span>
+            <Icon name="chevron" size={16} />
+          </button>
+          <RegionCard region={region} />
+          <RegionExtras region={region} />
+        </div>
+      ),
+    };
+  }
   if (sel.cid && doc.countries[sel.cid]) {
     const c = doc.countries[sel.cid];
     const a = agg[c.cid];
@@ -852,6 +967,7 @@ function useSelectionView() {
       body: (
         <div className="panel-body">
           <RegionCard region={region} />
+          <RegionExtras region={region} />
         </div>
       ),
     };
@@ -898,7 +1014,7 @@ function SelectionBubble() {
       cancelAnimationFrame(raf);
     };
   }, [anchor, view?.key]);
-  if (!view || details || (tool !== 'select' && tool !== 'city')) return null;
+  if (!view || details || (tool !== 'select' && tool !== 'city' && tool !== 'draw')) return null;
   return (
     <div ref={ref} className="sel-bubble-anchor">
       <div className="sel-bubble glass" key={view.key + (view.sub ?? '')}>
@@ -912,7 +1028,14 @@ function SelectionBubble() {
             Details <Icon name="chevron" size={14} />
           </span>
         </button>
-        <button className="icon-btn sel-bubble-x" onClick={() => select({})} title="Close (Esc)">
+        <button
+          className="icon-btn sel-bubble-x"
+          onClick={() => {
+            select({});
+            useWorld.setState({ markSel: null });
+          }}
+          title="Close (Esc)"
+        >
           <Icon name="x" size={14} />
         </button>
       </div>
@@ -1027,7 +1150,7 @@ function usePeek(shown: boolean): [boolean, (e: ReactMouseEvent) => void] {
 function Inspector() {
   const doc = useWorld((s) => s.doc)!;
   const mobile = useMobile();
-  const details = useWorld((s) => s.detailsOpen && !!(s.selection.cid || s.selection.regions.length || s.selection.city != null));
+  const details = useWorld((s) => s.detailsOpen && !!(s.selection.cid || s.selection.regions.length || s.selection.city != null || s.markSel));
   const worldOpen = useWorld((s) => s.worldOpen);
   const [collapsed, setCollapsed] = useState(false);
   const ref = useRef<HTMLElement>(null);
@@ -1092,6 +1215,10 @@ const LAYER_LABELS: [keyof Layers, string][] = [
   ['rivers', 'Rivers'],
   ['urban', 'Urban areas'],
   ['graticule', 'Graticule'],
+  ['curvedLabels', 'Curved country names'],
+  ['marks', 'Roads, routes, names & pins'],
+  ['occupation', 'Occupied land (stripes)'],
+  ['stateBorders', 'State borders'],
 ];
 
 function LayersPanel() {
@@ -1122,6 +1249,9 @@ function LayersPanel() {
         <button className="icon-btn" onClick={enterZen} title="Hide the tools, just the map (H)">
           <Icon name="eyeOff" />
         </button>
+        <button className="icon-btn" onClick={() => useWorld.setState({ dataOpen: true })} title="Data layers: reefs, peaks, earthquakes… (O)">
+          <Icon name="database" />
+        </button>
         <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ help: true })} title="Keyboard shortcuts (?)">
           <Icon name="keyboard" />
         </button>
@@ -1137,6 +1267,8 @@ function LayersPanel() {
               </button>
             ))}
           </div>
+          <div className="menu-label">Colour the map by</div>
+          <ThematicPicker />
           <div className="menu-label">Show on the map</div>
           <div className="toggles">
             {LAYER_LABELS.map(([k, label]) => (
@@ -1173,11 +1305,17 @@ export function useShortcuts() {
       } else if ((e.ctrlKey || e.metaKey) && k === 'y') {
         e.preventDefault();
         redo();
+      } else if ((e.ctrlKey || e.metaKey) && k === 'h') {
+        e.preventDefault();
+        if (useWorld.getState().doc) useWorld.setState({ findOpen: true });
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         if (k === 'v') setTool('select');
         else if (k === 'b') setTool('paint');
         else if (k === 'k') setTool('split');
         else if (k === 'c') setTool('city');
+        else if (k === 'd') setTool('draw');
+        else if (k === 's' && useWorld.getState().doc) useWorld.setState((s) => ({ statsOpen: !s.statsOpen }));
+        else if (k === 'o' && useWorld.getState().doc) useWorld.setState((s) => ({ dataOpen: !s.dataOpen }));
         else if (k === 'g') useWorld.setState((s) => ({ globe: !s.globe }));
         else if (k === 'l') useWorld.setState((s) => ({ layersOpen: !s.layersOpen }));
         else if (k === 'r' && useWorld.getState().doc) surprise();
@@ -1196,12 +1334,17 @@ export function useShortcuts() {
           const snap = useWorld.getState().snap!;
           useWorld.setState({ snap: snap.drawing ? { ...snap, drawing: false } : null });
         }
+        else if (k === 'escape' && useWorld.getState().statsOpen) useWorld.setState({ statsOpen: false });
+        else if (k === 'escape' && useWorld.getState().findOpen) useWorld.setState({ findOpen: false });
+        else if (k === 'escape' && useWorld.getState().dataOpen) useWorld.setState({ dataOpen: false });
+        else if (k === 'escape' && useWorld.getState().posterOpen) useWorld.setState({ posterOpen: false });
         else if (k === 'escape' && useWorld.getState().detailsOpen) useWorld.setState({ detailsOpen: false });
         else if (k === 'escape' && useWorld.getState().worldOpen) useWorld.setState({ worldOpen: false });
         else if (k === 'escape' && useWorld.getState().help) useWorld.setState({ help: false });
         else if (k === 'escape' && useWorld.getState().advancedOpen) useWorld.setState({ advancedOpen: false });
         else if (k === 'escape' && useWorld.getState().galleryOpen) useWorld.setState({ galleryOpen: false });
-        else if (k === 'escape' && useWorld.getState().tool !== 'split') {
+        else if (k === 'escape' && useWorld.getState().markSel) useWorld.setState({ markSel: null });
+        else if (k === 'escape' && useWorld.getState().tool !== 'split' && useWorld.getState().tool !== 'draw') {
           if (useWorld.getState().tool !== 'select') setTool('select');
           else select({});
         }

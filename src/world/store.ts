@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Alliance, City, Country, LngLat, Patch, Region, RegionGeom, WorldBundle, WorldDoc } from '../types';
+import type { Alliance, City, Country, LineKind, LngLat, Patch, Region, RegionGeom, WorldBundle, WorldDoc } from '../types';
 import { GeoEngine, bbox, geomArea, labelPoint, pointInGeom } from '../geo/engine';
 import { insertCutVertices, splitGeom } from '../geo/split';
 import { healGeoms } from '../geo/heal';
@@ -8,7 +8,16 @@ import type { NaturalOpts } from '../geo/barriers';
 import { rescale } from './stats';
 import { uid } from '../util';
 
-export type Tool = 'select' | 'paint' | 'split' | 'city';
+export type Tool = 'select' | 'paint' | 'split' | 'city' | 'draw';
+/** What the Draw tool makes: new land, a kind of line, a name or a pin. */
+export type DrawKind = 'land' | LineKind | 'label' | 'pin';
+
+/** Colouring the map by something else than the owner. */
+export type Thematic =
+  | { kind: 'stat'; key: string; per: 'total' | 'area' | 'capita' }
+  | { kind: 'field'; key: string }
+  | { kind: 'realm' }
+  | { kind: 'states' };
 export type MapStyleId = 'political' | 'atlas' | 'plain' | 'night';
 
 export interface Layers {
@@ -26,6 +35,14 @@ export interface Layers {
   rivers: boolean;
   urban: boolean;
   graticule: boolean;
+  /** Roads, routes, names and pins drawn by hand. */
+  marks: boolean;
+  /** Stripes over occupied land. */
+  occupation: boolean;
+  /** Lines between the states of a country. */
+  stateBorders: boolean;
+  /** Country names bend along the shape of the country. */
+  curvedLabels: boolean;
 }
 
 export interface Selection {
@@ -49,6 +66,7 @@ export interface ChangeSet {
   cities: boolean;
   geoms: boolean;
   alliances: boolean;
+  marks: boolean;
   all: boolean;
 }
 
@@ -115,6 +133,17 @@ export interface State {
    * and whether the user is drawing a loop around the part of the border to snap.
    */
   snap: { cid: string; other: string | null; drawing: boolean } | null;
+  drawKind: DrawKind;
+  /** Country new land is raised for ('' = unclaimed). */
+  landCid: string;
+  /** The hand-drawn mark being edited. */
+  markSel: string | null;
+  thematic: Thematic | null;
+  /** Open windows. */
+  findOpen: boolean;
+  statsOpen: boolean;
+  posterOpen: boolean;
+  dataOpen: boolean;
 }
 
 const DEFAULT_LAYERS: Layers = {
@@ -131,6 +160,10 @@ const DEFAULT_LAYERS: Layers = {
   rivers: true,
   urban: true,
   graticule: true,
+  marks: true,
+  occupation: true,
+  stateBorders: true,
+  curvedLabels: false,
 };
 
 const PREFS = 'cmaps:prefs';
@@ -182,6 +215,14 @@ export const useWorld = create<State>(() => ({
   allianceView: null,
   zen: false,
   snap: null,
+  drawKind: 'land',
+  landCid: '',
+  markSel: null,
+  thematic: null,
+  findOpen: false,
+  statsOpen: false,
+  posterOpen: false,
+  dataOpen: false,
 }));
 
 useWorld.subscribe((s, prev) => {
@@ -209,12 +250,13 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
   const s = get();
   const doc = s.doc!;
   const inv: Patch = {};
-  const changes: ChangeSet = { regions: new Set(), countries: new Set(), cities: false, geoms: false, alliances: false, all: false };
+  const changes: ChangeSet = { regions: new Set(), countries: new Set(), cities: false, geoms: false, alliances: false, marks: false, all: false };
   let regions = doc.regions;
   let countries = doc.countries;
   let cities = doc.cities;
   let geoms = s.geoms;
   let alliances = doc.alliances;
+  let marks = doc.marks ?? {};
 
   if (patch.regions) {
     regions = { ...regions };
@@ -275,8 +317,18 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
     }
     changes.alliances = true;
   }
+  if (patch.marks) {
+    marks = { ...marks };
+    inv.marks = {};
+    for (const [id, v] of Object.entries(patch.marks)) {
+      inv.marks[id] = marks[id] ?? null;
+      if (v) marks[id] = v;
+      else delete marks[id];
+    }
+    changes.marks = true;
+  }
   changes.countries.delete('');
-  const nextDoc: WorldDoc = { ...doc, regions, countries, cities, alliances, meta: { ...doc.meta, modified: Date.now() } };
+  const nextDoc: WorldDoc = { ...doc, regions, countries, cities, alliances, marks, meta: { ...doc.meta, modified: Date.now() } };
   set({ doc: nextDoc, geoms, geomVersion: patch.geoms ? s.geomVersion + 1 : s.geomVersion });
   return { inv, changes };
 }
@@ -284,7 +336,7 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
 /** Earlier values win: `a` happened first. */
 function mergeInverse(a: Patch, b: Patch): Patch {
   const out: Patch = {};
-  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances'] as const) {
+  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks'] as const) {
     if (a[key] || b[key]) out[key] = { ...(b[key] as object), ...(a[key] as object) } as never;
   }
   return out;
@@ -293,7 +345,7 @@ function mergeInverse(a: Patch, b: Patch): Patch {
 /** Later values win: `b` happened last. */
 function mergeForward(a: Patch, b: Patch): Patch {
   const out: Patch = {};
-  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances'] as const) {
+  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks'] as const) {
     if (a[key] || b[key]) out[key] = { ...(a[key] as object), ...(b[key] as object) } as never;
   }
   return out;
@@ -332,7 +384,7 @@ function relabel(touched: Set<string>, regions: Record<number, Region>, countrie
   for (const r of Object.values(regions)) if (touched.has(r.cid)) (ids[r.cid] ??= []).push(r.id);
   for (const cid of touched) {
     const base = countries[cid] === undefined ? doc.countries[cid] : countries[cid];
-    if (!base) continue;
+    if (!base || (base.labelFixed && base.label)) continue;
     const lp = ids[cid]?.length ? labelPoint(engine.merge(ids[cid])) : null;
     countries[cid] = { ...base, label: lp ?? base.label };
   }
@@ -368,8 +420,8 @@ export function commit(label: string, patch: Patch, opts: { group?: string; defe
   if (patch.geoms) {
     const g = apply({ geoms: patch.geoms });
     const rest = withDerived({ regions: patch.regions, countries: patch.countries, cities: patch.cities, geoms: patch.geoms });
-    const r = apply({ regions: rest.regions, countries: rest.countries, cities: rest.cities, alliances: patch.alliances });
-    full = { ...rest, alliances: patch.alliances };
+    const r = apply({ regions: rest.regions, countries: rest.countries, cities: rest.cities, alliances: patch.alliances, marks: patch.marks });
+    full = { ...rest, alliances: patch.alliances, marks: patch.marks };
     inv = mergeInverse(g.inv, r.inv);
     changes = { ...r.changes, geoms: true, regions: new Set([...g.changes.regions, ...r.changes.regions]) };
   } else if (opts.deferLabels && opts.group && patch.regions) {
@@ -418,7 +470,7 @@ export function endGroup() {
 
 function replay(entry: HistoryEntry, patch: Patch) {
   const geomFirst = patch.geoms ? apply({ geoms: patch.geoms }) : null;
-  const r = apply({ regions: patch.regions, countries: patch.countries, cities: patch.cities, alliances: patch.alliances });
+  const r = apply({ regions: patch.regions, countries: patch.countries, cities: patch.cities, alliances: patch.alliances, marks: patch.marks });
   const changes = r.changes;
   if (geomFirst) {
     changes.geoms = true;
@@ -526,6 +578,12 @@ export function loadWorld(b: WorldBundle) {
     allianceView: null,
     zen: false,
     snap: null,
+    markSel: null,
+    thematic: null,
+    findOpen: false,
+    statsOpen: false,
+    posterOpen: false,
+    dataOpen: false,
   });
   pendingLabels.clear();
   if (repaired.fixed) {
@@ -533,7 +591,7 @@ export function loadWorld(b: WorldBundle) {
     set({ geomVersion: get().geomVersion + 1 });
     toast(`Repaired ${repaired.fixed} broken region shape${repaired.fixed > 1 ? 's' : ''}`, 'ok');
   }
-  emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, alliances: true, all: true });
+  emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, alliances: true, marks: true, all: true });
 }
 
 export function closeWorld() {
@@ -560,7 +618,7 @@ export function toast(text: string, kind?: 'error' | 'ok') {
 export function select(sel: Partial<Selection>) {
   const selection = { cid: null, regions: [], city: null, ...sel };
   const empty = !selection.cid && !selection.regions.length && selection.city == null;
-  set(empty ? { selection, detailsOpen: false } : { selection });
+  set(empty ? { selection, detailsOpen: false, markSel: null } : { selection, markSel: null });
 }
 
 export function setTool(tool: Tool) {
@@ -623,8 +681,13 @@ export function regionAt(pt: LngLat): Region | null {
  * territories (French Guiana, Réunion…) don't pull the view out to the whole globe.
  */
 export function countryBounds(cid: string): [number, number, number, number] | null {
+  return boundsOf(mainBody(cid));
+}
+
+/** Region ids of a country's largest stretch of connected land. */
+export function mainBody(cid: string): number[] {
   const own = regionsOf(cid);
-  if (!own.length || !engine.ready) return boundsOf(own.map((r) => r.id));
+  if (!own.length || !engine.ready) return own.map((r) => r.id);
   const doc = get().doc!;
   const mine = new Set(own.map((r) => r.id));
   const seen = new Set<number>();
@@ -648,7 +711,7 @@ export function countryBounds(cid: string): [number, number, number, number] | n
       best = part;
     }
   }
-  return boundsOf(best);
+  return best;
 }
 
 export function boundsOf(ids: number[]): [number, number, number, number] | null {
@@ -671,13 +734,41 @@ export function flagUrlFor(c: Country | undefined, iso2: Record<string, string>)
 
 // ── Editing operations ───────────────────────────────────────────────────────
 
+/** A region given to `cid`: it leaves its old owner's state, and an occupation by `cid` ends. */
+export function changeHands(r: Region, cid: string): Region {
+  const out: Region = { ...r, cid };
+  delete out.state;
+  if (out.occ === cid) delete out.occ;
+  return out;
+}
+
+/** Undoes every tie other countries and regions have to `cid` (vassals, occupations), handing them to `heir` if given. */
+function forget(cid: string, heir: string | null, regions: Record<number, Region>, countries: Record<string, Country | null>) {
+  const doc = get().doc!;
+  for (const c of Object.values(doc.countries)) {
+    if (c.cid !== cid && c.overlord === cid && countries[c.cid] !== null) {
+      const next = { ...(countries[c.cid] ?? c) };
+      if (heir && heir !== c.cid) next.overlord = heir;
+      else delete next.overlord;
+      countries[c.cid] = next;
+    }
+  }
+  for (const r of Object.values(doc.regions)) {
+    if (r.occ !== cid) continue;
+    const next = { ...(regions[r.id] ?? r) };
+    if (heir && heir !== next.cid) next.occ = heir;
+    else delete next.occ;
+    regions[r.id] = next;
+  }
+}
+
 export function transferRegions(ids: number[], cid: string, opts: { group?: string; label?: string; deferLabels?: boolean } = {}) {
   const doc = get().doc;
   if (!doc) return 0;
   const regions: Record<number, Region> = {};
   for (const id of ids) {
     const r = doc.regions[id];
-    if (r && r.cid !== cid) regions[id] = { ...r, cid };
+    if (r && r.cid !== cid) regions[id] = changeHands(r, cid);
   }
   const n = Object.keys(regions).length;
   if (!n) return 0;
@@ -728,7 +819,7 @@ export function createCountry(name: string, regionIds: number[] = [], extra: Par
     ...extra,
   };
   const regions: Record<number, Region> = {};
-  for (const id of regionIds) if (doc.regions[id]) regions[id] = { ...doc.regions[id], cid };
+  for (const id of regionIds) if (doc.regions[id]) regions[id] = changeHands(doc.regions[id], cid);
   commit(`Create ${name}`, { countries: { [cid]: country }, regions });
   return cid;
 }
@@ -744,8 +835,10 @@ export function deleteCountry(cid: string) {
   const c = doc.countries[cid];
   if (!c) return;
   const regions: Record<number, Region> = {};
-  for (const r of Object.values(doc.regions)) if (r.cid === cid) regions[r.id] = { ...r, cid: '' };
-  commit(`Dissolve ${c.name}`, { countries: { [cid]: null }, regions, alliances: leaveAll(cid) });
+  for (const r of Object.values(doc.regions)) if (r.cid === cid) regions[r.id] = changeHands(r, '');
+  const countries: Record<string, Country | null> = { [cid]: null };
+  forget(cid, null, regions, countries);
+  commit(`Dissolve ${c.name}`, { countries, regions, alliances: leaveAll(cid) });
   const sel = get().selection;
   if (sel.cid === cid) select({});
 }
@@ -756,8 +849,10 @@ export function annexCountry(src: string, dst: string) {
   const b = doc.countries[dst];
   if (!a || !b || src === dst) return;
   const regions: Record<number, Region> = {};
-  for (const r of Object.values(doc.regions)) if (r.cid === src) regions[r.id] = { ...r, cid: dst };
-  commit(`${b.name} annexes ${a.name}`, { countries: { [src]: null }, regions, alliances: leaveAll(src) });
+  for (const r of Object.values(doc.regions)) if (r.cid === src) regions[r.id] = changeHands(r, dst);
+  const countries: Record<string, Country | null> = { [src]: null };
+  forget(src, dst, regions, countries);
+  commit(`${b.name} annexes ${a.name}`, { countries, regions, alliances: leaveAll(src) });
   select({ cid: dst });
 }
 

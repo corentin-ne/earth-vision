@@ -1,6 +1,6 @@
 // Whole-world maintenance operations behind the "Advanced" menu. Each one is a single undo step.
 import type { City, Country, Region } from '../types';
-import { useWorld, commit, engine, countryAggregates, toast } from './store';
+import { useWorld, commit, engine, countryAggregates, changeHands, toast } from './store';
 import { labelPoint, pointInGeom, bbox } from '../geo/engine';
 import { loadEarthData } from '../io/earth';
 import { buildPopulationModel, estimatePopulation, type PopulationModel } from './population';
@@ -96,7 +96,7 @@ export function tidyBorders(maxArea: number, opts: { countries?: boolean } = {})
     if (!to) continue; // surrounded by unclaimed land: nothing to heal into
     const fragment = c.cid === '' || c.area < main[c.cid] || (opts.countries && c.area === main[c.cid] && comps.filter((x) => x.cid === c.cid).length === 1);
     if (!fragment) continue;
-    for (const id of c.ids) regions[id] = { ...doc.regions[id], cid: to };
+    for (const id of c.ids) regions[id] = changeHands(doc.regions[id], to);
     moved += c.ids.length;
   }
   if (moved) commit(`Tidy stray pieces (${moved} region${moved > 1 ? 's' : ''})`, { regions });

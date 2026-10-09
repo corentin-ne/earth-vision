@@ -16,7 +16,7 @@
 // fields, the camera), so a .map round trip loses nothing.
 import { unzipSync, zipSync, strFromU8, strToU8, type Zippable } from 'fflate';
 import type { Feature, FeatureCollection, Point } from 'geojson';
-import type { City, Country, Region, RegionGeom, WaterLabel, WorldBundle, WorldDoc, StatDef, Alliance } from '../types';
+import type { City, Country, CountryState, LngLat, Mark, Region, RegionGeom, WaterLabel, WorldBundle, WorldDoc, StatDef, Alliance } from '../types';
 import { geomArea, labelPoint, GeoEngine } from '../geo/engine';
 import { distributeByArea } from '../world/stats';
 import { uid } from '../util';
@@ -77,10 +77,25 @@ interface Sidecar {
   fields?: string[];
   palette?: string[];
   view?: WorldDoc['view'];
-  countries?: Record<string, { notes?: string; stats?: Record<string, number>; fields?: Record<string, string> }>;
+  countries?: Record<
+    string,
+    {
+      notes?: string;
+      stats?: Record<string, number>;
+      fields?: Record<string, string>;
+      overlord?: string;
+      states?: Record<string, CountryState>;
+      /** A label placed by hand. */
+      label?: LngLat;
+    }
+  >;
   /** Region id → [owner, scaling values]; the owner tells whether A+ moved the region since. */
   regions?: Record<number, [string, Record<string, number>]>;
-  cities?: Record<number, { pop?: number }>;
+  /** Region id → lore, occupier and state, with the owner they were saved for. */
+  regionInfo?: Record<number, { cid: string; notes?: string; occ?: string; state?: string }>;
+  cities?: Record<number, { pop?: number; notes?: string }>;
+  marks?: Record<string, Mark>;
+  overlays?: string[];
 }
 
 const OWNED = new Set([SIDECAR, 'country_simple.json', 'region_simple.json', 'city.json', 'water.json', 'map_info.json', 'alliance/alliances.json']);
@@ -174,6 +189,8 @@ export function importAmap(bytes: Uint8Array, fileName = 'World'): WorldBundle {
     cities[id] = { id, name: p.label, lng, lat, capital: p.t === 1, hidden: p.hide || undefined };
     const pop = side?.cities?.[id]?.pop;
     if (pop) cities[id].pop = pop;
+    const notes = side?.cities?.[id]?.notes;
+    if (notes) cities[id].notes = notes;
     if (p.t === 1 && p.c && countries[p.c] && countries[p.c].capital == null) countries[p.c].capital = id;
   });
 
@@ -219,6 +236,8 @@ export function importAmap(bytes: Uint8Array, fileName = 'World'): WorldBundle {
     cities,
     water,
     alliances,
+    marks: side?.marks,
+    overlays: side?.overlays,
     view: side?.view ?? (Number.isFinite(lastX) && Number.isFinite(lastY) ? { center: [lastX, lastY], zoom: Math.max(1.5, Number(settingsFile.last_zoom) || 2) } : undefined),
   };
   return { doc, geoms, flags, passthrough };
@@ -369,12 +388,18 @@ export async function exportAmap(bundle: WorldBundle): Promise<Uint8Array> {
 function buildSidecar(doc: WorldDoc): Sidecar {
   const countries: NonNullable<Sidecar['countries']> = {};
   for (const c of Object.values(doc.countries)) {
-    if (c.notes || Object.keys(c.stats).length || Object.keys(c.fields).length) countries[c.cid] = { notes: c.notes, stats: c.stats, fields: c.fields };
+    const states = c.states && Object.keys(c.states).length ? c.states : undefined;
+    if (c.notes || Object.keys(c.stats).length || Object.keys(c.fields).length || c.overlord || states || c.labelFixed)
+      countries[c.cid] = { notes: c.notes, stats: c.stats, fields: c.fields, overlord: c.overlord, states, label: c.labelFixed ? c.label : undefined };
   }
   const regions: NonNullable<Sidecar['regions']> = {};
-  for (const r of Object.values(doc.regions)) if (r.vals && Object.keys(r.vals).length) regions[r.id] = [r.cid, r.vals];
+  const regionInfo: NonNullable<Sidecar['regionInfo']> = {};
+  for (const r of Object.values(doc.regions)) {
+    if (r.vals && Object.keys(r.vals).length) regions[r.id] = [r.cid, r.vals];
+    if (r.notes || r.occ || r.state) regionInfo[r.id] = { cid: r.cid, notes: r.notes, occ: r.occ, state: r.state };
+  }
   const cities: NonNullable<Sidecar['cities']> = {};
-  for (const c of Object.values(doc.cities)) if (c.pop) cities[c.id] = { pop: c.pop };
+  for (const c of Object.values(doc.cities)) if (c.pop || c.notes) cities[c.id] = { pop: c.pop, notes: c.notes };
   return {
     format: 'earth-vision',
     version: 1,
@@ -385,7 +410,10 @@ function buildSidecar(doc: WorldDoc): Sidecar {
     view: doc.view,
     countries,
     regions,
+    regionInfo,
     cities,
+    marks: doc.marks && Object.keys(doc.marks).length ? doc.marks : undefined,
+    overlays: doc.overlays?.length ? doc.overlays : undefined,
   };
 }
 
@@ -406,6 +434,21 @@ function applySidecar(
     if (extra.notes) c.notes = extra.notes;
     c.stats = { ...extra.stats, ...c.stats };
     c.fields = { ...extra.fields, ...c.fields };
+    if (extra.overlord && countries[extra.overlord]) c.overlord = extra.overlord;
+    if (extra.states) c.states = extra.states;
+    if (extra.label) {
+      c.label = extra.label;
+      c.labelFixed = true;
+    }
+  }
+  for (const [k, info] of Object.entries(side.regionInfo ?? {})) {
+    const r = regions[Number(k)];
+    if (!r) continue;
+    if (info.notes) r.notes = info.notes;
+    // Occupation and state only hold while the region has the owner they were saved with.
+    if (info.cid !== r.cid) continue;
+    if (info.occ && countries[info.occ] && info.occ !== r.cid) r.occ = info.occ;
+    if (info.state && countries[r.cid]?.states?.[info.state]) r.state = info.state;
   }
   const sums: Record<string, Record<string, number>> = {};
   for (const r of Object.values(regions)) {
