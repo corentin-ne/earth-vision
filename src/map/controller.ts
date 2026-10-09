@@ -13,6 +13,8 @@ import {
   onWorldChange,
   countryAggregates,
   transferRegions,
+  regionsInBox,
+  regionAt,
   endGroup,
   select,
   splitAlong,
@@ -102,8 +104,39 @@ export class MapController {
     // Never pad away more than most of the map (a full-height sheet still leaves a strip).
     const h = this.map.getContainer().clientHeight;
     const w = this.map.getContainer().clientWidth;
-    this.map.setPadding({ top: mobile ? 56 : 0, left: 0, bottom: Math.min(bottom, h * 0.6), right: Math.min(right, w * 0.6) });
+    const pad = { top: mobile ? 56 : 0, left: 0, bottom: Math.min(bottom, h * 0.6), right: Math.min(right, w * 0.6) };
+    const cur = this.map.getPadding();
+    if (cur.top === pad.top && cur.left === pad.left && cur.bottom === pad.bottom && cur.right === pad.right) return;
+    if (!this.loaded || this.map.isMoving()) {
+      this.map.setPadding(pad);
+      return;
+    }
+    // A panel opening or folding changes the padding, which would slide the map under the
+    // finger: shift the centre back so what is on screen stays where it is.
+    const before = this.map.project(this.map.getCenter());
+    this.map.setPadding(pad);
+    const after = this.map.project(this.map.getCenter());
+    this.map.setCenter(this.map.unproject([2 * after.x - before.x, 2 * after.y - before.y]));
   };
+
+  /** Whether any of the points is in the part of the map not covered by panels (or anywhere on screen with `whole`). */
+  inView(points: LngLat[], whole = false): boolean {
+    const c = this.map.getContainer();
+    const pad: { top?: number; left?: number; right?: number; bottom?: number } = whole ? {} : this.map.getPadding();
+    const globe = get().globe;
+    const centre = this.map.getCenter();
+    return points.some((pt) => {
+      if (globe) {
+        // Not on the far side of the globe.
+        const r = Math.PI / 180;
+        const cos = Math.sin(centre.lat * r) * Math.sin(pt[1] * r) + Math.cos(centre.lat * r) * Math.cos(pt[1] * r) * Math.cos((pt[0] - centre.lng) * r);
+        if (cos < 0.2) return false;
+      }
+      const q = this.map.project(pt);
+      const { top = 0, left = 0, right = 0, bottom = 0 } = pad;
+      return q.x >= left && q.x <= c.clientWidth - right && q.y >= top && q.y <= c.clientHeight - bottom;
+    });
+  }
 
   private async onLoad() {
     // Phones: the map credits start folded behind their "i" button.
@@ -719,7 +752,11 @@ export class MapController {
     m.on('touchend', () => this.onUp());
     m.on('touchmove', (e) => {
       if (this.lasso && e.points.length === 1) this.extendLasso(e as unknown as MapMouseEvent);
-      else if (this.stroke && e.points.length === 1) this.paintTo(e.point.x, e.point.y);
+      else if (this.stroke && e.points.length === 1) {
+        this.paintTo(e.point.x, e.point.y);
+        // Phones have no hover: show the brush under the finger, red when a river or crest stops it.
+        this.onBrush?.({ x: e.point.x, y: e.point.y, r: get().brushSize, blocked: !!this.stroke?.blockedAt });
+      }
     });
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
@@ -939,6 +976,16 @@ export class MapController {
             const s = this.map.unproject([x + Math.cos(a) * r * k, y + Math.sin(a) * r * k]);
             samples.push([s.lng, s.lat]);
           }
+      // What the map has drawn can lag a cut by a frame or two: look the regions up in the data too.
+      if (r > 0) {
+        const xs = samples.map((q) => q[0]);
+        const ys = samples.map((q) => q[1]);
+        for (const id of regionsInBox([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)])) if (doc.regions[id] && doc.regions[id].cid !== brushCid) ids.add(id);
+      } else {
+        const under = regionAt(p);
+        if (under && under.cid !== brushCid) ids.add(under.id);
+      }
+      for (const id of [...ids]) if (!get().doc!.regions[id]) ids.delete(id);
       // Regions a river or crest runs through are cut along it first, then only this side is taken.
       const pieces = cutAlongNature([...ids], { group: this.stroke.group }).filter((id) => get().doc!.regions[id]?.cid !== brushCid);
       // The outer ring of samples outlines the dab, for pieces too thin to hold a sample.

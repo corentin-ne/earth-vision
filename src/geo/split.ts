@@ -344,7 +344,8 @@ export function cutGeom(g: RegionGeom, lines: LngLat[][], minShare = 0.015): Reg
     let cuts = 0;
     while (queue.length) {
       const q = queue.pop()!;
-      const two = cuts < 24 ? cutOnce(q, lines, minArea) : null;
+      // A winding river can cross a region many times: allow enough cuts to follow it all.
+      const two = cuts < 2000 ? cutOnce(q, lines, minArea) : null;
       if (two) {
         cuts++;
         queue.push(...two);

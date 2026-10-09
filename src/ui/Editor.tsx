@@ -956,13 +956,19 @@ export function useDockInset(id: string, ref: RefObject<HTMLElement | null>, act
   }, [id, ref, active, mobile]);
 }
 
-/** Frames the current selection in the visible part of the map. */
+/**
+ * Keeps the selection in the visible part of the map when its details open. Picked on the map:
+ * the spot stays in view at the same zoom (no zooming out from where you were working).
+ * Picked from a list or a search: the country's mainland or the regions are framed.
+ */
 function focusSelection() {
   const { selection: sel, doc } = useWorld.getState();
   if (!doc || !mapCtl) return;
   if (sel.city != null && doc.cities[sel.city]) {
     const c = doc.cities[sel.city];
-    mapCtl.centerOn([c.lng, c.lat]);
+    if (!mapCtl.inView([[c.lng, c.lat]])) mapCtl.centerOn([c.lng, c.lat]);
+  } else if (sel.anchor) {
+    if (!mapCtl.inView([sel.anchor])) mapCtl.centerOn(sel.anchor);
   } else if (sel.cid && doc.countries[sel.cid]) mapCtl.fitBounds(countryBounds(sel.cid), 6, { keepDetails: true });
   else if (sel.regions.length) mapCtl.fitBounds(boundsOf(sel.regions), 7, { keepDetails: true });
 }

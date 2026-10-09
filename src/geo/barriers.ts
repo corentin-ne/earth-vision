@@ -87,14 +87,33 @@ export class Barriers {
       }
   }
 
-  /** Whether going straight from a to b crosses an active river or crest. */
-  crosses(a: LngLat, b: LngLat, o: NaturalOpts): boolean {
+  /**
+   * Whether a and b lie on different sides of some active line: the straight path between them
+   * crosses one an odd number of times. Unlike `crosses`, a path that cuts across a bend of a
+   * river and back (twice) still counts as the same side.
+   */
+  separates(a: LngLat, b: LngLat, o: NaturalOpts): boolean {
     if (!naturalOn(o) || (a[0] === b[0] && a[1] === b[1])) return false;
-    let hit = false;
+    const odd = new Set<number>();
     this.segments(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]), o, (s) => {
       const l = this.lines[this.segLine[s]].pts;
       const i = this.segIdx[s];
-      if (cross(a, b, l[i], l[i + 1])) return (hit = true);
+      if (!crossOnce(a, b, l[i], l[i + 1])) return;
+      const li = this.segLine[s];
+      if (odd.has(li)) odd.delete(li);
+      else odd.add(li);
+    });
+    return odd.size > 0;
+  }
+
+  /** Whether `p` lies on an active line (within `tol` degrees): e.g. on a border a cut ran along. */
+  onLine(p: LngLat, o: NaturalOpts, tol = 1e-6): boolean {
+    if (!naturalOn(o)) return false;
+    let hit = false;
+    this.segments(p[0] - tol, p[1] - tol, p[0] + tol, p[1] + tol, o, (s) => {
+      const l = this.lines[this.segLine[s]].pts;
+      const i = this.segIdx[s];
+      if (segDist(p, l[i], l[i + 1]) <= tol) return (hit = true);
     });
     return hit;
   }
@@ -142,14 +161,25 @@ export class Barriers {
   }
 }
 
-/** Proper crossing of segments p1-p2 and p3-p4 (touching ends count). */
-function cross(p1: LngLat, p2: LngLat, p3: LngLat, p4: LngLat): boolean {
-  const d = (a: LngLat, b: LngLat, c: LngLat) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-  const d1 = d(p3, p4, p1);
-  const d2 = d(p3, p4, p2);
-  const d3 = d(p1, p2, p3);
-  const d4 = d(p1, p2, p4);
-  return ((d1 >= 0 && d2 <= 0) || (d1 <= 0 && d2 >= 0)) && ((d3 >= 0 && d4 <= 0) || (d3 <= 0 && d4 >= 0)) && !(d1 === 0 && d2 === 0);
+/**
+ * Whether segment a-b crosses the line segment p-q, counting a crossing through one of the
+ * line's vertices once (it belongs to the segment starting there).
+ */
+function crossOnce(a: LngLat, b: LngLat, p: LngLat, q: LngLat): boolean {
+  const den = (b[0] - a[0]) * (q[1] - p[1]) - (b[1] - a[1]) * (q[0] - p[0]);
+  if (den === 0) return false;
+  const t = ((p[0] - a[0]) * (q[1] - p[1]) - (p[1] - a[1]) * (q[0] - p[0])) / den;
+  const u = ((p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0])) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u < 1;
+}
+
+/** Distance from p to the segment a-b, in degrees. */
+function segDist(p: LngLat, a: LngLat, b: LngLat): number {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len = dx * dx + dy * dy;
+  const t = len ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len)) : 0;
+  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
 }
 
 let loaded: Barriers | null = null;

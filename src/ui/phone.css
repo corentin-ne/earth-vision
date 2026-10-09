@@ -238,6 +238,33 @@
   .snap-card {
     bottom: var(--above-bar);
     width: calc(100vw - 16px);
+    padding: 10px 12px 12px;
+    gap: 7px;
+  }
+  /* Compact on a phone: one swipeable row of neighbours, no explanation (the buttons say it). */
+  .snap-card .hint {
+    display: none;
+  }
+  .snap-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-height: none;
+    margin: 0 -12px;
+    padding: 2px 12px 4px;
+    scrollbar-width: none;
+  }
+  .snap-chip {
+    flex: none;
+  }
+  .snap-label {
+    display: none;
+  }
+  .snap-lines .segmented {
+    flex-basis: 0;
+  }
+  .snap-lines .segmented button {
+    padding: 5px 4px;
   }
   /* Map credits: a small "i" under the top bar instead of a strip along the bottom. */
   .editor .maplibregl-ctrl-bottom-left {

@@ -543,6 +543,13 @@ export function regionsOf(cid: string): Region[] {
   return Object.values(doc.regions).filter((r) => r.cid === cid);
 }
 
+/** Regions whose bounding box overlaps `box` (from the world data, not from what the map has drawn). */
+export function regionsInBox(box: [number, number, number, number]): number[] {
+  const out: number[] = [];
+  for (const [id, b] of bboxes) if (b[0] <= box[2] && b[2] >= box[0] && b[1] <= box[3] && b[3] >= box[1]) out.push(id);
+  return out;
+}
+
 export function regionAt(pt: LngLat): Region | null {
   const { doc, geoms } = get();
   if (!doc) return null;
@@ -553,8 +560,37 @@ export function regionAt(pt: LngLat): Region | null {
   return null;
 }
 
+/**
+ * Bounds of a country's main body: its largest stretch of connected land, so overseas
+ * territories (French Guiana, Réunion…) don't pull the view out to the whole globe.
+ */
 export function countryBounds(cid: string): [number, number, number, number] | null {
-  return boundsOf(regionsOf(cid).map((r) => r.id));
+  const own = regionsOf(cid);
+  if (!own.length || !engine.ready) return boundsOf(own.map((r) => r.id));
+  const doc = get().doc!;
+  const mine = new Set(own.map((r) => r.id));
+  const seen = new Set<number>();
+  let best: number[] = [];
+  let bestArea = -1;
+  for (const { id } of own) {
+    if (seen.has(id)) continue;
+    const part = [id];
+    seen.add(id);
+    let area = 0;
+    for (let i = 0; i < part.length; i++) {
+      area += doc.regions[part[i]].area;
+      for (const m of engine.neighbors(part[i]))
+        if (mine.has(m) && !seen.has(m)) {
+          seen.add(m);
+          part.push(m);
+        }
+    }
+    if (area > bestArea) {
+      bestArea = area;
+      best = part;
+    }
+  }
+  return boundsOf(best);
 }
 
 export function boundsOf(ids: number[]): [number, number, number, number] | null {

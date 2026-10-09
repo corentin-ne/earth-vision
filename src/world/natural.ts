@@ -9,10 +9,11 @@ import { useWorld, engine, cutRegions, transferRegions, regionAt, endGroup, toas
 const get = useWorld.getState;
 
 /**
- * Smallest piece a cut keeps, as a share of the region: small enough that the slivers between
- * a river and a region border that almost follows it are cut off too, so a claim ends on the river.
+ * Smallest piece a cut keeps, as a share of the region (a few hundred metres across for a
+ * typical one): the slivers between a river and a region border that almost follows it are cut
+ * off too, so painting or snapping up to the river takes everything this side of it.
  */
-const MIN_PIECE = 0.002;
+const MIN_PIECE = 0.00002;
 
 /** Geometries already found to cross no active line, per barrier setting. */
 const clean = new WeakMap<RegionGeom, string>();
@@ -51,39 +52,36 @@ export function cutAlongNature(ids: number[], opts: { group?: string; o?: Natura
   return ids.flatMap((id) => cut[id] ?? [id]);
 }
 
-/** Whether going straight from a to b crosses an active river or crest. */
+/** Whether a and b lie on different sides of an active river or crest. */
 export function blocked(a: LngLat, b: LngLat): boolean {
   const n = activeNatural();
-  return !!n && n.b.crosses(a, b, n.o);
+  return !!n && n.b.separates(a, b, n.o);
 }
 
 /**
- * The regions a brush dab at `center` may take: those under one of the `samples` (points of the
- * dab) that can be reached from the centre without crossing a line, and whose label point can be
- * reached from there too — so a region whose bulk lies across the river stays out even when the
- * river wanders a little inside its border. `dab` is the dab's outline: pieces too thin to hold a
- * sample (slivers along a river) are taken when one of their corners lies inside it, this side.
+ * The regions a brush dab at `center` may take, once they have been cut along the lines (so each
+ * lies wholly on one side of every river and crest): those holding one of the `samples` (points
+ * of the dab) that can be reached from the centre without crossing a line. `dab` is the dab's
+ * outline: pieces too thin to hold a sample (slivers along a river) are taken when one of their
+ * corners lies inside it and can be reached from the centre.
  */
 export function reachable(center: LngLat, samples: LngLat[], ids: number[], dab?: LngLat[]): number[] {
   const n = activeNatural();
   const { doc, geoms } = get();
   if (!doc) return [];
   if (!n) return ids;
-  const pts = [center, ...samples.filter((q) => !n.b.crosses(center, q, n.o))];
+  const pts = [center, ...samples.filter((q) => !n.b.separates(center, q, n.o))];
   const dabBox = dab && bboxOf(dab);
   return ids.filter((id) => {
-    const r = doc.regions[id];
     const g = geoms[id];
-    if (!r || !g) return false;
-    const rep: LngLat = [r.cx, r.cy];
-    if (pts.some((q) => pointInGeom(q, g) && !n.b.crosses(q, rep, n.o))) return true;
+    if (!doc.regions[id] || !g) return false;
+    if (pts.some((q) => pointInGeom(q, g))) return true;
     if (!dab || !dabBox) return false;
     const box = bbox(g);
     if (box[0] > dabBox[2] || box[2] < dabBox[0] || box[1] > dabBox[3] || box[3] < dabBox[1]) return false;
     const rings = g.type === 'Polygon' ? g.coordinates : g.coordinates.flat();
-    for (const ring of rings)
-      for (const v of ring as LngLat[])
-        if (inRing(v, dab) && !n.b.crosses(center, v, n.o) && !n.b.crosses(v, rep, n.o)) return true;
+    // A corner lying on the river itself says nothing about the side: it must be clear of every line.
+    for (const ring of rings) for (const v of ring as LngLat[]) if (inRing(v, dab) && !n.b.onLine(v, n.o) && !n.b.separates(center, v, n.o)) return true;
     return false;
   });
 }
@@ -124,10 +122,9 @@ export function claimUpToNature(at: LngLat, cid: string, opts: { group?: string;
     const own = Object.values(get().doc!.regions).filter((r) => r.cid === src);
     return transferRegions(own.map((r) => r.id), cid, opts);
   }
-  const rep = (id: number): LngLat => {
-    const r = get().doc!.regions[id];
-    return [r.cx, r.cy];
-  };
+  // Two pieces touch on this side of the lines when part of the border they share does not run
+  // along one: the cuts put every piece's edge exactly on the river or crest that made it.
+  const passes = (from: number, to: number) => engine.sharedPoints(from, to).some((p) => !n.b.onLine(p, n.o));
   // Cut the clicked region, keep the piece under the click.
   cutAlongNature([start.id], { group: opts.group });
   const first = regionAt(at);
@@ -138,12 +135,9 @@ export function claimUpToNature(at: LngLat, cid: string, opts: { group?: string;
     const from = queue.shift()!;
     for (const m of engine.neighbors(from)) {
       if (taken.has(m) || get().doc!.regions[m]?.cid !== src) continue;
-      // Enter the neighbour through a stretch of shared border this side of every line…
-      const entry = engine.sharedPoints(from, m).find((p) => !n.b.crosses(rep(from), p, n.o));
-      if (!entry) continue;
-      // …then cut it along its own lines and take the pieces reachable from there.
+      // Cut the neighbour along its own lines, then take the pieces met without crossing one.
       for (const piece of cutAlongNature([m], { group: opts.group })) {
-        if (taken.has(piece) || n.b.crosses(entry, rep(piece), n.o)) continue;
+        if (taken.has(piece) || !passes(from, piece)) continue;
         taken.add(piece);
         queue.push(piece);
       }
@@ -193,11 +187,13 @@ export function borderRegions(a: string, b: string): number[] {
 const SNAP_REACH = 0.3;
 
 /**
- * Moves the border between countries `a` and `b` onto the rivers and crests running along it:
- * only lines within SNAP_REACH of today's border count (a tributary further inland is not a
- * border). The regions along the border (inside `lasso` when given) are cut along those lines,
- * then every piece the lines cut off from the rest of its own country goes to the neighbour on
- * its side. Land still joined to its country never changes hands. Returns how many pieces moved.
+ * Moves the border between countries `a` and `b` onto the rivers and crests running along it.
+ * The whole border: only lines within SNAP_REACH of today's border count (a tributary further
+ * inland is not a border) and only the regions along it may change. With a `lasso` the user
+ * drew: every line counts and any land of the two countries inside the loop may change, however
+ * far from today's border. The regions are cut along those lines, then every piece the lines cut off from
+ * the rest of its own country goes to the neighbour on its side. Land still joined to its
+ * country never changes hands. Returns how many pieces moved.
  */
 export function snapBorder(a: string, b: string, lasso?: LngLat[]): number {
   const bar = barriers();
@@ -233,6 +229,9 @@ export function snapBorder(a: string, b: string, lasso?: LngLat[]): number {
     }
   if (!near.size) return 0;
   const isNear = (p: LngLat) => {
+    // In a loop, rivers are followed whole (clipped to the loop they would stop mid-region and cut
+    // nothing); what may change hands is limited to the loop below.
+    if (lasso) return true;
     const cx = Math.floor(p[0] / SNAP_REACH);
     const cy = Math.floor(p[1] / SNAP_REACH);
     for (let dx = -1; dx <= 1; dx++)
@@ -264,7 +263,7 @@ export function snapBorder(a: string, b: string, lasso?: LngLat[]): number {
   for (const r of Object.values(doc0.regions)) {
     if (!pair.has(r.cid)) continue;
     const other = r.cid === a ? b : a;
-    if (engine.neighbors(r.id).some((m) => owner(m) === other) && inLasso(r.id)) zone.add(r.id);
+    if (lasso ? inLasso(r.id) : engine.neighbors(r.id).some((m) => owner(m) === other)) zone.add(r.id);
   }
   if (!zone.size) return 0;
   for (const id of [...zone]) for (const m of engine.neighbors(id)) if (pair.has(owner(m) ?? '') && inLasso(m)) zone.add(m);
@@ -325,7 +324,7 @@ export function snapBorder(a: string, b: string, lasso?: LngLat[]): number {
       queue.push([m, cid]);
     }
   }
-  const moves = new Map([...reached].filter(([id, cid]) => doc.regions[id]?.cid !== cid));
+  const moves = new Map([...reached].filter(([id, cid]) => doc.regions[id]?.cid !== cid && inLasso(id)));
   const name = (c: string) => doc.countries[c]?.name ?? c;
   const toA = [...moves].filter(([, c]) => c === a).map(([id]) => id);
   const toB = [...moves].filter(([, c]) => c === b).map(([id]) => id);

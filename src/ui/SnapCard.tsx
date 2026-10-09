@@ -2,24 +2,47 @@
 // shared border or draw a loop around the stretch to change. The rivers and crests show on the
 // map meanwhile (see MapController.syncBarriers).
 import { useEffect, useMemo, useRef } from 'react';
-import { useWorld, countryBounds, boundsOf, setTool, select } from '../world/store';
+import { useWorld, countryBounds, boundsOf, setTool, select, engine } from '../world/store';
 import { borderRegions, neighbourCountries, runSnap, snapLines } from '../world/natural';
 import { mapCtl } from '../map/controller';
 import { Flag } from './common';
 import { Icon } from './icons';
 import { useDockInset, useMobile } from './Editor';
 
-/** Opens the snap card for `cid`, with its longest neighbour preselected. */
-export function startSnap(cid: string) {
-  setTool('select');
-  select({});
-  useWorld.setState({ snap: { cid, other: neighbourCountries(cid)[0] ?? null, drawing: false }, detailsOpen: false, worldOpen: false, layersOpen: false });
+/** The points of the border between `a` and `b` (every third one: enough to tell if it shows). */
+function borderPoints(a: string, b: string): [number, number][] {
+  const doc = useWorld.getState().doc;
+  if (!doc) return [];
+  const owner = (r: number) => doc.regions[r]?.cid;
+  return engine
+    .arcsBetween((r) => owner(r) === a, (r) => owner(r) === b)
+    .flat()
+    .filter((_, i) => i % 3 === 0);
 }
 
-/** Shows the shared border (or the whole country while no neighbour is picked). */
+/**
+ * Opens the snap card for `cid`. The neighbour preselected is the one whose border is on screen
+ * (where you are working), else the one with the longest border.
+ */
+export function startSnap(cid: string) {
+  const ns = neighbourCountries(cid);
+  const here = ns.find((n) => mapCtl?.inView(borderPoints(cid, n), true));
+  setTool('select');
+  select({});
+  useWorld.setState({ snap: { cid, other: here ?? ns[0] ?? null, drawing: false }, detailsOpen: false, worldOpen: false, layersOpen: false });
+}
+
+/**
+ * Brings the shared border into view, only when none of it is on screen: when you are already
+ * working on it, the map stays where it is.
+ */
 function frame(a: string, b: string | null) {
-  const box = b ? boundsOf(borderRegions(a, b)) : countryBounds(a);
-  mapCtl?.fitBounds(box, 7, { keepDetails: true });
+  if (!mapCtl) return;
+  const doc = useWorld.getState().doc;
+  if (!doc) return;
+  if (!b) return void (mapCtl.inView([doc.countries[a]?.label ?? [0, 0]]) || mapCtl.fitBounds(countryBounds(a), 6, { keepDetails: true }));
+  if (mapCtl.inView(borderPoints(a, b))) return;
+  mapCtl.fitBounds(boundsOf(borderRegions(a, b)), 7, { keepDetails: true });
 }
 
 export function SnapCard() {
@@ -38,6 +61,11 @@ export function SnapCard() {
     const id = requestAnimationFrame(() => requestAnimationFrame(() => frame(cid, other)));
     return () => cancelAnimationFrame(id);
   }, [cid, other]);
+  // Phones show the neighbours in one swipeable row: keep the chosen one in sight.
+  const drawing = !!snap?.drawing;
+  useEffect(() => {
+    ref.current?.querySelector('.snap-chip.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [other, drawing]);
   if (!snap || !doc || !doc.countries[snap.cid]) return null;
   const a = doc.countries[snap.cid];
   const b = snap.other ? doc.countries[snap.other] : undefined;
