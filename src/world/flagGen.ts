@@ -45,7 +45,7 @@ export const SHAPES: { id: FlagShape; label: string }[] = [
   { id: 'square', label: 'Square' },
   { id: 'swallowtail', label: 'Swallowtail' },
   { id: 'pennant', label: 'Pennant' },
-  { id: 'flames', label: 'Flames' },
+  { id: 'flames', label: 'Flame border' },
 ];
 
 export const EMBLEMS: { id: Emblem; label: string }[] = [
@@ -59,8 +59,10 @@ export const EMBLEMS: { id: Emblem; label: string }[] = [
 type Rand = () => number;
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
-/** How far the flames reach out from the field of a 'flames' flag. */
-const FLAME = 32;
+/** A 'flames' flag's border: its solid band and the height of the curling crests on it. */
+const BAND = 13;
+const CREST = 19;
+const EDGE = BAND + CREST;
 
 /** The size of the whole drawing, flames included (scale the context for other sizes). */
 export function flagSize(spec: FlagSpec): [number, number] {
@@ -70,7 +72,7 @@ export function flagSize(spec: FlagSpec): [number, number] {
     case 'square':
       return [200, 200];
     case 'flames':
-      return [300 + FLAME * 2, 200 + FLAME * 2];
+      return [300 + EDGE, 200 + EDGE * 2];
     default:
       return [300, 200];
   }
@@ -78,7 +80,7 @@ export function flagSize(spec: FlagSpec): [number, number] {
 
 /** Where the coloured field sits inside the drawing. */
 function fieldBox(spec: FlagSpec): [number, number, number, number] {
-  if (spec.shape === 'flames') return [FLAME, FLAME, 300, 200];
+  if (spec.shape === 'flames') return [0, EDGE, 300, 200];
   const [w, h] = flagSize(spec);
   return [0, 0, w, h];
 }
@@ -86,7 +88,7 @@ function fieldBox(spec: FlagSpec): [number, number, number, number] {
 /** Draws `spec` on a context whose drawing area is flagSize(spec). Outside the shape stays transparent. */
 export function drawFlag(ctx: Ctx, spec: FlagSpec) {
   const [x, y, w, h] = fieldBox(spec);
-  if (spec.shape === 'flames') drawFlames(ctx, x, y, w, h, spec.trim ?? '#1E6BFF');
+  if (spec.shape === 'flames') drawFlameBorder(ctx, w, h, spec.trim ?? '#3399CC');
   ctx.save();
   ctx.translate(x, y);
   ctx.beginPath();
@@ -110,15 +112,6 @@ function shapePath(ctx: Ctx, shape: FlagShape | undefined, w: number, h: number)
       ctx.lineTo(w, h / 2);
       ctx.lineTo(0, h);
       break;
-    case 'flames': {
-      const r = 14;
-      ctx.moveTo(r, 0);
-      ctx.arcTo(w, 0, w, h, r);
-      ctx.arcTo(w, h, 0, h, r);
-      ctx.arcTo(0, h, 0, 0, r);
-      ctx.arcTo(0, 0, w, 0, r);
-      break;
-    }
     default:
       ctx.rect(0, 0, w, h);
   }
@@ -126,58 +119,57 @@ function shapePath(ctx: Ctx, shape: FlagShape | undefined, w: number, h: number)
 }
 
 /**
- * Tongues of fire all around the field: an outer ring in `col`, a lighter inner ring, each
- * tongue a little longer or shorter and leaning a little, so the edge reads as alive.
+ * One crest of the flame border, in edge space: u along the edge (0–1 of a period), v outward
+ * (0–1 of the crest height), as cubic segments starting from (0, 0.15). A thin tongue rises from
+ * the notch, then a big crest rolls over towards the fly and its tail curls back into a hook.
  */
-function drawFlames(ctx: Ctx, x: number, y: number, w: number, h: number, col: string) {
-  const light = mix(col, '#FFFFFF', 0.55);
-  // Walk the field's edge clockwise: [start x, start y, tangent, outward normal, length].
-  const sides: [number, number, [number, number], [number, number], number][] = [
-    [x, y, [1, 0], [0, -1], w],
-    [x + w, y, [0, 1], [1, 0], h],
-    [x + w, y + h, [-1, 0], [0, 1], w],
-    [x, y + h, [0, -1], [-1, 0], h],
-  ];
-  const tongues: { px: number; py: number; t: [number, number]; n: [number, number]; i: number; base: number }[] = [];
-  let i = 0;
-  for (const [sx, sy, t, n, len] of sides) {
-    const count = Math.max(3, Math.round(len / 26));
-    const step = len / count;
-    for (let k = 0; k < count; k++, i++) {
-      const d = (k + 0.5) * step;
-      tongues.push({ px: sx + t[0] * d, py: sy + t[1] * d, t, n, i, base: step });
+const CREST_PATH = [
+  [0.05, 0.3, 0.09, 0.6, 0.11, 0.78],
+  [0.125, 0.62, 0.15, 0.38, 0.2, 0.22],
+  [0.26, 0.6, 0.36, 1.0, 0.55, 1.0],
+  [0.7, 1.0, 0.82, 0.9, 0.86, 0.78],
+  [0.89, 0.7, 0.86, 0.6, 0.8, 0.62],
+  [0.76, 0.64, 0.75, 0.56, 0.8, 0.5],
+  [0.86, 0.42, 0.95, 0.2, 1.0, 0.15],
+];
+
+/** Crests along the edge from (x0, y0) to (x1, y1), rising along the outward normal (nx, ny). */
+function crests(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, nx: number, ny: number) {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  const n = Math.max(1, Math.round(len / 56));
+  const tx = (x1 - x0) / len;
+  const ty = (y1 - y0) / len;
+  const step = len / n;
+  const at = (k: number, u: number, v: number) => [x0 + tx * (k + u) * step + nx * v * CREST, y0 + ty * (k + u) * step + ny * v * CREST];
+  for (let k = 0; k < n; k++)
+    for (const [a, b, c, d, e, f] of CREST_PATH) {
+      const [p1x, p1y] = at(k, a, b);
+      const [p2x, p2y] = at(k, c, d);
+      const [p3x, p3y] = at(k, e, f);
+      ctx.bezierCurveTo(p1x, p1y, p2x, p2y, p3x, p3y);
     }
-    // A tongue on each corner, pointing out diagonally.
-    const cx = sx + t[0] * len;
-    const cy = sy + t[1] * len;
-    const dn: [number, number] = [(n[0] + t[0]) * Math.SQRT1_2, (n[1] + t[1]) * Math.SQRT1_2];
-    tongues.push({ px: cx, py: cy, t: [-dn[1], dn[0]], n: dn, i: i++, base: step * 0.9 });
-  }
+}
+
+/**
+ * A band along the top, fly and bottom of a w×h field (the hoist stays straight), its outer
+ * edge a row of curling crests, like the flame borders of old imperial banners.
+ */
+function drawFlameBorder(ctx: Ctx, w: number, h: number, col: string) {
+  const top = CREST;
+  const fly = w + BAND;
+  const bottom = h + EDGE + BAND;
+  const lift = 0.15 * CREST;
   ctx.fillStyle = col;
   ctx.beginPath();
-  ctx.rect(x - 6, y - 6, w + 12, h + 12);
+  ctx.moveTo(0, top - lift);
+  crests(ctx, 0, top, fly, top, 0, -1);
+  ctx.lineTo(fly + lift, top);
+  crests(ctx, fly, top, fly, bottom, 1, 0);
+  ctx.lineTo(fly, bottom + lift);
+  crests(ctx, fly, bottom, 0, bottom, 0, 1);
+  ctx.lineTo(0, top);
+  ctx.closePath();
   ctx.fill();
-  for (const [fill, k] of [
-    [col, 1],
-    [light, 0.58],
-  ] as const) {
-    ctx.fillStyle = fill;
-    for (const g of tongues) {
-      const len = FLAME * k * (0.62 + 0.38 * Math.abs(Math.sin(g.i * 2.39)));
-      const lean = Math.sin(g.i * 1.71) * 0.32;
-      const bw = g.base * (k === 1 ? 0.62 : 0.42);
-      const [tx, ty] = g.t;
-      const [nx, ny] = g.n;
-      const tipX = g.px + nx * len + tx * len * lean;
-      const tipY = g.py + ny * len + ty * len * lean;
-      ctx.beginPath();
-      ctx.moveTo(g.px - tx * bw, g.py - ty * bw);
-      ctx.quadraticCurveTo(g.px - tx * bw * 0.1 + nx * len * 0.6, g.py - ty * bw * 0.1 + ny * len * 0.6, tipX, tipY);
-      ctx.quadraticCurveTo(g.px + tx * bw * 0.55 + nx * len * 0.35, g.py + ty * bw * 0.55 + ny * len * 0.35, g.px + tx * bw, g.py + ty * bw);
-      ctx.closePath();
-      ctx.fill();
-    }
-  }
 }
 
 /** The design itself, on a W×H field. */
@@ -328,14 +320,6 @@ const lum = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);
   return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
 };
-/** `a` blended towards `b` by `t` (0–1). */
-function mix(a: string, b: string, t: number): string {
-  const ca = parseInt(a.slice(1), 16);
-  const cb = parseInt(b.slice(1), 16);
-  const ch = [16, 8, 0].map((sh) => Math.round(((ca >> sh) & 255) * (1 - t) + ((cb >> sh) & 255) * t));
-  return '#' + ch.map((v) => v.toString(16).padStart(2, '0')).join('');
-}
-
 /** Black or white, whichever reads better on `hex`. */
 export const contrast = (hex: string) => (lum(hex) > 150 ? '#000000' : '#FFFFFF');
 

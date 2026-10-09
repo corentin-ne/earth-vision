@@ -49,7 +49,7 @@ export function FlagMaker() {
       return { ...s, colors };
     });
   const layout = LAYOUTS.find((l) => l.id === spec.layout)!;
-  const palette = [...new Set([deepen(country.color), ...FLAG_COLORS, '#1E6BFF', '#FF6A00'])];
+  const palette = [...new Set([deepen(country.color), ...FLAG_COLORS, '#3399CC', '#FF6A00'])];
 
   const save = async () => {
     setSaving(true);
@@ -111,7 +111,7 @@ export function FlagMaker() {
               {spec.shape === 'flames' && (
                 <div className="fm-row">
                   <span className="fm-label">Flames</span>
-                  <Swatches value={spec.trim ?? '#1E6BFF'} onPick={(c) => set({ trim: c })} />
+                  <Swatches value={spec.trim ?? '#3399CC'} onPick={(c) => set({ trim: c })} />
                 </div>
               )}
             </section>

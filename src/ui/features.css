@@ -439,3 +439,57 @@
   padding: 9px 10px 9px 16px;
   font-size: 13.5px;
 }
+
+/* ── Updates ─────────────────────────────────────────────────────────────── */
+.update-banner {
+  position: fixed;
+  left: 50%;
+  top: calc(max(10px, var(--sat)) + 70px);
+  transform: translateX(-50%);
+  z-index: 40;
+  width: min(460px, calc(100vw - 20px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px 9px 10px;
+  border-radius: 18px;
+  animation: pop 0.4s var(--spring);
+}
+.update-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  flex: none;
+  color: var(--accent-ink);
+  background: linear-gradient(180deg, var(--accent-hi) -40%, var(--accent) 50%, var(--accent-2) 140%);
+}
+.update-banner .grow,
+.update-row .grow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.update-banner small,
+.update-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin: 4px 0 10px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--glass-2);
+}
+.update-row.has-update {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(62, 207, 178, 0.25);
+}
+.home-inner > .update-row {
+  margin: 18px 0 0;
+}

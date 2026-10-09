@@ -6,6 +6,8 @@ import { loadBundle, saveBundle, saveThumb, lastWorld } from './io/db';
 import { readWorldFile } from './io/files';
 import { flushAutosave } from './world/persist';
 import { Home } from './ui/Home';
+import { UpdateBanner } from './ui/Updates';
+import { checkOnLaunch } from './io/updates';
 
 // The editor pulls in MapLibre (most of the app's code): load it only when a world opens.
 const Editor = lazy(() => import('./ui/Editor').then((m) => ({ default: m.Editor })));
@@ -18,6 +20,8 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const hasDoc = useWorld((s) => !!s.doc);
   useEffect(preloadEditor, []);
+  // Android: is there a newer release on GitHub? (quietly, at most every few hours)
+  useEffect(checkOnLaunch, []);
   // A .map opened from the file manager (Android): it waits until the app has booted.
   const [incoming, setIncoming] = useState<File | null>(null);
   useEffect(() => onOpenFile(setIncoming), []);
@@ -155,6 +159,7 @@ export default function App() {
         </Suspense>
         </Boundary>
       )}
+      <UpdateBanner />
       <Toast />
     </>
   );

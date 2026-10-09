@@ -12,6 +12,7 @@ import {
   runAdvanced,
 } from '../world/advanced';
 import { Icon, type IconName } from './icons';
+import { UpdateRow } from './Updates';
 import { fmtInt } from '../util';
 
 const SNAP: [string, number][] = [
@@ -51,6 +52,7 @@ export function AdvancedPanel() {
             <Icon name="x" />
           </button>
         </div>
+        <UpdateRow />
         <p className="hint">Each action is one step: Ctrl+Z (or the undo button) takes it back.</p>
 
         <Tool icon="people" title="Recalculate population" desc={popKey ? `Recomputes ${popKey.toLowerCase()} of every region for the current borders, then each country's total follows.` : 'This world has no population statistic.'}>

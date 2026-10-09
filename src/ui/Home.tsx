@@ -7,6 +7,7 @@ import { fantasyEarth } from '../world/generate';
 import { randomFlag } from '../world/flagGen';
 import { seeded } from '../world/names';
 import { iso2 } from '../world/flags';
+import { UpdateRow } from './Updates';
 import { Icon, type IconName } from './icons';
 import { isNative } from '../native';
 import { fmtAgo, fmtBytes, fmtCompact, fmtInt } from '../util';
@@ -257,6 +258,7 @@ export function Home({ onOpen, busy }: { onOpen: (b: WorldBundle, isNew: boolean
           </section>
         ) : null}
 
+        <UpdateRow />
         <footer className="home-foot">
           <span>
             <Icon name="check" size={13} /> Works offline · saved in this browser{usage ? ` · ${fmtBytes(usage.used)} used` : ''}
