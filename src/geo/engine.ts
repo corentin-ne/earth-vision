@@ -1,5 +1,6 @@
 import { topology } from 'topojson-server';
-import { merge } from 'topojson-client';
+import { feature, merge } from 'topojson-client';
+import { unionGeoms } from './repair';
 import type { GeometryCollection, MultiPolygon as TopoMultiPolygon, Polygon as TopoPolygon, Topology } from 'topojson-specification';
 import type { Feature, FeatureCollection, MultiLineString, MultiPolygon, Position } from 'geojson';
 import polylabel from 'polylabel';
@@ -132,7 +133,13 @@ export class GeoEngine {
       if (g) objs.push(g);
     }
     if (!objs.length) return null;
-    return merge(this.topo, objs) as MultiPolygon;
+    const out = merge(this.topo, objs) as MultiPolygon;
+    // Borders that don't match point for point (a T-junction, a spike) leave the arc merge with
+    // open outlines: then take a true union of the shapes instead.
+    const closed = out.coordinates.every((poly) => poly.every((r) => r.length >= 4 && r[0][0] === r[r.length - 1][0] && r[0][1] === r[r.length - 1][1]));
+    if (closed) return out;
+    const u = unionGeoms(objs.map((o) => (feature(this.topo!, o) as unknown as { geometry: RegionGeom }).geometry));
+    return u ? (u.type === 'Polygon' ? { type: 'MultiPolygon', coordinates: [u.coordinates] } : u) : out;
   }
 
   private adjacency: Map<number, number[]> | null = null;

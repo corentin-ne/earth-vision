@@ -3,6 +3,7 @@ import type { Alliance, City, Country, LngLat, Patch, Region, RegionGeom, WorldB
 import { GeoEngine, bbox, geomArea, labelPoint, pointInGeom } from '../geo/engine';
 import { insertCutVertices, splitGeom } from '../geo/split';
 import { healGeoms } from '../geo/heal';
+import { cleanGeom, geomIssues, repairGeom, unionGeoms } from '../geo/repair';
 import type { NaturalOpts } from '../geo/barriers';
 import { rescale } from './stats';
 import { uid } from '../util';
@@ -349,6 +350,17 @@ const pendingLabels = new Set<string>();
 export function commit(label: string, patch: Patch, opts: { group?: string; deferLabels?: boolean } = {}) {
   const doc = get().doc;
   if (!doc) return;
+  // Every new shape is checked: a broken one (open ring, spike, zero-area loop…) is rebuilt
+  // before it reaches the map, the merge or the saved file.
+  if (patch.geoms) {
+    const geoms: Record<number, RegionGeom | null> = {};
+    for (const [k, g] of Object.entries(patch.geoms)) {
+      const clean = g && cleanGeom(g);
+      if (g && clean !== g) console.warn(`Repaired region ${k}:`, geomIssues(g).join('; '));
+      geoms[Number(k)] = clean;
+    }
+    patch = { ...patch, geoms };
+  }
   // Geometry first so label anchors are computed on the new shapes.
   let full: Patch;
   let inv: Patch;
@@ -436,8 +448,49 @@ export function redo() {
 
 // ── Loading ──────────────────────────────────────────────────────────────────
 
+/**
+ * Rebuilds the broken shapes of a world (from older versions or other editors), filling lost
+ * stretches of border along the neighbours' outlines. Returns the repaired geometry and how many
+ * regions needed it.
+ */
+function repairWorld(geoms: Record<number, RegionGeom>): { geoms: Record<number, RegionGeom>; fixed: number } {
+  const broken = Object.keys(geoms).filter((id) => geomIssues(geoms[Number(id)]).length);
+  if (!broken.length) return { geoms, fixed: 0 };
+  const boxes = Object.entries(geoms).map(([id, g]) => [Number(id), bbox(g)] as const);
+  const out = { ...geoms };
+  let fixed = 0;
+  for (const k of broken) {
+    const id = Number(k);
+    const b = bbox(geoms[id]);
+    const pad = 0.05;
+    const neighbours = boxes
+      .filter(([o, x]) => o !== id && x[0] <= b[2] + pad && x[2] >= b[0] - pad && x[1] <= b[3] + pad && x[3] >= b[1] - pad)
+      .flatMap(([o]) => (geoms[o].type === 'Polygon' ? geoms[o].coordinates : geoms[o].coordinates.flat()));
+    const g = repairGeom(geoms[id], neighbours);
+    if (g) {
+      console.warn(`Repaired region ${id}:`, geomIssues(geoms[id]).join('; '));
+      out[id] = g;
+      fixed++;
+    }
+  }
+  if (!fixed) return { geoms, fixed };
+  // A rebuilt border matches its neighbours' only roughly: snap the repaired regions and those
+  // around them together (gently), so no hairline gap or overlap is left between them.
+  const near = new Set<number>();
+  for (const k of broken) {
+    const b = bbox(out[Number(k)]);
+    for (const [o, x] of boxes) if (x[0] <= b[2] && x[2] >= b[0] && x[1] <= b[3] && x[3] >= b[1]) near.add(o);
+  }
+  const local: Record<number, RegionGeom> = {};
+  for (const id of near) local[id] = out[id];
+  for (const [k, g] of Object.entries(healGeoms(local, 0.004))) out[Number(k)] = cleanGeom(g);
+  return { geoms: out, fixed };
+}
+
 export function loadWorld(b: WorldBundle) {
   for (const url of Object.values(get().flagUrls)) URL.revokeObjectURL(url);
+  const repaired = repairWorld(b.geoms);
+  b = { ...b, geoms: repaired.geoms };
   rebuildGeometry(b.geoms);
   // Worlds from templates come without label anchors: place them once.
   const missing = Object.values(b.doc.countries).filter((c) => !c.label);
@@ -475,6 +528,11 @@ export function loadWorld(b: WorldBundle) {
     snap: null,
   });
   pendingLabels.clear();
+  if (repaired.fixed) {
+    // Saved right away (a world is not re-saved just for being opened).
+    set({ geomVersion: get().geomVersion + 1 });
+    toast(`Repaired ${repaired.fixed} broken region shape${repaired.fixed > 1 ? 's' : ''}`, 'ok');
+  }
   emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, alliances: true, all: true });
 }
 
@@ -820,9 +878,12 @@ export function mergeRegions(ids: number[]): number | null {
   const rs = ids.map((id) => doc.regions[id]).filter(Boolean);
   if (rs.length < 2) return null;
   const merged = engine.merge(rs.map((r) => r.id));
-  if (!merged) return null;
   const keep = rs.reduce((a, b) => (b.area > a.area ? b : a));
-  const geom: RegionGeom = merged.coordinates.length === 1 ? { type: 'Polygon', coordinates: merged.coordinates[0] } : merged;
+  let geom: RegionGeom | null = merged && (merged.coordinates.length === 1 ? { type: 'Polygon', coordinates: merged.coordinates[0] } : merged);
+  // The arc merge needs borders that match point for point; when it cannot close an outline,
+  // fall back to a true union of the shapes.
+  if (!geom || geomIssues(geom).length) geom = unionGeoms(rs.map((r) => get().geoms[r.id]).filter(Boolean));
+  if (!geom) return null;
   const vals: Record<string, number> = {};
   for (const r of rs) for (const [k, v] of Object.entries(r.vals ?? {})) vals[k] = (vals[k] ?? 0) + v;
   const lp = labelPoint(geom) ?? [keep.cx, keep.cy];
