@@ -20,23 +20,18 @@ const write = (rel, text) => {
   fs.writeFileSync(p, text);
 };
 
-// ── Icon: an adaptive icon (vector globe on the app's dark blue), plus PNGs for old Androids.
+// ── Icon: an adaptive icon (the loading screen's glowing ball, public/icon-fg.png from
+// scripts/make-icons.py, on the app's dark blue), plus PNGs for old Androids.
 write(
   'values/ev_icon.xml',
-  `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <color name="ev_icon_bg">#161D2B</color>\n</resources>\n`,
-);
-write(
-  'drawable/ev_icon_fg.xml',
   `<?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-  <path android:fillColor="#3ECFB2" android:pathData="M54,22a32,32 0 1,0 0.01,0z" />
-  <path android:fillColor="#3A86C8" android:pathData="M54,25.5a28.5,28.5 0 1,0 0.01,0z" />
-  <path android:fillColor="#C1E599" android:pathData="M35,43.6L50.5,37.6L59.2,41.1L64.3,39.4L66.1,46.2L55.7,54L54.9,66.9L47.1,62.6L38.5,54Z" />
-  <path android:fillColor="#EBCA8A" android:pathData="M61.8,63.5L64.8,58.3L70.8,58.3L73.8,63.5L70.8,68.7L64.8,68.7Z" />
-</vector>
+<resources>
+  <color name="ev_icon_bg">#0D1322</color>
+</resources>
 `,
 );
+fs.rmSync(path.join(res, 'drawable/ev_icon_fg.xml'), { force: true });
+fs.copyFileSync(path.join(root, 'public/icon-fg.png'), path.join(res, 'drawable/ev_icon_fg.png'));
 const adaptive = `<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
   <background android:drawable="@color/ev_icon_bg" />
