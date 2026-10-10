@@ -277,7 +277,7 @@ export class MapController {
     vis('region-seam', L.seam);
     vis('height-tint', layers.heightTint && L.tint.strength > 0);
     if (L.tint.strength > 0) paint('height-tint', 'color-relief-color', tintRamp(L.tint));
-    const lit = layers.hillshade && L.hillshade;
+    const lit = layers.shading && L.hillshade;
     vis('hillshade', lit && L.shade.main > 0);
     vis('hillshade-deep', lit && L.shade.deep > 0);
     paint('hillshade', 'hillshade-exaggeration', L.shade.main);

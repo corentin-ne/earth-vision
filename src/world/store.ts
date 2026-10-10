@@ -22,7 +22,10 @@ export type MapStyleId = 'political' | 'atlas' | 'plain' | 'night';
 
 export interface Layers {
   relief: boolean;
+  /** Older name of `shading`, kept so saved preferences still load. */
   hillshade: boolean;
+  /** Light and shadow on the slopes (off by default: height is told by colour alone). */
+  shading: boolean;
   /** Country colours follow the height of the land: deeper plains, peaks fading to white. */
   heightTint: boolean;
   terrain: boolean;
@@ -151,6 +154,7 @@ export interface State {
 const DEFAULT_LAYERS: Layers = {
   relief: true,
   hillshade: true,
+  shading: false,
   heightTint: true,
   terrain: false,
   waves: true,

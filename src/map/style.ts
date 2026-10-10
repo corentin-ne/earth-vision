@@ -245,27 +245,44 @@ export function vivid(hex: string, k: number): string {
   return out;
 }
 
+/** Band edges of the height tint (metres): evenly spaced on a logarithmic scale, so the plains get as many steps as the high ranges. */
+const TINT_BANDS = [1, 5, 12, 25, 45, 75, 120, 190, 290, 430, 630, 900, 1250, 1700, 2250, 2900, 3700, 4700];
+
 /**
- * The height tint as a `color-relief` ramp: nothing at sea level (the elevation tiles are 0 m
- * over the sea), a slightly deeper shade on the plains, clear on the hills, then paler and
- * paler up to almost solid `peak` on the highest summits.
+ * The height tint as a `color-relief` ramp, in crisp bands like layers of cut paper: nothing at
+ * sea level (the elevation tiles are 0 m over the sea), a deeper shade on the lowest ground,
+ * the country's plain colour around `pivot`, then paler band by band up to almost solid `peak`.
+ * The scale is logarithmic: 20 m against 40 m shows as clearly as 2,000 m against 4,000 m.
+ * Each band is a flat colour ending in a hard edge (two stops a centimetre apart) and, just
+ * under that edge, the thin shadow of the layer above. All of it is computed per pixel from the
+ * elevation, so the edges stay sharp however far the map is zoomed.
  */
 export function tintRamp(t: Look['tint']): ExpressionSpecification {
   const k = t.strength;
-  const c = (rgb: string, a: number) => `rgba(${rgb},${Math.min(1, a * k).toFixed(3)})`;
-  const stops: [number, string][] = [
-    [0, c(t.low, 0)],
-    [2, c(t.low, 0.1)],
-    [120, c(t.low, 0.05)],
-    [350, c(t.low, 0)],
-    [351, c(t.peak, 0)],
-    [800, c(t.peak, 0.2)],
-    [1400, c(t.peak, 0.42)],
-    [2200, c(t.peak, 0.68)],
-    [3200, c(t.peak, 0.88)],
-    [5000, c(t.peak, 0.97)],
-  ];
-  return ['interpolate', ['linear'], ['elevation'], ...stops.flat()] as unknown as ExpressionSpecification;
+  const top = Math.log(TINT_BANDS[TINT_BANDS.length - 1]);
+  const pivot = 0.6;
+  const peak = t.peak.split(',').map(Number);
+  const dark = t.low.split(',').map(Number);
+  const rgba = (c: number[], a: number) => `rgba(${c.map((v) => Math.round(v)).join(',')},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+  /** Colour of a band, and of the shadow along its upper edge. */
+  const band = (metres: number): [string, string] => {
+    const x = Math.max(0, Math.log(Math.max(1, metres)) / top);
+    if (x < pivot) {
+      const a = ((pivot - x) / pivot) ** 1.1 * 0.42 * k;
+      return [rgba(dark, a), rgba(dark, a + 0.13 * k)];
+    }
+    const a = ((x - pivot) / (1 - pivot)) ** 1.15 * 0.95 * k;
+    // The shadow on a pale band: the same veil, greyed toward the dark colour.
+    return [rgba(peak, a), rgba(peak.map((v, i) => v + (dark[i] - v) * 0.5), Math.max(a, 0.16 * k))];
+  };
+  const stops: (number | string)[] = [0, rgba(dark, 0)];
+  TINT_BANDS.forEach((from, i) => {
+    const to = TINT_BANDS[i + 1] ?? 9000;
+    // The band's colour is that of its (geometric) middle.
+    const [c, shadow] = band(Math.sqrt(from * to));
+    stops.push(from, c, from + (to - from) * 0.78, c, to - 0.01, shadow);
+  });
+  return ['interpolate', ['linear'], ['elevation'], ...stops] as unknown as ExpressionSpecification;
 }
 
 /** A `color-relief` ramp from depth stops (any order). */
