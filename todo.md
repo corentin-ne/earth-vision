@@ -45,6 +45,9 @@
 - [x] Data layers from free sources (reefs, glaciers, peaks, plates, time zones, quakes, NASA events…)
 - [x] Relief tiles at zoom 5 (1:10m source)
 
+## Done (2.15)
+- [x] Elevation to zoom 6 (lossless WebP), two-light hill shading, height tint with white peaks
+
 ## Next
 - [ ] Timeline: snapshots of a world over the years, with an animated playback / video export
 - [ ] Wars & events: front lines and battles tied to dates on the timeline

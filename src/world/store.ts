@@ -23,6 +23,8 @@ export type MapStyleId = 'political' | 'atlas' | 'plain' | 'night';
 export interface Layers {
   relief: boolean;
   hillshade: boolean;
+  /** Country colours follow the height of the land: deeper plains, peaks fading to white. */
+  heightTint: boolean;
   terrain: boolean;
   /** Animated surf along the coasts. */
   waves: boolean;
@@ -149,6 +151,7 @@ export interface State {
 const DEFAULT_LAYERS: Layers = {
   relief: true,
   hillshade: true,
+  heightTint: true,
   terrain: false,
   waves: true,
   regionBorders: true,

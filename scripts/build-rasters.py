@@ -5,8 +5,8 @@
 - relief: Natural Earth I shaded relief (equirectangular GeoTIFF), ocean masked
   out with the map's own regions, reprojected to Web Mercator 512px WebP tiles.
 - relief-hi: zoom 5 from the 1:10m edition, for close-up work (not run by default).
-- dem: AWS terrarium elevation tiles with the sea floor flattened to 0 m so
-  hillshade and 3D terrain only show relief on land.
+- dem: AWS terrarium elevation tiles (zoom 0-6) with the sea floor flattened to 0 m so
+  hillshade and 3D terrain only show relief on land, as lossless WebP.
 - bathy: the same tiles the other way round — land flattened to 0 m, sea floor kept
   (quantized below the shelf so the PNGs compress well) — coloured as water depth.
 """
@@ -261,6 +261,19 @@ def terrarium(elev):
     return np.dstack([r, g, b])
 
 
+# Height step (metres) per zoom; zooms not listed keep the full precision.
+DEM_STEP = {5: 2, 6: 4}
+
+
+def save_dem(rgb, path):
+    """Elevation tiles are lossless WebP (about half the size of PNG) or PNG, by extension."""
+    img = Image.fromarray(rgb, 'RGB')
+    if path.endswith('.webp'):
+        img.save(path, 'WEBP', lossless=True, method=6, exact=True)
+    else:
+        img.save(path, optimize=True)
+
+
 def build_dem():
     src = os.path.join(CACHE, 'dem')
     dest = os.path.join(OUT, 'dem')
@@ -271,7 +284,16 @@ def build_dem():
     for z, x, name, elev in elevation_tiles(src, zooms, flatten_sea, POLAR_HILLSHADE):
         d = os.path.join(dest, str(z), x)
         os.makedirs(d, exist_ok=True)
-        Image.fromarray(terrarium(elev), 'RGB').save(os.path.join(d, name), optimize=True)
+        step = DEM_STEP.get(z)
+        if step:
+            # The close-up zooms are most of the weight: coarser height steps (no fraction
+            # byte) compress far better, and a few metres are nothing next to the relief
+            # these zooms are there to show.
+            rgb = terrarium(np.round(elev / step) * step)
+            rgb[..., 2] = 0
+        else:
+            rgb = terrarium(elev)
+        save_dem(rgb, os.path.join(d, name.replace('.png', '.webp')))
         count += 1
     seal_antimeridian(dest)
     print('dem tiles', count)
@@ -294,9 +316,9 @@ def seal_antimeridian(dest, k=4):
             w = (1 - t * t * (3 - 2 * t))[None, :]  # 1 at the seam, easing to 0 inland
             left[:, :k] = left[:, :k] * (1 - w) + seam * w
             right[:, -k:] = right[:, -k:] * (1 - w[:, ::-1]) + seam * w[:, ::-1]
-            Image.fromarray(terrarium(left), 'RGB').save(lp, optimize=True)
+            save_dem(terrarium(left), lp)
             if rp != lp:
-                Image.fromarray(terrarium(right), 'RGB').save(rp, optimize=True)
+                save_dem(terrarium(right), rp)
 
 
 def build_bathy():

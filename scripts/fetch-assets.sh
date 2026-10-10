@@ -21,8 +21,8 @@ for font in "Open Sans Regular" "Open Sans Semibold" "Open Sans Bold" "Open Sans
   done
 done
 
-# Elevation (terrarium encoding, AWS Open Data), zoom 0-4.
-for z in 0 1 2 3 4; do n=$((1<<z)); for x in $(seq 0 $((n-1))); do for y in $(seq 0 $((n-1))); do
+# Elevation (terrarium encoding, AWS Open Data), zoom 0-6 (5,461 tiles).
+for z in 0 1 2 3 4 5 6; do n=$((1<<z)); for x in $(seq 0 $((n-1))); do for y in $(seq 0 $((n-1))); do
   mkdir -p "dem/$z/$x"; f="dem/$z/$x/$y.png"
   [ -s "$f" ] || curl -sfL "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/$z/$x/$y.png" -o "$f"
 done; done; done

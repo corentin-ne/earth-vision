@@ -38,6 +38,16 @@ export interface Look {
   seam: boolean;
   reliefBrightness: number;
   hillshade: boolean;
+  /**
+   * How the mountains are lit: `main` is the crisp light from the north-west, `deep` a second,
+   * low sun that only adds long shadows (both 0–1); `contrast` sharpens the relief colours.
+   */
+  shade: { main: number; deep: number; shadow: string; highlight: string; contrast: number };
+  /**
+   * Height tint over the country colours (0 = none): lowlands a touch deeper, uplands paler,
+   * peaks fading to `peak` — one colour per country becomes a gradient that follows the land.
+   */
+  tint: { strength: number; low: string; peak: string };
   /** Darkening veil drawn over the land, for the night look. */
   veil: number;
   graticule: string;
@@ -74,6 +84,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
     seam: true,
     reliefBrightness: 1,
     hillshade: true,
+    shade: { main: 1, deep: 0.65, shadow: 'rgba(22,26,56,0.6)', highlight: 'rgba(255,251,236,0.55)', contrast: 0.12 },
+    tint: { strength: 1, low: '18,46,30', peak: '255,253,246' },
     veil: 0,
     graticule: 'rgba(40,70,110,0.08)',
     countryBorder: '#2b2b3d',
@@ -104,7 +116,9 @@ export const LOOKS: Record<MapStyleId, Look> = {
     fillOpacity: 0.14,
     seam: false,
     reliefBrightness: 1,
-    hillshade: false,
+    hillshade: true,
+    shade: { main: 0.85, deep: 0.6, shadow: 'rgba(40,30,20,0.55)', highlight: 'rgba(255,253,242,0.4)', contrast: 0.22 },
+    tint: { strength: 0.45, low: '18,46,30', peak: '255,255,255' },
     veil: 0,
     graticule: 'rgba(0,0,0,0.06)',
     countryBorder: 'rgb(179,1,158)',
@@ -136,6 +150,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
     seam: true,
     reliefBrightness: 1,
     hillshade: false,
+    shade: { main: 0, deep: 0, shadow: 'rgba(0,0,0,0)', highlight: 'rgba(0,0,0,0)', contrast: 0 },
+    tint: { strength: 0, low: '0,0,0', peak: '255,255,255' },
     veil: 0,
     graticule: 'rgba(0,0,0,0.05)',
     countryBorder: '#171717',
@@ -167,6 +183,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
     seam: true,
     reliefBrightness: 0.55,
     hillshade: true,
+    shade: { main: 1, deep: 0.7, shadow: 'rgba(0,2,12,0.8)', highlight: 'rgba(150,190,255,0.28)', contrast: 0.1 },
+    tint: { strength: 0.7, low: '0,4,16', peak: '200,225,255' },
     veil: 0.58,
     graticule: 'rgba(160,190,255,0.07)',
     countryBorder: '#e9ecff',
@@ -189,6 +207,29 @@ export const LOOKS: Record<MapStyleId, Look> = {
     selection: '#ffcc00',
   },
 };
+
+/**
+ * The height tint as a `color-relief` ramp: nothing at sea level (the elevation tiles are 0 m
+ * over the sea), a slightly deeper shade on the plains, clear on the hills, then paler and
+ * paler up to almost solid `peak` on the highest summits.
+ */
+export function tintRamp(t: Look['tint']): ExpressionSpecification {
+  const k = t.strength;
+  const c = (rgb: string, a: number) => `rgba(${rgb},${Math.min(1, a * k).toFixed(3)})`;
+  const stops: [number, string][] = [
+    [0, c(t.low, 0)],
+    [2, c(t.low, 0.26)],
+    [120, c(t.low, 0.14)],
+    [350, c(t.low, 0)],
+    [351, c(t.peak, 0)],
+    [800, c(t.peak, 0.2)],
+    [1400, c(t.peak, 0.42)],
+    [2200, c(t.peak, 0.68)],
+    [3200, c(t.peak, 0.88)],
+    [5000, c(t.peak, 0.97)],
+  ];
+  return ['interpolate', ['linear'], ['elevation'], ...stops.flat()] as unknown as ExpressionSpecification;
+}
 
 /** A `color-relief` ramp from depth stops (any order). */
 export function depthRamp(stops: [number, string][]): ExpressionSpecification {
@@ -214,17 +255,25 @@ export function baseStyle(): StyleSpecification {
       },
       dem: {
         type: 'raster-dem',
-        tiles: [asset('tiles/dem/{z}/{x}/{y}.png')],
+        tiles: [asset('tiles/dem/{z}/{x}/{y}.webp')],
         tileSize: 256,
-        maxzoom: 4,
+        maxzoom: 6,
         encoding: 'terrarium',
         attribution: 'Elevation: Mapzen / AWS Terrain Tiles',
       },
+      // The same tiles once more: a source feeds one kind of elevation layer.
+      'dem-tint': {
+        type: 'raster-dem',
+        tiles: [asset('tiles/dem/{z}/{x}/{y}.webp')],
+        tileSize: 256,
+        maxzoom: 6,
+        encoding: 'terrarium',
+      },
       'dem-terrain': {
         type: 'raster-dem',
-        tiles: [asset('tiles/dem/{z}/{x}/{y}.png')],
+        tiles: [asset('tiles/dem/{z}/{x}/{y}.webp')],
         tileSize: 256,
-        maxzoom: 4,
+        maxzoom: 6,
         encoding: 'terrarium',
       },
       bathy: {
@@ -310,18 +359,38 @@ export function baseStyle(): StyleSpecification {
         source: 'regions',
         paint: { 'line-color': ['to-color', ['coalesce', ['feature-state', 'color'], '#ece6d3']], 'line-width': 0.7 },
       },
+      // Height tint: country colours deepen on the plains and fade to white on the peaks.
+      { id: 'height-tint', type: 'color-relief', source: 'dem-tint', paint: { 'color-relief-color': tintRamp(LOOKS.political.tint) } },
       // Occupied land: stripes in the occupier's colour (one pattern image per colour, see controller).
       { id: 'occupation', type: 'fill', source: 'occupied', paint: { 'fill-pattern': ['get', 'pat'], 'fill-opacity': 0.85 } },
       {
+        // The crisp light: every ridge and valley, lit from the north-west.
         id: 'hillshade',
         type: 'hillshade',
         source: 'dem',
-        maxzoom: 9,
         paint: {
-          'hillshade-shadow-color': 'rgba(40,40,70,0.55)',
-          'hillshade-highlight-color': 'rgba(255,255,255,0.35)',
-          'hillshade-accent-color': 'rgba(40,40,70,0.25)',
-          'hillshade-exaggeration': 0.55,
+          'hillshade-shadow-color': 'rgba(16,20,46,0.7)',
+          'hillshade-highlight-color': 'rgba(255,251,236,0.5)',
+          'hillshade-accent-color': 'rgba(16,20,46,0.35)',
+          'hillshade-exaggeration': 1,
+          'hillshade-illumination-anchor': 'map',
+        },
+      },
+      {
+        // A second, low sun that only casts shadows: the slopes facing away go properly dark,
+        // which is what makes ranges stand out of the map.
+        id: 'hillshade-deep',
+        type: 'hillshade',
+        source: 'dem',
+        paint: {
+          'hillshade-method': 'combined',
+          'hillshade-illumination-altitude': 28,
+          'hillshade-illumination-direction': 320,
+          'hillshade-illumination-anchor': 'map',
+          'hillshade-shadow-color': 'rgba(16,20,46,0.7)',
+          'hillshade-highlight-color': 'rgba(255,255,255,0)',
+          'hillshade-accent-color': 'rgba(0,0,0,0)',
+          'hillshade-exaggeration': 0.8,
         },
       },
       { id: 'veil', type: 'fill', source: 'veil', paint: { 'fill-color': '#050a18', 'fill-opacity': 0 }, layout: { visibility: 'none' } },

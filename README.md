@@ -71,6 +71,11 @@ their code is kept under [`legacy/`](legacy/).
   and deserts, peaks, tectonic plates, time zones, ports, airports, live earthquakes (USGS) and
   natural events (NASA EONET). Each downloads once, then works offline.
 - Sharper relief: zoom 5 tiles from Natural Earth's 1:10m shaded relief.
+- **Dramatic mountains**: elevation down to zoom 6 (about 2.4 km a pixel), lit twice — a crisp light
+  from the north-west and a low sun that only casts shadows — so ranges stand out of the map.
+  **Height tint** turns each country's single colour into a gradient that follows the land: deeper
+  on the plains, paler on the uplands, fading to white on the peaks (both can be switched off in
+  the layers panel).
 - **Hide the tools** (`H`): just the map, with a slow spin of the globe if you like. `H` or `Esc` brings
   everything back.
 - **Advanced** tools (`A`): recalculate population for the current borders from real-world data (or
