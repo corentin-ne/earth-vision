@@ -19,6 +19,10 @@ their code is kept under [`legacy/`](legacy/).
   below; pin any world as the main one, rename, duplicate, export or delete it.
 - **Paint** regions into a country by dragging (`B`): adjustable brush, `Alt`+click to pick a country,
   `Ctrl`+click to take a whole country, hold `Space` to pan. One stroke = one undo step.
+  A **lasso** takes everything inside a loop you draw. With **Cut regions** on, the brush (at its
+  pixel size) and the lasso take only the land they cover: regions on the edge are cut in two, so
+  you can claim half a province or carve an enclave. With natural borders on, a lasso drawn along
+  a river or crest clings to it.
 - **Select** (`V`) a country to open its page: rename, recolour, upload a flag, edit stats and text
   fields, notes, capital, annex it into another country or dissolve it. Click a region inside it to
   rename it, move it to another country or make it a new country. `Shift`+click to select several
@@ -81,6 +85,9 @@ their code is kept under [`legacy/`](legacy/).
   there, off by default.
 - **Hide the tools** (`H`): just the map, with a slow spin of the globe if you like. `H` or `Esc` brings
   everything back.
+- **Snap coasts to the real coastline** (Advanced): the regions' simplified shores are replaced by
+  Natural Earth's detailed coastline (bays, firths, islands), for the selected country or the
+  whole world, leaving the borders between regions untouched.
 - **Advanced** tools (`A`): recalculate population for the current borders from real-world data (or
   spread each country's total by area), heal map borders (snap borders that almost line up), tidy stray
   pieces and holes, recolour the map so

@@ -457,6 +457,7 @@ const SHORTCUTS: [string, string][] = [
   ['O', 'Data layers (reefs, peaks…)'],
   ['Ctrl + H', 'Find & replace'],
   ['[  ]', 'Smaller / bigger brush'],
+  ['Brush panel', 'Lasso · cut regions (take only what is covered)'],
   ['Alt + click', 'Pick a country (paint)'],
   ['Ctrl + click', 'Take a whole country (paint)'],
   ['Space', 'Pan while painting'],
@@ -625,10 +626,28 @@ function ToolButtons({ bare }: { bare?: boolean }) {
 }
 
 const BRUSH_MODES = [
-  ['paint', 'brush', 'Paint'],
+  ['paint', 'brush', 'Brush'],
+  ['lasso', 'lasso', 'Lasso'],
   ['pick', 'pipette', 'Pick'],
-  ['whole', 'flag', 'Whole country'],
+  ['whole', 'flag', 'Country'],
 ] as const;
+
+/** Brush and lasso take only the land they cover, cutting the regions on their edge. */
+function CutToggle() {
+  const cut = useWorld((s) => s.brushCut);
+  const mode = useWorld((s) => s.brushMode);
+  const size = useWorld((s) => s.brushSize);
+  return (
+    <>
+      <label className="toggle" title="Take only the land under the brush or inside the loop: regions on the edge are cut in two">
+        <input type="checkbox" checked={cut} onChange={(e) => useWorld.setState({ brushCut: e.target.checked })} />
+        <span className="switch" />
+        <Icon name="knife" size={15} /> Cut regions (take only what is covered)
+      </label>
+      {cut && mode === 'paint' && size === 0 && <p className="hint">Give the brush a size: at “One region” it still takes whole regions.</p>}
+    </>
+  );
+}
 
 function DesktopToolDock() {
   const tool = useWorld((s) => s.tool);
@@ -653,14 +672,17 @@ function DesktopToolDock() {
               </button>
             ))}
           </div>
-          <label className="brush-size">
-            <span>Brush</span>
-            <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
-            <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
-          </label>
+          {brushMode !== 'lasso' && (
+            <label className="brush-size">
+              <span>Brush</span>
+              <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
+              <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
+            </label>
+          )}
+          <CutToggle />
           <NaturalBorders />
           <p className="hint">
-            Drag to paint · <kbd>Alt</kbd>+click picks a country · <kbd>Ctrl</kbd>+click takes a whole country · hold <kbd>Space</kbd> to pan
+            {brushMode === 'lasso' ? 'Draw a loop around the land to take' : 'Drag to paint'} · <kbd>Alt</kbd>+click picks a country · <kbd>Ctrl</kbd>+click takes a whole country · hold <kbd>Space</kbd> to pan
           </p>
         </div>
       )}
@@ -824,11 +846,14 @@ function PhoneBrush() {
       </div>
       {open && (
         <>
-          <label className="brush-size">
-            <span>Brush</span>
-            <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
-            <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
-          </label>
+          {brushMode !== 'lasso' && (
+            <label className="brush-size">
+              <span>Brush</span>
+              <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
+              <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
+            </label>
+          )}
+          <CutToggle />
           <NaturalBorders />
         </>
       )}
@@ -869,7 +894,7 @@ function NaturalBorders() {
         <span className="switch" />
         <Icon name="mountain" size={15} /> Mountain crests
       </label>
-      {on && <p className="hint">Strokes stop at the dashed lines; regions they cross are cut along them. With Whole country, you take it up to them.</p>}
+      {on && <p className="hint">Strokes stop at the dashed lines; regions they cross are cut along them. A lasso drawn along one clings to it. With Whole country, you take it up to them.</p>}
     </div>
   );
 }

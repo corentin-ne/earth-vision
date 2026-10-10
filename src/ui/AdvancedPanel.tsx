@@ -8,6 +8,7 @@ import {
   removeEmptyCountries,
   recenterLabels,
   flagsForAll,
+  snapToCoast,
   populationKey,
   runAdvanced,
 } from '../world/advanced';
@@ -32,6 +33,8 @@ export function AdvancedPanel() {
   if (!open) return null;
   const close = () => useWorld.setState({ advancedOpen: false });
   const popKey = populationKey();
+  const { doc, selection } = useWorld.getState();
+  const coastOf = selection.cid ? doc?.countries[selection.cid]?.name : null;
 
   const go = async (id: string, fn: () => unknown, done: (r: unknown) => string) => {
     setBusy(id);
@@ -78,6 +81,20 @@ export function AdvancedPanel() {
             onClick={() => go('heal', () => healBorders(SNAP[snap][1]), (r) => (n(r) ? `Healed the borders of ${n(r)} region${n(r) > 1 ? 's' : ''}` : 'Borders are already clean'))}
           >
             {busy === 'heal' ? <span className="spinner small" /> : <Icon name="heal" size={14} />} {busy === 'heal' ? 'Healing…' : 'Heal'}
+          </button>
+        </Tool>
+
+        <Tool
+          icon="river"
+          title="Snap coasts to the real coastline"
+          desc={`Regions come with simplified outlines. This replaces every stretch of coast with the detailed coastline, so shores, bays and islands sit where the terrain shows them. ${coastOf ? `Only ${coastOf} (the selected country).` : 'The whole world — select a country first to do only that one.'}`}
+        >
+          <button
+            className="btn primary small"
+            disabled={!!busy}
+            onClick={() => go('coast', snapToCoast, (r) => (n(r) ? `Coast redrawn for ${n(r)} region${n(r) > 1 ? 's' : ''}` : 'The coasts already follow the coastline'))}
+          >
+            {busy === 'coast' ? <span className="spinner small" /> : <Icon name="river" size={14} />} {busy === 'coast' ? 'Snapping…' : coastOf ? `Snap ${coastOf}` : 'Snap the world'}
           </button>
         </Tool>
 

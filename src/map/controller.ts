@@ -37,6 +37,7 @@ import { loadIso2, iso2 } from '../world/flags';
 import { measureImage } from '../world/flagShape';
 import { loadBarriers, barriers, naturalOn } from '../geo/barriers';
 import { activeNatural, blocked, claimUpToNature, cutAlongNature, reachable, finishSnapLasso, snapLines } from '../world/natural';
+import { magnetize, paintLasso, paintStroke } from '../world/brush';
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -76,7 +77,9 @@ export class MapController {
   private lastBorderRun = 0;
   private drawPts: LngLat[] = [];
   /** A loop being drawn around part of a border to snap (see natural.ts). */
-  private lasso: { pts: LngLat[]; last: [number, number] } | null = null;
+  private lasso: { pts: LngLat[]; last: [number, number]; paint?: boolean } | null = null;
+  /** A "cut regions" brush stroke under way: the path swept, taken when the button is released. */
+  private sweep: { pts: LngLat[]; last: [number, number]; r: number } | null = null;
   /** The paint stroke under way; `anchor` is the last brush spot not cut off by a river or crest. */
   private stroke: { group: string; last: [number, number]; anchor: LngLat | null; blockedAt?: LngLat } | null = null;
   private spaceDown = false;
@@ -1035,7 +1038,10 @@ export class MapController {
     m.on('touchend', () => this.onUp());
     m.on('touchmove', (e) => {
       if (this.lasso && e.points.length === 1) this.extendLasso(e as unknown as MapMouseEvent);
-      else if (this.stroke && e.points.length === 1) {
+      else if (this.sweep && e.points.length === 1) {
+        this.extendSweep(e as unknown as MapMouseEvent);
+        this.onBrush?.({ x: e.point.x, y: e.point.y, r: get().brushSize, blocked: false });
+      } else if (this.stroke && e.points.length === 1) {
         this.paintTo(e.point.x, e.point.y);
         // Phones have no hover: show the brush under the finger, red when a river or crest stops it.
         this.onBrush?.({ x: e.point.x, y: e.point.y, r: get().brushSize, blocked: !!this.stroke?.blockedAt });
@@ -1067,7 +1073,8 @@ export class MapController {
       return;
     }
     const { tool } = get();
-    if (tool === 'paint') this.onBrush?.({ x: e.point.x, y: e.point.y, r: get().brushSize, blocked: !!this.stroke?.blockedAt });
+    if (tool === 'paint') this.onBrush?.({ x: e.point.x, y: e.point.y, r: get().brushMode === 'lasso' ? 0 : get().brushSize, blocked: !!this.stroke?.blockedAt });
+    if (this.sweep) return this.extendSweep(e);
     if (this.stroke) {
       this.paintTo(e.point.x, e.point.y);
       return;
@@ -1217,6 +1224,18 @@ export class MapController {
         return;
       }
       e.preventDefault();
+      if (mode === 'lasso') {
+        // A loop: everything inside goes to the brush's country when it is closed.
+        this.lasso = { pts: [[e.lngLat.lng, e.lngLat.lat]], last: [e.point.x, e.point.y], paint: true };
+        this.renderLasso();
+        return;
+      }
+      if (get().brushCut && get().brushSize > 0 && mode === 'paint') {
+        // Cutting brush: sweep now, take exactly the swept land on release.
+        this.sweep = { pts: [[e.lngLat.lng, e.lngLat.lat]], last: [e.point.x, e.point.y], r: get().brushSize };
+        this.renderSweep();
+        return;
+      }
       const natural = activeNatural();
       this.stroke = { group: `paint:${Date.now()}`, last: [e.point.x, e.point.y], anchor: natural ? [e.lngLat.lng, e.lngLat.lat] : null };
       if (oe?.ctrlKey || oe?.metaKey || mode === 'whole') {
@@ -1277,9 +1296,23 @@ export class MapController {
       return;
     }
     if (this.lasso) {
-      const pts = this.lasso.pts;
+      const { pts, paint } = this.lasso;
       this.cancelLasso();
-      finishSnapLasso(pts);
+      if (paint) this.finishPaintLasso(pts);
+      else finishSnapLasso(pts);
+      return;
+    }
+    if (this.sweep) {
+      const { pts, r } = this.sweep;
+      this.sweep = null;
+      this.src('draw')?.setData(fc([]));
+      this.onBrush?.(null);
+      // The brush's radius on the ground, where the stroke ended.
+      const at = this.map.project(pts[pts.length - 1]);
+      const edge = this.map.unproject([at.x, at.y + r]);
+      const radius = Math.abs(edge.lat - pts[pts.length - 1][1]);
+      const n = paintStroke(pts, radius, get().brushCid);
+      if (!n) toast('Nothing to take there');
       return;
     }
     if (this.stroke) {
@@ -1365,6 +1398,37 @@ export class MapController {
     this.renderLasso();
   }
 
+  private extendSweep(e: MapMouseEvent) {
+    const s = this.sweep;
+    if (!s || Math.hypot(e.point.x - s.last[0], e.point.y - s.last[1]) < 3) return;
+    s.pts.push([e.lngLat.lng, e.lngLat.lat]);
+    s.last = [e.point.x, e.point.y];
+    this.renderSweep();
+  }
+
+  private renderSweep() {
+    const s = this.sweep;
+    if (!s) return;
+    const color = get().doc?.countries[get().brushCid]?.color ?? '#ffffff';
+    // A single point still shows as a dot of the brush's size.
+    const pts = s.pts.length > 1 ? s.pts : [s.pts[0], [s.pts[0][0] + 1e-7, s.pts[0][1]] as LngLat];
+    this.src('draw')?.setData(fc([{ type: 'Feature', properties: { kind: 'sweep', w: s.r * 2, color }, geometry: { type: 'LineString', coordinates: pts } }]));
+  }
+
+  /** A loop drawn with the lasso: its land goes to the brush's country. */
+  private finishPaintLasso(pts: LngLat[]) {
+    const { doc, brushCid, brushCut } = get();
+    if (!doc) return;
+    if (pts.length < 4) return toast('Draw a loop around the land to take');
+    if (brushCid && !doc.countries[brushCid]) return toast('Pick a country to paint with first', 'error');
+    // With natural borders on, the loop clings to the rivers and crests it runs along (~10 px).
+    const a = this.map.unproject([0, 0]);
+    const b = this.map.unproject([0, 10]);
+    const loop = activeNatural() ? magnetize(pts, Math.abs(a.lat - b.lat)) : pts;
+    const n = paintLasso(loop, brushCid, brushCut);
+    if (!n) toast(brushCut ? 'Nothing to take in that loop' : 'No region lies mostly in that loop — turn on “Cut regions” to take parts');
+  }
+
   /** The loop so far, closed back to where it started. */
   private renderLasso() {
     const pts = this.lasso?.pts ?? [];
@@ -1424,7 +1488,11 @@ export class MapController {
 
   private onToolChange(s: State, p: State) {
     if (p.tool === 'split' || p.tool === 'draw') this.cancelDraw();
-    if (s.tool !== 'paint') this.onBrush?.(null);
+    if (s.tool !== 'paint') {
+      this.onBrush?.(null);
+      this.sweep = null;
+      if (this.lasso?.paint) this.cancelLasso();
+    }
     if (s.tool === 'paint') this.map.dragPan.disable();
     else this.map.dragPan.enable();
     this.setHover(null);

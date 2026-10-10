@@ -121,3 +121,32 @@ write('iso3to2.json', JSON.stringify(iso3to2));
   }
   write('marine.json', JSON.stringify(fc));
 }
+
+// ── Detailed coastline, for "Snap coasts to the real coastline" ──────────────
+// Natural Earth 1:10m land outlines (the regions come from the same data, simplified much
+// further), as rings of delta-encoded points in thousandths of a degree.
+if (fs.existsSync(path.join(NE, 'ne_10m_land.geojson'))) {
+  const out = await run('-i land.json -explode -simplify 55% weighted keep-shapes -o coast.json precision=0.001', { 'land.json': read('ne_10m_land') });
+  const fc = JSON.parse(out['coast.json']);
+  const rings = [];
+  for (const f of fc.features) {
+    if (!f.geometry) continue;
+    const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+    for (const poly of polys)
+      for (const ring of poly) {
+        if (ring.length < 4) continue;
+        const flat = [];
+        let px = 0;
+        let py = 0;
+        for (const [x, y] of ring) {
+          const ix = Math.round(x * 1000);
+          const iy = Math.round(y * 1000);
+          flat.push(ix - px, iy - py);
+          px = ix;
+          py = iy;
+        }
+        rings.push(flat);
+      }
+  }
+  write('coast.json', JSON.stringify({ scale: 1000, rings }));
+}

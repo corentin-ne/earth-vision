@@ -87,7 +87,7 @@ function toGeom(mp: Geom): RegionGeom | null {
 const key = (x: number, y: number) => `${x.toFixed(7)},${y.toFixed(7)}`;
 
 /** Snap output vertices back onto the exact input vertices the clipper may have nudged. */
-function snapTo(g: RegionGeom, ref: RegionGeom): RegionGeom {
+export function snapTo(g: RegionGeom, ref: RegionGeom): RegionGeom {
   const exact = new Map<string, Position>();
   const polysRef = ref.type === 'Polygon' ? [ref.coordinates] : ref.coordinates;
   for (const p of polysRef) for (const r of p) for (const c of r) exact.set(key(c[0], c[1]), c);

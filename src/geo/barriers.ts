@@ -118,6 +118,28 @@ export class Barriers {
     return hit;
   }
 
+  /** The nearest point on an active line within `reach` degrees of `p` (null when none is). */
+  nearest(p: LngLat, o: NaturalOpts, reach: number): LngLat | null {
+    if (!naturalOn(o)) return null;
+    let best: LngLat | null = null;
+    let bestD = reach;
+    this.segments(p[0] - reach, p[1] - reach, p[0] + reach, p[1] + reach, o, (s) => {
+      const l = this.lines[this.segLine[s]].pts;
+      const [a, b] = [l[this.segIdx[s]], l[this.segIdx[s] + 1]];
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const len = dx * dx + dy * dy;
+      const t = len ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len)) : 0;
+      const q: LngLat = [a[0] + t * dx, a[1] + t * dy];
+      const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+      if (d <= bestD) {
+        bestD = d;
+        best = q;
+      }
+    });
+    return best;
+  }
+
   /** The active lines passing through a box, as runs of consecutive points. */
   linesIn(box: [number, number, number, number], o: NaturalOpts): LngLat[][] {
     const pad = 0.01;

@@ -263,6 +263,7 @@ def terrarium(elev):
 
 # Height step (metres) per zoom; zooms not listed keep the full precision.
 DEM_STEP = {5: 2, 6: 4}
+DEM_FINE_BELOW = 120
 
 
 def save_dem(rgb, path):
@@ -289,7 +290,8 @@ def build_dem():
             # The close-up zooms are most of the weight: coarser height steps (no fraction
             # byte) compress far better, and a few metres are nothing next to the relief
             # these zooms are there to show.
-            rgb = terrarium(np.round(elev / step) * step)
+            # Whole metres on low ground: the height colours tell 5 m from 10 m there.
+            rgb = terrarium(np.where(elev < DEM_FINE_BELOW, np.round(elev), np.round(elev / step) * step))
             rgb[..., 2] = 0
         else:
             rgb = terrarium(elev)

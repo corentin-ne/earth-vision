@@ -48,6 +48,11 @@
 ## Done (2.15)
 - [x] Elevation to zoom 6 (lossless WebP), two-light hill shading, height tint with white peaks
 
+## Done (2.16 – 2.17)
+- [x] A gradient per country: base colour, custom gradient or flag colours; smooth logarithmic height scale
+- [x] Coasts: flat lowest ground (no dark blotches), snap coasts to the detailed coastline
+- [x] Brush: lasso, cut regions (brush and lasso take only what they cover), lasso clings to rivers
+
 ## Next
 - [ ] Timeline: snapshots of a world over the years, with an animated playback / video export
 - [ ] Wars & events: front lines and battles tied to dates on the timeline

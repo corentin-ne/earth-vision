@@ -246,7 +246,13 @@ export function vivid(hex: string, k: number): string {
 }
 
 /** Heights (metres) the key is defined at: evenly spaced on a logarithmic scale, so the plains get as much of the gradient as the high ranges. */
-const KEY_STOPS = [1, 5, 12, 25, 45, 75, 120, 190, 290, 430, 630, 900, 1250, 1700, 2250, 2900, 3700, 4700];
+const KEY_STOPS = [8, 12, 18, 27, 40, 60, 85, 120, 170, 240, 340, 480, 680, 950, 1300, 1750, 2300, 3000, 3800, 4700];
+/**
+ * Everything under this height is the same lowest ground. The elevation data and the regions
+ * do not agree to the metre on where the sea starts, and a logarithmic scale would turn the
+ * few metres between a beach, a polder and "sea level inside the coast" into dark blotches.
+ */
+const KEY_FLOOR = KEY_STOPS[0];
 
 /**
  * The height key as a `color-relief` ramp (see gradient.ts): its red channel says how high the
@@ -255,10 +261,11 @@ const KEY_STOPS = [1, 5, 12, 25, 45, 75, 120, 190, 290, 430, 630, 900, 1250, 170
  * a continuous gradient, no steps.
  */
 export function keyRamp(): ExpressionSpecification {
-  const top = Math.log(KEY_STOPS[KEY_STOPS.length - 1]);
-  const pivot = 0.6;
+  const top = Math.log(KEY_STOPS[KEY_STOPS.length - 1] / KEY_FLOOR);
+  // The hills (the country's own colour) sit around 150 m.
+  const pivot = Math.log(150 / KEY_FLOOR) / top;
   const level = (metres: number) => {
-    const x = Math.max(0, Math.log(Math.max(1, metres)) / top);
+    const x = Math.max(0, Math.log(Math.max(KEY_FLOOR, metres) / KEY_FLOOR) / top);
     const t = x < pivot ? 0.5 * (1 - ((pivot - x) / pivot) ** 1.1) : 0.5 + 0.5 * Math.min(1, (x - pivot) / (1 - pivot)) ** 1.15;
     return Math.round(Math.max(0, Math.min(1, t)) * 255);
   };
@@ -279,7 +286,7 @@ export function autoGradient(base: string, t: Look['tint']): [string, string, st
     const g = target.split(',').map(Number);
     return '#' + c.map((v, i) => Math.round(v + (g[i] - v) * Math.min(1, k)).toString(16).padStart(2, '0')).join('');
   };
-  return [to(t.low, 0.42 * t.strength), base, to(t.peak, 0.94 * t.strength)];
+  return [to(t.low, 0.3 * t.strength), base, to(t.peak, 0.94 * t.strength)];
 }
 
 /** A `color-relief` ramp from depth stops (any order). */
@@ -631,8 +638,17 @@ export function baseStyle(): StyleSpecification {
         },
         paint: { 'text-color': ['get', 'color'], 'text-halo-color': 'rgba(255,255,255,0.85)', 'text-halo-width': 1.3 },
       },
+      {
+        // What a "cut regions" brush has swept so far (it takes the land when released).
+        id: 'draw-sweep',
+        type: 'line',
+        source: 'draw',
+        filter: ['==', ['get', 'kind'], 'sweep'],
+        paint: { 'line-color': ['coalesce', ['get', 'color'], '#ff2d55'], 'line-width': ['get', 'w'], 'line-opacity': 0.45 },
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+      },
       { id: 'draw-fill', type: 'fill', source: 'draw', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#ff2d55', 'fill-opacity': 0.15 } },
-      { id: 'draw-line', type: 'line', source: 'draw', filter: ['match', ['geometry-type'], ['LineString', 'Polygon'], true, false], paint: { 'line-color': '#ff2d55', 'line-width': 2.5, 'line-dasharray': [2, 1] } },
+      { id: 'draw-line', type: 'line', source: 'draw', filter: ['all', ['match', ['geometry-type'], ['LineString', 'Polygon'], true, false], ['!=', ['get', 'kind'], 'sweep']], paint: { 'line-color': '#ff2d55', 'line-width': 2.5, 'line-dasharray': [2, 1] } },
       {
         id: 'draw-points',
         type: 'circle',

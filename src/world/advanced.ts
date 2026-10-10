@@ -1,7 +1,8 @@
 // Whole-world maintenance operations behind the "Advanced" menu. Each one is a single undo step.
 import type { City, Country, Region } from '../types';
 import { useWorld, commit, engine, countryAggregates, changeHands, toast } from './store';
-import { labelPoint, pointInGeom, bbox } from '../geo/engine';
+import { labelPoint, pointInGeom, bbox, geomArea } from '../geo/engine';
+import { loadCoastline, snapCoasts } from '../geo/coast';
 import { loadEarthData } from '../io/earth';
 import { buildPopulationModel, estimatePopulation, type PopulationModel } from './population';
 import { distributeByArea } from './stats';
@@ -221,6 +222,31 @@ export async function flagsForAll(): Promise<number> {
 }
 
 /** Runs an operation and reports its outcome as a toast. */
+/**
+ * Moves the coasts onto the detailed coastline: of the selected country, or of the whole world
+ * when none is selected. Returns how many regions changed.
+ */
+export async function snapToCoast(): Promise<number> {
+  const coast = await loadCoastline();
+  const { doc, geoms, selection } = get();
+  if (!doc) return 0;
+  const cid = selection.cid;
+  const only = cid ? new Set(Object.values(doc.regions).filter((r) => r.cid === cid).map((r) => r.id)) : undefined;
+  const moved = snapCoasts(geoms, coast, only);
+  const regions: Record<number, Region> = {};
+  for (const [k, g] of Object.entries(moved)) {
+    const r = doc.regions[Number(k)];
+    if (!r) continue;
+    // Areas are kept as shares of the stored one, so totals do not drift.
+    const ratio = geomArea(g) / (geomArea(geoms[r.id]) || 1);
+    const lp = labelPoint(g) ?? [r.cx, r.cy];
+    regions[r.id] = { ...r, area: r.area * (Number.isFinite(ratio) && ratio > 0 ? ratio : 1), cx: lp[0], cy: lp[1] };
+  }
+  const n = Object.keys(regions).length;
+  if (n) commit(cid ? `Snap the coast of ${doc.countries[cid]?.name ?? cid}` : 'Snap coasts to the real coastline', { geoms: moved, regions });
+  return n;
+}
+
 export async function runAdvanced(fn: () => unknown | Promise<unknown>, done: (r: unknown) => string) {
   try {
     toast(done(await fn()), 'ok');

@@ -114,7 +114,9 @@ export interface State {
   help: boolean;
   layersOpen: boolean;
   /** Touch-friendly stand-ins for Alt+click (pick) and Ctrl+click (whole country) while painting. */
-  brushMode: 'paint' | 'pick' | 'whole';
+  brushMode: 'paint' | 'lasso' | 'pick' | 'whole';
+  /** Brush and lasso take only the land they cover, cutting the regions on their edge. */
+  brushCut: boolean;
   /** Touch-friendly stand-in for Shift+click: clicks add regions to the selection. */
   multiSelect: boolean;
   advancedOpen: boolean;
@@ -186,6 +188,7 @@ function loadPrefs(): Partial<State> {
       layers: p.layers ? { ...DEFAULT_LAYERS, ...p.layers } : undefined,
       brushSize: p.brushSize,
       natural: p.natural?.rivers ? p.natural : undefined,
+      brushCut: !!p.brushCut,
     };
   } catch {
     return {};
@@ -213,6 +216,7 @@ export const useWorld = create<State>(() => ({
   help: false,
   layersOpen: false,
   brushMode: 'paint',
+  brushCut: prefs.brushCut ?? false,
   multiSelect: false,
   advancedOpen: false,
   detailsOpen: false,
@@ -236,9 +240,9 @@ export const useWorld = create<State>(() => ({
 }));
 
 useWorld.subscribe((s, prev) => {
-  if (s.mapStyle !== prev.mapStyle || s.globe !== prev.globe || s.layers !== prev.layers || s.brushSize !== prev.brushSize || s.natural !== prev.natural) {
+  if (s.mapStyle !== prev.mapStyle || s.globe !== prev.globe || s.layers !== prev.layers || s.brushSize !== prev.brushSize || s.natural !== prev.natural || s.brushCut !== prev.brushCut) {
     try {
-      localStorage.setItem(PREFS, JSON.stringify({ mapStyle: s.mapStyle, globe: s.globe, layers: s.layers, brushSize: s.brushSize, natural: s.natural }));
+      localStorage.setItem(PREFS, JSON.stringify({ mapStyle: s.mapStyle, globe: s.globe, layers: s.layers, brushSize: s.brushSize, natural: s.natural, brushCut: s.brushCut }));
     } catch {
       /* ignore */
     }
