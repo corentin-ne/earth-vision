@@ -12,11 +12,12 @@ import {
   setTool,
 } from '../world/store';
 import { mapCtl } from '../map/controller';
-import { ColorField, CountryPicker, Flag, NumberField, Section, Stat, TextField } from './common';
+import { CountryPicker, Flag, NumberField, Section, Stat, TextField } from './common';
 import { RegionCard } from './RegionPanels';
 import { CountryAlliances } from './AlliancePanel';
 import { startSnap } from './SnapCard';
 import { LoreField, Backlinks } from './Lore';
+import { CountryColour } from './CountryColour';
 import { CountryOccupations, CountryRealm, CountryStates, LabelControl } from './WorldbuildPanels';
 import { Icon } from './icons';
 import { fmtArea, fmtInt } from '../util';
@@ -145,7 +146,7 @@ export function CountryPanel({ cid }: { cid: string }) {
       </Section>
 
       <Section title="Colour">
-        <ColorField value={c.color} onChange={(color) => updateCountry(cid, { color }, 'Recolour country')} />
+        <CountryColour cid={cid} />
       </Section>
 
       {doc.settings.fields.length > 0 && (

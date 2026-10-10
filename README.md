@@ -71,12 +71,14 @@ their code is kept under [`legacy/`](legacy/).
   and deserts, peaks, tectonic plates, time zones, ports, airports, live earthquakes (USGS) and
   natural events (NASA EONET). Each downloads once, then works offline.
 - Sharper relief: zoom 5 tiles from Natural Earth's 1:10m shaded relief.
-- **Height colours**: each country's single colour becomes a relief map of its own — deeper on
-  the lowest ground, plain in the hills, paler band by band up to white peaks. The scale is
-  logarithmic (20 m against 40 m shows as clearly as 2,000 m against 4,000 m) and drawn in crisp
-  bands like layers of cut paper, from elevation data down to zoom 6. Country colours are drawn
-  rich but matte. Classic *hill shading* (light and shadow) is still there, off by default, in
-  the layers panel.
+- **Height colours**: every country's land is a smooth gradient that follows the terrain, from
+  its lowest ground through the hills to the peaks, on a logarithmic scale (20 m against 40 m
+  shows as clearly as 2,000 m against 4,000 m), from elevation data down to zoom 6. On a
+  country's page choose how it is coloured: a **base colour** (shaded by height: deeper
+  lowlands, white peaks), a **gradient** of your own (lowlands, hills, peaks) or its **flag**
+  (the flag's main colours, darkest on the plains). *Flag colours for every country* in the
+  layers panel tries the flag look on the whole map at once. Classic *hill shading* is still
+  there, off by default.
 - **Hide the tools** (`H`): just the map, with a slow spin of the globe if you like. `H` or `Esc` brings
   everything back.
 - **Advanced** tools (`A`): recalculate population for the current borders from real-world data (or

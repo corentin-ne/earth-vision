@@ -48,6 +48,8 @@ export interface Layers {
   stateBorders: boolean;
   /** Country names bend along the shape of the country. */
   curvedLabels: boolean;
+  /** Every country takes the colours of its flag. */
+  flagColors: boolean;
 }
 
 export interface Selection {
@@ -171,6 +173,7 @@ const DEFAULT_LAYERS: Layers = {
   occupation: true,
   stateBorders: true,
   curvedLabels: false,
+  flagColors: false,
 };
 
 const PREFS = 'cmaps:prefs';

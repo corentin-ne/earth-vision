@@ -1210,6 +1210,7 @@ const LAYER_LABELS: [keyof Layers, string][] = [
   ['water', 'Seas & lakes names'],
   ['relief', 'Terrain relief'],
   ['heightTint', 'Height colours (white peaks)'],
+  ['flagColors', 'Flag colours for every country'],
   ['shading', 'Hill shading'],
   ['terrain', '3D mountains'],
   ['waves', 'Animated water'],

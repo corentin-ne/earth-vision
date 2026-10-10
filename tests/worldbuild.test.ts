@@ -20,6 +20,9 @@ import { computeThematic } from '../src/world/thematic';
 import { exportAmap, importAmap } from '../src/io/amap';
 import { geomIssues } from '../src/geo/repair';
 import { countryCurve } from '../src/map/curves';
+import { palette } from '../src/world/flagColors';
+import { autoGradient, keyRamp, LOOKS } from '../src/map/style';
+import { updateCountry } from '../src/world/store';
 
 const sq = (x: number, y: number, s = 1): Polygon => ({ type: 'Polygon', coordinates: [[[x, y], [x + s, y], [x + s, y + s], [x, y + s], [x, y]]] });
 
@@ -204,6 +207,15 @@ describe('.map round trip', () => {
     expect(back.marks?.m1.type).toBe('line');
     expect(back.overlays).toEqual(['reefs']);
   });
+
+  it('keeps the gradient of a country', async () => {
+    updateCountry('AAA', { colorMode: 'gradient', gradient: ['#102030', '#405060', '#f0f0f0'] });
+    const s = useWorld.getState();
+    const back = importAmap(await exportAmap({ doc: s.doc!, geoms: s.geoms, flags: {} }), 'T.map').doc;
+    expect(back.countries.AAA.colorMode).toBe('gradient');
+    expect(back.countries.AAA.gradient).toEqual(['#102030', '#405060', '#f0f0f0']);
+    expect(back.countries.BBB.colorMode).toBeUndefined();
+  });
 });
 
 describe('thematic maps', () => {
@@ -226,5 +238,46 @@ describe('curved names', () => {
     const c = long!.coordinates;
     expect(c[0][0]).toBeLessThan(c[c.length - 1][0]);
     expect(countryCurve({ type: 'MultiPolygon', coordinates: [[[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]]] })).toBeNull();
+  });
+});
+
+describe('height colours', () => {
+  it('reads the main colours of a flag, darkest first', () => {
+    // A tricolour (blue, white, red) with a small yellow detail and soft edges.
+    const px: number[] = [];
+    const put = (r: number, g: number, b: number, n: number) => {
+      for (let i = 0; i < n; i++) px.push(r, g, b, 255);
+    };
+    put(0, 40, 160, 300);
+    put(4, 44, 156, 20);
+    put(255, 255, 255, 310);
+    put(220, 20, 40, 320);
+    put(250, 220, 0, 20);
+    px.push(0, 0, 0, 0);
+    const cols = palette(px);
+    expect(cols.length).toBe(3);
+    expect(cols[2]).toBe('#ffffff');
+    expect(parseInt(cols[0].slice(5), 16)).toBeGreaterThan(120); // blue first
+  });
+
+  it('shades one colour from deeper lowlands to pale peaks', () => {
+    const [low, mid, high] = autoGradient('#40a060', LOOKS.political.tint);
+    expect(mid).toBe('#40a060');
+    const lum = (h: string) => parseInt(h.slice(1, 3), 16) + parseInt(h.slice(3, 5), 16) + parseInt(h.slice(5, 7), 16);
+    expect(lum(low)).toBeLessThan(lum(mid));
+    expect(lum(high)).toBeGreaterThan(lum(mid));
+  });
+
+  it('has a smooth, rising, logarithmic key', () => {
+    const ramp = keyRamp() as unknown as (number | string)[];
+    const stops = ramp.slice(3);
+    const red = (i: number) => Number(/rgb\((\d+)/.exec(String(stops[i * 2 + 1]))![1]);
+    const n = stops.length / 2;
+    for (let i = 1; i < n; i++) {
+      expect(Number(stops[i * 2])).toBeGreaterThan(Number(stops[(i - 1) * 2]));
+      expect(red(i)).toBeGreaterThanOrEqual(red(i - 1));
+    }
+    expect(red(0)).toBe(0);
+    expect(red(n - 1)).toBe(255);
   });
 });

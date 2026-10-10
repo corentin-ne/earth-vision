@@ -44,8 +44,8 @@ export interface Look {
    */
   shade: { main: number; deep: number; shadow: string; highlight: string; contrast: number };
   /**
-   * Height tint over the country colours (0 = none): lowlands a touch deeper, uplands paler,
-   * peaks fading to `peak` — one colour per country becomes a gradient that follows the land.
+   * Height colours (0 = none): how far a country's single colour deepens toward `low` on the
+   * lowest ground and pales toward `peak` on the summits (see `autoGradient`).
    */
   tint: { strength: number; low: string; peak: string };
   /** How much richer the country colours are drawn than they are stored (0 = as picked). */
@@ -245,44 +245,41 @@ export function vivid(hex: string, k: number): string {
   return out;
 }
 
-/** Band edges of the height tint (metres): evenly spaced on a logarithmic scale, so the plains get as many steps as the high ranges. */
-const TINT_BANDS = [1, 5, 12, 25, 45, 75, 120, 190, 290, 430, 630, 900, 1250, 1700, 2250, 2900, 3700, 4700];
+/** Heights (metres) the key is defined at: evenly spaced on a logarithmic scale, so the plains get as much of the gradient as the high ranges. */
+const KEY_STOPS = [1, 5, 12, 25, 45, 75, 120, 190, 290, 430, 630, 900, 1250, 1700, 2250, 2900, 3700, 4700];
 
 /**
- * The height tint as a `color-relief` ramp, in crisp bands like layers of cut paper: nothing at
- * sea level (the elevation tiles are 0 m over the sea), a deeper shade on the lowest ground,
- * the country's plain colour around `pivot`, then paler band by band up to almost solid `peak`.
- * The scale is logarithmic: 20 m against 40 m shows as clearly as 2,000 m against 4,000 m.
- * Each band is a flat colour ending in a hard edge (two stops a centimetre apart) and, just
- * under that edge, the thin shadow of the layer above. All of it is computed per pixel from the
- * elevation, so the edges stay sharp however far the map is zoomed.
+ * The height key as a `color-relief` ramp (see gradient.ts): its red channel says how high the
+ * ground is — 0 the lowest ground, 0.5 the hills around `pivot`, 1 the highest peaks. The scale
+ * is logarithmic (20 m against 40 m shows as clearly as 2,000 m against 4,000 m) and smooth:
+ * a continuous gradient, no steps.
  */
-export function tintRamp(t: Look['tint']): ExpressionSpecification {
-  const k = t.strength;
-  const top = Math.log(TINT_BANDS[TINT_BANDS.length - 1]);
+export function keyRamp(): ExpressionSpecification {
+  const top = Math.log(KEY_STOPS[KEY_STOPS.length - 1]);
   const pivot = 0.6;
-  const peak = t.peak.split(',').map(Number);
-  const dark = t.low.split(',').map(Number);
-  const rgba = (c: number[], a: number) => `rgba(${c.map((v) => Math.round(v)).join(',')},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
-  /** Colour of a band, and of the shadow along its upper edge. */
-  const band = (metres: number): [string, string] => {
+  const level = (metres: number) => {
     const x = Math.max(0, Math.log(Math.max(1, metres)) / top);
-    if (x < pivot) {
-      const a = ((pivot - x) / pivot) ** 1.1 * 0.42 * k;
-      return [rgba(dark, a), rgba(dark, a + 0.13 * k)];
-    }
-    const a = ((x - pivot) / (1 - pivot)) ** 1.15 * 0.95 * k;
-    // The shadow on a pale band: the same veil, greyed toward the dark colour.
-    return [rgba(peak, a), rgba(peak.map((v, i) => v + (dark[i] - v) * 0.5), Math.max(a, 0.16 * k))];
+    const t = x < pivot ? 0.5 * (1 - ((pivot - x) / pivot) ** 1.1) : 0.5 + 0.5 * Math.min(1, (x - pivot) / (1 - pivot)) ** 1.15;
+    return Math.round(Math.max(0, Math.min(1, t)) * 255);
   };
-  const stops: (number | string)[] = [0, rgba(dark, 0)];
-  TINT_BANDS.forEach((from, i) => {
-    const to = TINT_BANDS[i + 1] ?? 9000;
-    // The band's colour is that of its (geometric) middle.
-    const [c, shadow] = band(Math.sqrt(from * to));
-    stops.push(from, c, from + (to - from) * 0.78, c, to - 0.01, shadow);
-  });
+  const stops: (number | string)[] = [0, 'rgb(0,0,0)'];
+  for (const m of KEY_STOPS) stops.push(m, `rgb(${level(m)},0,0)`);
   return ['interpolate', ['linear'], ['elevation'], ...stops] as unknown as ExpressionSpecification;
+}
+
+/** The three colours of a country's land from a single one: deeper lowlands, the colour itself, pale peaks. */
+export function autoGradient(base: string, t: Look['tint']): [string, string, string] {
+  const p = (h: string) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(h);
+    return m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : null;
+  };
+  const c = p(base);
+  if (!c) return [base, base, base];
+  const to = (target: string, k: number) => {
+    const g = target.split(',').map(Number);
+    return '#' + c.map((v, i) => Math.round(v + (g[i] - v) * Math.min(1, k)).toString(16).padStart(2, '0')).join('');
+  };
+  return [to(t.low, 0.42 * t.strength), base, to(t.peak, 0.94 * t.strength)];
 }
 
 /** A `color-relief` ramp from depth stops (any order). */
@@ -413,8 +410,53 @@ export function baseStyle(): StyleSpecification {
         source: 'regions',
         paint: { 'line-color': ['to-color', ['coalesce', ['feature-state', 'color'], '#ece6d3']], 'line-width': 0.7 },
       },
-      // Height tint: country colours deepen on the plains and fade to white on the peaks.
-      { id: 'height-tint', type: 'color-relief', source: 'dem-tint', paint: { 'color-relief-color': tintRamp(LOOKS.political.tint) } },
+      // The same land twice more, in each country's hill and peak colours (see gradient.ts).
+      {
+        id: 'region-fill-mid',
+        type: 'fill',
+        source: 'regions',
+        filter: ['!', ['to-boolean', ['get', 'polar']]],
+        paint: { 'fill-color': ['to-color', ['coalesce', ['feature-state', 'c1'], '#ece6d3']], 'fill-antialias': true },
+      },
+      {
+        // Regions reaching a pole: on the globe the anti-aliased outline would ring the polar cap.
+        id: 'region-fill-mid-polar',
+        type: 'fill',
+        source: 'regions',
+        filter: ['to-boolean', ['get', 'polar']],
+        paint: { 'fill-color': ['to-color', ['coalesce', ['feature-state', 'c1'], '#ece6d3']], 'fill-antialias': false },
+      },
+      {
+        // Hairline in the fill colour hides anti-aliasing seams between same-colour regions.
+        id: 'region-seam-mid',
+        type: 'line',
+        source: 'regions',
+        paint: { 'line-color': ['to-color', ['coalesce', ['feature-state', 'c1'], '#ece6d3']], 'line-width': 0.7 },
+      },
+      {
+        id: 'region-fill-high',
+        type: 'fill',
+        source: 'regions',
+        filter: ['!', ['to-boolean', ['get', 'polar']]],
+        paint: { 'fill-color': ['to-color', ['coalesce', ['feature-state', 'c2'], '#ece6d3']], 'fill-antialias': true },
+      },
+      {
+        // Regions reaching a pole: on the globe the anti-aliased outline would ring the polar cap.
+        id: 'region-fill-high-polar',
+        type: 'fill',
+        source: 'regions',
+        filter: ['to-boolean', ['get', 'polar']],
+        paint: { 'fill-color': ['to-color', ['coalesce', ['feature-state', 'c2'], '#ece6d3']], 'fill-antialias': false },
+      },
+      {
+        // Hairline in the fill colour hides anti-aliasing seams between same-colour regions.
+        id: 'region-seam-high',
+        type: 'line',
+        source: 'regions',
+        paint: { 'line-color': ['to-color', ['coalesce', ['feature-state', 'c2'], '#ece6d3']], 'line-width': 0.7 },
+      },
+      // The height key the three pictures of the land are blended by.
+      { id: 'height-key', type: 'color-relief', source: 'dem-tint', paint: { 'color-relief-color': keyRamp() } },
       // Occupied land: stripes in the occupier's colour (one pattern image per colour, see controller).
       { id: 'occupation', type: 'fill', source: 'occupied', paint: { 'fill-pattern': ['get', 'pat'], 'fill-opacity': 0.85 } },
       {

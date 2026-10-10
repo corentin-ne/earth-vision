@@ -85,6 +85,8 @@ interface Sidecar {
       fields?: Record<string, string>;
       overlord?: string;
       states?: Record<string, CountryState>;
+      colorMode?: Country['colorMode'];
+      gradient?: Country['gradient'];
       /** A label placed by hand. */
       label?: LngLat;
     }
@@ -389,8 +391,8 @@ function buildSidecar(doc: WorldDoc): Sidecar {
   const countries: NonNullable<Sidecar['countries']> = {};
   for (const c of Object.values(doc.countries)) {
     const states = c.states && Object.keys(c.states).length ? c.states : undefined;
-    if (c.notes || Object.keys(c.stats).length || Object.keys(c.fields).length || c.overlord || states || c.labelFixed)
-      countries[c.cid] = { notes: c.notes, stats: c.stats, fields: c.fields, overlord: c.overlord, states, label: c.labelFixed ? c.label : undefined };
+    if (c.notes || Object.keys(c.stats).length || Object.keys(c.fields).length || c.overlord || states || c.labelFixed || c.colorMode || c.gradient)
+      countries[c.cid] = { notes: c.notes, stats: c.stats, fields: c.fields, overlord: c.overlord, states, label: c.labelFixed ? c.label : undefined, colorMode: c.colorMode, gradient: c.gradient };
   }
   const regions: NonNullable<Sidecar['regions']> = {};
   const regionInfo: NonNullable<Sidecar['regionInfo']> = {};
@@ -436,6 +438,8 @@ function applySidecar(
     c.fields = { ...extra.fields, ...c.fields };
     if (extra.overlord && countries[extra.overlord]) c.overlord = extra.overlord;
     if (extra.states) c.states = extra.states;
+    if (extra.colorMode) c.colorMode = extra.colorMode;
+    if (extra.gradient?.length === 3) c.gradient = extra.gradient;
     if (extra.label) {
       c.label = extra.label;
       c.labelFixed = true;

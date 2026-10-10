@@ -47,6 +47,13 @@ export interface Country {
   label?: LngLat;
   /** The label was dragged into place: keep it there when the territory changes. */
   labelFixed?: boolean;
+  /**
+   * How its land is coloured: 'auto' shades `color` by height (the default), 'gradient' uses
+   * `gradient`, 'flag' takes the main colours of its flag.
+   */
+  colorMode?: 'auto' | 'gradient' | 'flag';
+  /** Lowest ground, hills, peaks. */
+  gradient?: [string, string, string];
   /** Country this one is a vassal / puppet of. */
   overlord?: string;
   /** Subdivisions, by key (regions point at them with `state`). */

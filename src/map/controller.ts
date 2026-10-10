@@ -4,7 +4,9 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection, Geometry, Point } from 'geojson';
 import type { Country, LngLat, Mark, Region } from '../types';
-import { LOOKS, baseStyle, asset, depthRamp, tintRamp, vivid, type Look } from './style';
+import { LOOKS, baseStyle, asset, depthRamp, autoGradient, vivid, type Look } from './style';
+import { GradientState, CopyLayer, ComposeLayer } from './gradient';
+import { flagColors, onFlagColors } from '../world/flagColors';
 import { WaterLayer, rgb } from './water';
 import { dropCuts } from './cuts';
 import {
@@ -22,11 +24,12 @@ import {
   updateCity,
   toast,
   mainBody,
+  flagUrlFor,
   type ChangeSet,
   type State,
 } from '../world/store';
 import { computeThematic, type ThematicResult } from '../world/thematic';
-import { addLand, addMark, moveLabel, newMarkId, updateMark, LINE_KINDS, LABEL_KINDS } from '../world/edits';
+import { addLand, addMark, moveLabel, newMarkId, updateMark, mix, LINE_KINDS, LABEL_KINDS } from '../world/edits';
 import { countryCurve } from './curves';
 import { syncOverlays, setOverlayWanted, overlayLayerIds } from './overlays';
 import { drawPin } from './pins';
@@ -41,6 +44,9 @@ const get = useWorld.getState;
 const fc = <G extends Feature['geometry']>(features: Feature<G>[]): FeatureCollection<G> => ({ type: 'FeatureCollection', features });
 
 const REGION_FILLS = ['region-fill', 'region-fill-polar'];
+/** The land drawn again in hill and peak colours, and the height key they are blended by (gradient.ts). */
+const GRADIENT_FILLS = ['region-fill-mid', 'region-fill-mid-polar', 'region-fill-high', 'region-fill-high-polar'];
+const GRADIENT_SEAMS = ['region-seam-mid', 'region-seam-high'];
 const MARK_LAYERS = ['mark-labels', 'mark-pins', 'mark-solid', 'mark-dash', 'mark-dot', 'mark-casing'];
 const LABEL_LAYERS = ['country-labels', 'country-flags', 'country-labels-curved'];
 
@@ -57,6 +63,9 @@ export class MapController {
   map: MLMap;
   private loaded = false;
   private regionColor = new Map<number, string>();
+  private gradient = new GradientState();
+  /** False when the blending layers could not be set up: countries then keep one flat colour. */
+  private gradientReady = false;
   private regionLabelKey = new Map<number, string>();
   private hovered: number | null = null;
   private selected = new Set<number>();
@@ -161,6 +170,16 @@ export class MapController {
     } catch (e) {
       console.warn('animated water unavailable', e);
     }
+    try {
+      this.map.addLayer(new CopyLayer(this.gradient, 0), 'region-fill-mid');
+      this.map.addLayer(new CopyLayer(this.gradient, 1), 'region-fill-high');
+      this.map.addLayer(new CopyLayer(this.gradient, 2), 'height-key');
+      this.map.addLayer(new ComposeLayer(this.gradient), 'occupation');
+      this.gradientReady = true;
+    } catch (e) {
+      console.warn('height colours unavailable', e);
+    }
+    this.unsubs.push(onFlagColors(() => this.recolorAll()));
     this.addOverlays();
     setOverlayWanted(() => get().doc?.overlays ?? []);
     this.loaded = true;
@@ -273,10 +292,18 @@ export class MapController {
     paint('relief', 'raster-brightness-max', L.reliefBrightness);
     paint('relief', 'raster-contrast', L.shade.contrast);
     paint('relief', 'raster-saturation', L.shade.contrast * 0.8);
-    for (const id of REGION_FILLS) paint(id, 'fill-opacity', L.fillOpacity);
+    // Height colours: the land in three colours blended by elevation. Just under 1 keeps the
+    // fills out of MapLibre's opaque pass, which would draw only the topmost of the three.
+    const grad = this.gradientOn();
+    this.gradient.enabled = grad;
+    for (const id of REGION_FILLS) paint(id, 'fill-opacity', grad ? 0.999 : L.fillOpacity);
+    for (const id of GRADIENT_FILLS) {
+      vis(id, grad);
+      paint(id, 'fill-opacity', 0.999);
+    }
     vis('region-seam', L.seam);
-    vis('height-tint', layers.heightTint && L.tint.strength > 0);
-    if (L.tint.strength > 0) paint('height-tint', 'color-relief-color', tintRamp(L.tint));
+    for (const id of GRADIENT_SEAMS) vis(id, grad && L.seam);
+    vis('height-key', grad);
     const lit = layers.shading && L.hillshade;
     vis('hillshade', lit && L.shade.main > 0);
     vis('hillshade-deep', lit && L.shade.deep > 0);
@@ -525,26 +552,48 @@ export class MapController {
     return !!get().thematic && !get().allianceView;
   }
 
-  private colorOf(cid: string, r?: Region): string {
-    const { doc, mapStyle, allianceView } = get();
+  /** Whether the land is drawn as gradients (else every country is one flat colour). */
+  private gradientOn() {
+    const { layers, mapStyle } = get();
+    const L = LOOKS[mapStyle];
+    return this.gradientReady && layers.heightTint && L.tint.strength > 0 && L.fillOpacity === 1 && !layers.terrain;
+  }
+
+  /** The colours of a region's land: lowest ground, hills, peaks. */
+  private colorsOf(cid: string, r?: Region): [string, string, string] {
+    const { doc, mapStyle, allianceView, layers } = get();
+    const L = LOOKS[mapStyle];
     const c = doc?.countries[cid];
+    const auto = (color: string) => autoGradient(color, L.tint);
     if (c && doc && this.thematicOn() && this.thematic) {
-      return (r && this.thematic.regionColor?.(r)) || this.thematic.colors[cid] || mute(c.color, mapStyle === 'night');
+      return auto((r && this.thematic.regionColor?.(r)) || this.thematic.colors[cid] || mute(c.color, mapStyle === 'night'));
     }
     if (c && allianceView && doc) {
       // Alliance view: members take their alliance's colour, everyone else fades to grey.
       const a = doc.alliances.find((x) => (allianceView === 'all' || x.id === allianceView) && x.members.includes(cid));
-      return a ? a.color : mute(c.color, mapStyle === 'night');
+      return auto(a ? a.color : mute(c.color, mapStyle === 'night'));
     }
-    if (c) return vivid(c.color, LOOKS[mapStyle].vivid);
-    const u = LOOKS[mapStyle].unclaimed;
-    return u ?? 'rgba(0,0,0,0)';
+    if (c) {
+      const mode = layers.flagColors ? 'flag' : c.colorMode ?? 'auto';
+      if (mode === 'gradient' && c.gradient) return c.gradient;
+      if (mode === 'flag') {
+        const f = flagColors(flagUrlFor(c, iso2));
+        if (f && f.length >= 2) return [f[0], f.length === 3 ? f[1] : mix(f[0], f[1], 0.5), f[f.length - 1]];
+        if (f?.length === 1) return auto(f[0]);
+      }
+      return auto(vivid(c.color, L.vivid));
+    }
+    const u = L.unclaimed ?? 'rgba(0,0,0,0)';
+    return [u, u, u];
   }
 
-  private setColor(id: number, color: string) {
-    if (this.regionColor.get(id) === color) return;
-    this.regionColor.set(id, color);
-    this.map.setFeatureState({ source: 'regions', id }, { color });
+  private setColor(id: number, [low, mid, high]: [string, string, string]) {
+    // Without gradients the one fill layer shows the country's own (hill) colour.
+    const color = this.gradient.enabled ? low : mid;
+    const key = `${color}|${mid}|${high}`;
+    if (this.regionColor.get(id) === key) return;
+    this.regionColor.set(id, key);
+    this.map.setFeatureState({ source: 'regions', id }, { color, c1: mid, c2: high });
   }
 
   private recolorAll() {
@@ -553,17 +602,17 @@ export class MapController {
     this.thematic = thematic && this.thematicOn() ? computeThematic(doc, thematic) : null;
     // Stripes take the occupier's colour as this look draws it.
     this.syncOccupation();
-    for (const r of Object.values(doc.regions)) this.setColor(r.id, this.colorOf(r.cid, r));
+    for (const r of Object.values(doc.regions)) this.setColor(r.id, this.colorsOf(r.cid, r));
   }
 
   private recolor(regionIds: Set<number>, countries: Set<string>) {
     const doc = get().doc!;
     for (const id of regionIds) {
       const r = doc.regions[id];
-      if (r) this.setColor(id, this.colorOf(r.cid, r));
+      if (r) this.setColor(id, this.colorsOf(r.cid, r));
     }
     if (countries.size) {
-      for (const r of Object.values(doc.regions)) if (countries.has(r.cid)) this.setColor(r.id, this.colorOf(r.cid, r));
+      for (const r of Object.values(doc.regions)) if (countries.has(r.cid)) this.setColor(r.id, this.colorsOf(r.cid, r));
     }
   }
 
