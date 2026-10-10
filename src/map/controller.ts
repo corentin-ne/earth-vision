@@ -37,7 +37,7 @@ import { loadIso2, iso2 } from '../world/flags';
 import { measureImage } from '../world/flagShape';
 import { loadBarriers, barriers, naturalOn } from '../geo/barriers';
 import { activeNatural, blocked, claimUpToNature, cutAlongNature, reachable, finishSnapLasso, snapLines } from '../world/natural';
-import { magnetize, paintLasso, paintStroke } from '../world/brush';
+import { magnetize, paintLasso, paintStroke, separateLasso } from '../world/brush';
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -77,7 +77,7 @@ export class MapController {
   private lastBorderRun = 0;
   private drawPts: LngLat[] = [];
   /** A loop being drawn around part of a border to snap (see natural.ts). */
-  private lasso: { pts: LngLat[]; last: [number, number]; paint?: boolean } | null = null;
+  private lasso: { pts: LngLat[]; last: [number, number]; purpose?: 'paint' | 'split' } | null = null;
   /** A "cut regions" brush stroke under way: the path swept, taken when the button is released. */
   private sweep: { pts: LngLat[]; last: [number, number]; r: number } | null = null;
   /** The paint stroke under way; `anchor` is the last brush spot not cut off by a river or crest. */
@@ -195,7 +195,7 @@ export class MapController {
         if (s.mapStyle !== p.mapStyle || s.layers !== p.layers || s.globe !== p.globe) this.applyLook();
         if (s.selection !== p.selection) this.syncSelection();
         if (s.docks !== p.docks) this.updatePadding();
-        if (s.tool !== p.tool) this.onToolChange(s, p);
+        if (s.tool !== p.tool || s.splitMode !== p.splitMode) this.onToolChange(s, p);
         if (s.tool !== p.tool || s.natural !== p.natural || s.snap !== p.snap) this.syncBarriers();
         if (s.snap?.drawing !== p.snap?.drawing) this.cancelLasso();
         if (s.allianceView !== p.allianceView) {
@@ -1157,6 +1157,7 @@ export class MapController {
       }
       this.centerOn(anchor);
     } else if (tool === 'split') {
+      if (get().splitMode === 'lasso') return;
       this.drawPts.push([e.lngLat.lng, e.lngLat.lat]);
       this.renderDraw();
     } else if (tool === 'draw') {
@@ -1226,7 +1227,7 @@ export class MapController {
       e.preventDefault();
       if (mode === 'lasso') {
         // A loop: everything inside goes to the brush's country when it is closed.
-        this.lasso = { pts: [[e.lngLat.lng, e.lngLat.lat]], last: [e.point.x, e.point.y], paint: true };
+        this.lasso = { pts: [[e.lngLat.lng, e.lngLat.lat]], last: [e.point.x, e.point.y], purpose: 'paint' };
         this.renderLasso();
         return;
       }
@@ -1257,6 +1258,10 @@ export class MapController {
         return;
       }
       this.paintAt(e.point.x, e.point.y);
+    } else if (tool === 'split' && get().splitMode === 'lasso') {
+      e.preventDefault();
+      this.lasso = { pts: [[e.lngLat.lng, e.lngLat.lat]], last: [e.point.x, e.point.y], purpose: 'split' };
+      this.renderLasso();
     } else if (tool === 'select') {
       // Names and pins can be dragged: remember what was pressed, the drag starts once it moves.
       const mark = this.markAtPoint(e.point, 2);
@@ -1296,9 +1301,10 @@ export class MapController {
       return;
     }
     if (this.lasso) {
-      const { pts, paint } = this.lasso;
+      const { pts, purpose } = this.lasso;
       this.cancelLasso();
-      if (paint) this.finishPaintLasso(pts);
+      if (purpose === 'paint') this.finishPaintLasso(pts);
+      else if (purpose === 'split') this.finishSplitLasso(pts);
       else finishSnapLasso(pts);
       return;
     }
@@ -1415,6 +1421,21 @@ export class MapController {
     this.src('draw')?.setData(fc([{ type: 'Feature', properties: { kind: 'sweep', w: s.r * 2, color }, geometry: { type: 'LineString', coordinates: pts } }]));
   }
 
+  /** A loop drawn with the Split tool: what it circles becomes regions of its own, selected. */
+  private finishSplitLasso(pts: LngLat[]) {
+    const doc = get().doc;
+    if (!doc) return;
+    if (pts.length < 4) return toast('Draw a loop around the land to separate');
+    const before = Object.keys(doc.regions).length;
+    const ids = separateLasso(pts);
+    const made = Object.keys(get().doc!.regions).length - before;
+    if (!ids.length) return toast('Nothing to separate in that loop');
+    const first = get().doc!.regions[ids[0]];
+    useWorld.setState({ tool: 'select' });
+    select({ cid: first?.cid || null, regions: ids, anchor: first ? [first.cx, first.cy] : undefined });
+    toast(made ? `Separated into ${ids.length} region${ids.length > 1 ? 's' : ''} — now selected` : `${ids.length} region${ids.length > 1 ? 's' : ''} selected (already separate)`, 'ok');
+  }
+
   /** A loop drawn with the lasso: its land goes to the brush's country. */
   private finishPaintLasso(pts: LngLat[]) {
     const { doc, brushCid, brushCut } = get();
@@ -1491,10 +1512,12 @@ export class MapController {
     if (s.tool !== 'paint') {
       this.onBrush?.(null);
       this.sweep = null;
-      if (this.lasso?.paint) this.cancelLasso();
+      if (this.lasso?.purpose === 'paint') this.cancelLasso();
     }
-    if (s.tool === 'paint') this.map.dragPan.disable();
+    // Tools that draw by dragging keep the map still.
+    if (s.tool === 'paint' || (s.tool === 'split' && s.splitMode === 'lasso')) this.map.dragPan.disable();
     else this.map.dragPan.enable();
+    if (s.splitMode !== p.splitMode) this.cancelDraw();
     this.setHover(null);
     this.map.getCanvas().style.cursor = s.tool === 'select' ? '' : 'crosshair';
   }

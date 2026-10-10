@@ -28,6 +28,9 @@ their code is kept under [`legacy/`](legacy/).
   rename it, move it to another country or make it a new country. `Shift`+click to select several
   regions, then give them away, merge them into one region or found a new country.
 - **Split** (`K`) regions along a line you draw; borders stay exact with the neighbours.
+  Or switch it to **Lasso** and circle an island, a peninsula or any piece of land: it becomes a
+  region of its own (an island comes off exactly along its shore), selected and ready for
+  *New country here*.
 - **Cities** (`C`): add, drag, rename, hide, set as capital.
 - Populations travel with the land: they are stored per region and summed per country.
 - Living water: the sea is coloured by the real sea-floor depth (pale shelves, deep trenches) and its

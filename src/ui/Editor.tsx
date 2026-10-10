@@ -266,6 +266,7 @@ function SplitHint() {
   const tool = useWorld((s) => s.tool);
   const sel = useWorld((s) => s.selection.regions.length);
   const drawKind = useWorld((s) => s.drawKind);
+  const splitMode = useWorld((s) => s.splitMode);
   const mobile = useMobile();
   const [n, setN] = useState(0);
   useEffect(() => drawBus.on(setN), []);
@@ -287,6 +288,13 @@ function SplitHint() {
     );
   }
   if (tool !== 'split') return null;
+  if (splitMode === 'lasso')
+    return (
+      <div className="split-hint">
+        <Icon name="lasso" size={16} />
+        <span>{mobile ? 'Draw a loop around the land to separate.' : 'Drag a loop around an island or any piece of land: it becomes its own region.'}</span>
+      </div>
+    );
   const target = sel ? 'the selected region' + (sel > 1 ? 's' : '') : 'the region(s) to cut';
   return (
     <div className="split-hint">
@@ -326,6 +334,13 @@ function TopBar({ onHome }: { onHome: () => void }) {
     setMenu(false);
     exportWorld(kind);
   };
+  const [tools, setTools] = useState(false);
+  const toolsRef = useRef<HTMLDivElement>(null);
+  useOutside(toolsRef, tools, useCallback(() => setTools(false), []));
+  const tool = (f: () => void) => () => {
+    setTools(false);
+    f();
+  };
 
   return (
     <header className="topbar glass">
@@ -343,21 +358,46 @@ function TopBar({ onHome }: { onHome: () => void }) {
       </button>
       <div className="sep" />
       <Search />
-      <button className="icon-btn hide-phone" onClick={surprise} title="Surprise me: visit a random country (R)">
-        <Icon name="dice" />
-      </button>
-      <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ statsOpen: true })} title="Statistics: rankings & comparisons (S)">
-        <Icon name="chart" />
-      </button>
-      <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ dataOpen: true })} title="Data layers: reefs, peaks, earthquakes… (O)">
-        <Icon name="database" />
-      </button>
-      <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ findOpen: true })} title="Find & replace (Ctrl+H)">
-        <Icon name="replace" />
-      </button>
-      <button className="icon-btn" onClick={() => useWorld.setState({ advancedOpen: true })} title="Advanced: population, heal borders, colours… (A)">
-        <Icon name="tune" />
-      </button>
+      <div className="menu-wrap" ref={toolsRef}>
+        <button className={'icon-btn' + (tools ? ' on' : '')} onClick={() => setTools(!tools)} title="Tools: statistics, data layers, find & replace, advanced…">
+          <Icon name="tune" />
+        </button>
+        {tools && (
+          <div className="menu glass">
+            <div className="menu-label">This world</div>
+            <button onClick={tool(() => useWorld.setState({ statsOpen: true }))}>
+              <Icon name="chart" size={15} /> <span className="grow">Statistics</span>
+              <kbd>S</kbd>
+            </button>
+            <button onClick={tool(() => useWorld.setState({ galleryOpen: true }))}>
+              <Icon name="flag" size={15} /> <span className="grow">Flags of the world</span>
+              <kbd>F</kbd>
+            </button>
+            <button onClick={tool(surprise)}>
+              <Icon name="dice" size={15} /> <span className="grow">Visit a random country</span>
+              <kbd>R</kbd>
+            </button>
+            <div className="menu-label">Edit</div>
+            <button onClick={tool(() => useWorld.setState({ findOpen: true }))}>
+              <Icon name="replace" size={15} /> <span className="grow">Find & replace</span>
+              <kbd>Ctrl H</kbd>
+            </button>
+            <button onClick={tool(() => useWorld.setState({ advancedOpen: true }))}>
+              <Icon name="heal" size={15} /> <span className="grow">Advanced tools</span>
+              <kbd>A</kbd>
+            </button>
+            <div className="menu-label">Map</div>
+            <button onClick={tool(() => useWorld.setState({ dataOpen: true }))}>
+              <Icon name="database" size={15} /> <span className="grow">Data layers</span>
+              <kbd>O</kbd>
+            </button>
+            <button className="hide-phone" onClick={tool(() => useWorld.setState({ help: true }))}>
+              <Icon name="keyboard" size={15} /> <span className="grow">Keyboard shortcuts</span>
+              <kbd>?</kbd>
+            </button>
+          </div>
+        )}
+      </div>
       <div className="menu-wrap" ref={menuRef}>
         <button className={'icon-btn' + (menu ? ' on' : '')} onClick={() => setMenu(!menu)} title="Export">
           <Icon name="download" />
@@ -625,6 +665,30 @@ function ToolButtons({ bare }: { bare?: boolean }) {
   );
 }
 
+/** The Split tool's two ways: a line across regions, or a loop around what should come off. */
+function SplitModes({ compact }: { compact?: boolean }) {
+  const mode = useWorld((s) => s.splitMode);
+  return (
+    <div className="split-modes">
+      <div className="segmented">
+        <button className={mode === 'line' ? 'on' : ''} onClick={() => useWorld.setState({ splitMode: 'line' })}>
+          <Icon name="knife" size={14} /> Line
+        </button>
+        <button className={mode === 'lasso' ? 'on' : ''} onClick={() => useWorld.setState({ splitMode: 'lasso' })}>
+          <Icon name="lasso" size={14} /> Lasso
+        </button>
+      </div>
+      {!compact && (
+        <p className="hint">
+          {mode === 'line'
+            ? 'Draw a line across a region to cut it in two.'
+            : 'Circle an island, a peninsula or any piece of land: it becomes a region of its own, selected — ready to become a country.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 const BRUSH_MODES = [
   ['paint', 'brush', 'Brush'],
   ['lasso', 'lasso', 'Lasso'],
@@ -695,6 +759,11 @@ function DesktopToolDock() {
           <Icon name="plus" size={14} /> Multi-select
         </button>
       )}
+      {tool === 'split' && (
+        <div className="brush glass">
+          <SplitModes />
+        </div>
+      )}
       {tool === 'city' && (
         <div className="brush glass">
           <p className="hint">Click the map to place a city · drag a city to move it · click one to edit it</p>
@@ -739,6 +808,11 @@ function PhoneDock() {
               <Icon name="plus" size={14} /> Multi-select
             </button>
           )}
+          {tool === 'split' && (
+            <div className="phone-brush glass">
+              <SplitModes compact />
+            </div>
+          )}
           {tool === 'city' && <div className="phone-hint glass">Tap to place a city · drag one to move it</div>}
           {tool === 'draw' && (
             <div className="phone-brush glass">
@@ -778,18 +852,6 @@ function PhoneDock() {
               </button>
               <button onClick={pick(() => (allianceView ? useWorld.setState({ allianceView: null }) : viewAlliance('all')))}>
                 <Icon name="shield" size={16} /> <span className="grow">{allianceView ? 'Hide alliances' : 'Show alliances'}</span>
-              </button>
-              <button onClick={pick(surprise)}>
-                <Icon name="dice" size={16} /> <span className="grow">Surprise me</span>
-              </button>
-              <button onClick={pick(() => useWorld.setState({ statsOpen: true }))}>
-                <Icon name="chart" size={16} /> <span className="grow">Statistics</span>
-              </button>
-              <button onClick={pick(() => useWorld.setState({ dataOpen: true }))}>
-                <Icon name="database" size={16} /> <span className="grow">Data layers</span>
-              </button>
-              <button onClick={pick(() => useWorld.setState({ findOpen: true }))}>
-                <Icon name="replace" size={16} /> <span className="grow">Find & replace</span>
               </button>
               <button onClick={pick(() => useWorld.setState({ posterOpen: true }))}>
                 <Icon name="frame" size={16} /> <span className="grow">Poster</span>
@@ -866,12 +928,24 @@ function NaturalBorders() {
   const natural = useWorld((s) => s.natural);
   const on = naturalOn(natural);
   const setRivers = (rivers: RiverLevel) => useWorld.setState({ natural: { ...natural, rivers } });
+  const [open, setOpen] = useState(on);
+  const summary = on ? [natural.rivers === 'major' ? 'big rivers' : natural.rivers === 'all' ? 'all rivers' : null, natural.crests ? 'crests' : null].filter(Boolean).join(' + ') : 'off';
+  if (!open)
+    return (
+      <button className={'natural folded' + (on ? ' on' : '')} onClick={() => setOpen(true)} title="Stop the brush at rivers and mountain crests (N)">
+        <Icon name="river" size={15} />
+        <span className="grow">Natural borders</span>
+        <small>{summary}</small>
+        <Icon name="chevronDown" size={14} />
+      </button>
+    );
   return (
     <div className={'natural' + (on ? ' on' : '')}>
-      <div className="natural-head">
+      <button className="natural-head" onClick={() => setOpen(false)}>
         <span className="grow">Stop at natural borders</span>
         <kbd>N</kbd>
-      </div>
+        <Icon name="chevronDown" size={14} className="chev up" />
+      </button>
       <div className="natural-row">
         <Icon name="river" size={15} />
         <span className="grow">Rivers</span>
@@ -1226,26 +1300,46 @@ const STYLES: { id: MapStyleId; label: string; desc: string }[] = [
   { id: 'night', label: 'Night', desc: 'Dark, for screenshots' },
 ];
 
-const LAYER_LABELS: [keyof Layers, string][] = [
-  ['countryLabels', 'Country names'],
-  ['flags', 'Flags'],
-  ['regionBorders', 'Region borders'],
-  ['regionLabels', 'Region names'],
-  ['cities', 'Cities'],
-  ['water', 'Seas & lakes names'],
-  ['relief', 'Terrain relief'],
-  ['heightTint', 'Height colours (white peaks)'],
-  ['flagColors', 'Flag colours for every country'],
-  ['shading', 'Hill shading'],
-  ['terrain', '3D mountains'],
-  ['waves', 'Animated water'],
-  ['rivers', 'Rivers'],
-  ['urban', 'Urban areas'],
-  ['graticule', 'Graticule'],
-  ['curvedLabels', 'Curved country names'],
-  ['marks', 'Roads, routes, names & pins'],
-  ['occupation', 'Occupied land (stripes)'],
-  ['stateBorders', 'State borders'],
+const LAYER_GROUPS: [string, [keyof Layers, string][]][] = [
+  [
+    'Names',
+    [
+      ['countryLabels', 'Country names'],
+      ['flags', 'Flags'],
+      ['curvedLabels', 'Curved country names'],
+      ['regionLabels', 'Region names'],
+      ['cities', 'Cities'],
+      ['water', 'Seas & lakes names'],
+    ],
+  ],
+  [
+    'Borders & drawings',
+    [
+      ['regionBorders', 'Region borders'],
+      ['stateBorders', 'State borders'],
+      ['occupation', 'Occupied land (stripes)'],
+      ['marks', 'Roads, routes, names & pins'],
+    ],
+  ],
+  [
+    'Land',
+    [
+      ['heightTint', 'Height colours (white peaks)'],
+      ['flagColors', 'Flag colours for every country'],
+      ['shading', 'Hill shading'],
+      ['relief', 'Terrain relief (Atlas)'],
+      ['terrain', '3D mountains'],
+    ],
+  ],
+  [
+    'Water & extras',
+    [
+      ['waves', 'Animated water'],
+      ['rivers', 'Rivers'],
+      ['urban', 'Urban areas'],
+      ['graticule', 'Graticule'],
+    ],
+  ],
 ];
 
 function LayersPanel() {
@@ -1276,12 +1370,6 @@ function LayersPanel() {
         <button className="icon-btn" onClick={enterZen} title="Hide the tools, just the map (H)">
           <Icon name="eyeOff" />
         </button>
-        <button className="icon-btn" onClick={() => useWorld.setState({ dataOpen: true })} title="Data layers: reefs, peaks, earthquakes… (O)">
-          <Icon name="database" />
-        </button>
-        <button className="icon-btn hide-phone" onClick={() => useWorld.setState({ help: true })} title="Keyboard shortcuts (?)">
-          <Icon name="keyboard" />
-        </button>
       </div>
       {open && (
         <div className="layers-pop glass">
@@ -1296,16 +1384,31 @@ function LayersPanel() {
           </div>
           <div className="menu-label">Colour the map by</div>
           <ThematicPicker />
-          <div className="menu-label">Show on the map</div>
-          <div className="toggles">
-            {LAYER_LABELS.map(([k, label]) => (
-              <label key={k} className="toggle">
-                <input type="checkbox" checked={layers[k]} onChange={(e) => useWorld.setState({ layers: { ...layers, [k]: e.target.checked } })} />
-                <span className="switch" />
-                {label}
-              </label>
+          <div className="layer-groups">
+            {LAYER_GROUPS.map(([title, items]) => (
+              <div key={title} className="layer-group">
+                <div className="menu-label">{title}</div>
+                <div className="toggles">
+                  {items.map(([k, label]) => (
+                    <label key={k} className="toggle">
+                      <input type="checkbox" checked={layers[k]} onChange={(e) => useWorld.setState({ layers: { ...layers, [k]: e.target.checked } })} />
+                      <span className="switch" />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
+          <button
+            className="btn small layer-data"
+            onClick={() => {
+              setOpen(false);
+              useWorld.setState({ dataOpen: true });
+            }}
+          >
+            <Icon name="database" size={14} /> Data layers: reefs, peaks, earthquakes…
+          </button>
         </div>
       )}
     </div>

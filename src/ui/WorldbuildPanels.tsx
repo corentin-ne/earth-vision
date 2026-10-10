@@ -439,20 +439,41 @@ export const DRAW_KINDS: { id: DrawKind; icon: IconName; label: string; hint: st
   { id: 'pin', icon: 'pin', label: 'Pin', hint: 'Click to pin a battle, a treaty, ruins, a temple…' },
 ];
 
+const DRAW_GROUPS: [string, DrawKind[]][] = [
+  ['Land', ['land']],
+  ['Lines', ['road', 'rail', 'route', 'sea', 'front', 'border']],
+  ['Places', ['label', 'pin']],
+];
+
 export function DrawOptions({ compact }: { compact?: boolean }) {
   const kind = useWorld((s) => s.drawKind);
   const landCid = useWorld((s) => s.landCid);
   const cur = DRAW_KINDS.find((k) => k.id === kind)!;
   return (
     <div className={'draw-opts' + (compact ? ' compact' : '')}>
-      <div className="draw-kinds">
-        {DRAW_KINDS.map((k) => (
-          <button key={k.id} className={kind === k.id ? 'on' : ''} onClick={() => useWorld.setState({ drawKind: k.id })} title={k.label}>
-            <Icon name={k.icon} size={15} />
-            {!compact && <span>{k.label}</span>}
-          </button>
-        ))}
-      </div>
+      {compact ? (
+        <div className="draw-kinds">
+          {DRAW_KINDS.map((k) => (
+            <button key={k.id} className={kind === k.id ? 'on' : ''} onClick={() => useWorld.setState({ drawKind: k.id })} title={k.label}>
+              <Icon name={k.icon} size={15} />
+            </button>
+          ))}
+        </div>
+      ) : (
+        DRAW_GROUPS.map(([title, ids]) => (
+          <div key={title} className="draw-group">
+            <small>{title}</small>
+            <div className="draw-kinds">
+              {DRAW_KINDS.filter((k) => ids.includes(k.id)).map((k) => (
+                <button key={k.id} className={kind === k.id ? 'on' : ''} onClick={() => useWorld.setState({ drawKind: k.id })} title={k.hint}>
+                  <Icon name={k.icon} size={15} />
+                  <span>{k.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))
+      )}
       {kind === 'land' && (
         <div className="brush-row">
           <span>For</span>

@@ -64,12 +64,6 @@ export function WorldPanel() {
           <button className="btn primary" onClick={() => setNewName('')}>
             <Icon name="plus" size={15} /> New country
           </button>
-          <button className="btn" onClick={() => useWorld.setState({ galleryOpen: true })} title="All flags (F)">
-            <Icon name="flag" size={15} /> Flags
-          </button>
-          <button className="btn" onClick={() => useWorld.setState({ advancedOpen: true })} title="Advanced tools (A)">
-            <Icon name="tune" size={15} /> Advanced
-          </button>
         </div>
       ) : (
         <div className="callout row">

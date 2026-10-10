@@ -28,42 +28,70 @@ const toGeom = (g: Geom): RegionGeom | null => {
 
 const asGeom = (g: RegionGeom) => (g.type === 'Polygon' ? [g.coordinates] : g.coordinates) as Geom;
 
+/** How much of each separate part (mainland, islands…) of a region lies inside the shape. */
+function partShares(g: RegionGeom, shape: Geom): number[] {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  return polys.map((p) => {
+    const part = toGeom(intersection([p] as Geom, shape));
+    return part ? geomArea(part) / (geomArea({ type: 'Polygon', coordinates: p }) || 1) : 0;
+  });
+}
+
 /**
- * Gives the land inside `shape` (one or more polygons, as polyclip geometry) to country `cid`.
- * With `cut`, regions the edge runs through are split and only the inside part changes hands;
- * without, a region goes whole when most of it (or its middle) is inside. One undo step.
- * Returns how many regions (or parts) changed hands.
+ * The land inside `shape` (one or more polygons, as polyclip geometry): given to country `cid`,
+ * or, with `separate`, only split off as regions of its own (same owner). With `cut`, regions
+ * the edge runs through are split and only the inside part counts; without, a region counts
+ * whole when most of it (or its middle) is inside. Whole islands of a region come off exactly,
+ * along their own outline. One undo step. Returns the regions (or new parts) inside.
  */
-export function takeShape(shape: Geom, cid: string, opts: { cut: boolean; label?: string } = { cut: true }): number {
+export function takeShape(shape: Geom, cid: string, opts: { cut: boolean; label?: string; separate?: boolean } = { cut: true }): number[] {
   const { doc, geoms } = get();
-  if (!doc) return 0;
+  if (!doc) return [];
   const shapeGeom = toGeom(shape);
-  if (!shapeGeom) return 0;
+  if (!shapeGeom) return [];
   const box = bbox(shapeGeom);
   const group = `shape:${Date.now()}`;
-  const label = opts.label ?? `Paint ${doc.countries[cid]?.name ?? 'unclaimed'}`;
+  const label = opts.label ?? (opts.separate ? 'Separate into a region' : `Paint ${doc.countries[cid]?.name ?? 'unclaimed'}`);
   const inside = (p: LngLat) => pointInGeom(p, shapeGeom);
   const whole: number[] = [];
   const toCut: number[] = [];
+  /** Regions whose inside is made of whole parts (islands): split without clipping. */
+  const islands = new Map<number, boolean[]>();
   for (const id of regionsInBox(box)) {
     const r = doc.regions[id];
     const g = geoms[id];
-    if (!r || !g || r.cid === cid) continue;
-    let share: number;
+    if (!r || !g || (!opts.separate && r.cid === cid)) continue;
+    let shares: number[];
     try {
-      const part = toGeom(intersection(asGeom(g), shape));
-      share = part ? geomArea(part) / (geomArea(g) || 1) : 0;
+      shares = partShares(g, shape);
     } catch {
       continue;
     }
-    if (share >= WHOLE || (!opts.cut && (share > 0.5 || (share > 0.2 && inside([r.cx, r.cy]))))) whole.push(id);
-    else if (opts.cut && share > NOTHING) toCut.push(id);
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    const areas = polys.map((p) => geomArea({ type: 'Polygon', coordinates: p }));
+    const total = areas.reduce((a, b) => a + b, 0) || 1;
+    const share = shares.reduce((t, sh, i) => t + sh * areas[i], 0) / total;
+    const inPart = shares.map((sh) => sh >= 0.995);
+    const partial = shares.some((sh) => sh > 0.005 && sh < 0.995);
+    if (share >= WHOLE || (!opts.cut && !inPart.some(Boolean) && (share > 0.5 || (share > 0.2 && inside([r.cx, r.cy]))))) whole.push(id);
+    else if (!partial && inPart.some(Boolean)) {
+      // Some parts wholly inside, the rest wholly outside: an island circled.
+      islands.set(id, inPart);
+      toCut.push(id);
+    } else if (opts.cut && share > NOTHING) toCut.push(id);
   }
   // The pieces inside the shape, once the regions on its edge have been cut along it.
   const insidePieces = new Set<RegionGeom>();
+  const multi = (ps: Position[][][]): RegionGeom => (ps.length === 1 ? { type: 'Polygon', coordinates: ps[0] } : { type: 'MultiPolygon', coordinates: ps });
   const cut = cutRegions(
     toCut,
-    (g) => {
+    (g, r) => {
+      const isl = islands.get(r.id);
+      if (isl && g.type === 'MultiPolygon' && g.coordinates.length === isl.length) {
+        const a = multi(g.coordinates.filter((_, i) => isl[i]));
+        insidePieces.add(a);
+        return [multi(g.coordinates.filter((_, i) => !isl[i])), a];
+      }
       try {
         const a = toGeom(intersection(asGeom(g), shape));
         const b = toGeom(difference(asGeom(g), shape));
@@ -88,15 +116,25 @@ export function takeShape(shape: Geom, cid: string, opts: { cut: boolean; label?
       // identity, with the label point as a fallback (shapes are repaired on the way in).
       if (g && r && (insidePieces.has(g) || inside([r.cx, r.cy]))) taken.push(pid);
     }
-  const n = taken.length ? transferRegions(taken, cid, { group, label }) : 0;
+  if (!opts.separate && taken.length) transferRegions(taken, cid, { group, label });
   endGroup();
-  return n;
+  return opts.separate ? taken : taken.filter((id) => get().doc!.regions[id]?.cid === cid);
+}
+
+/**
+ * What a loop drawn with the Split tool circles becomes regions of its own: an island comes off
+ * the region it belonged to, anything else is cut along the loop. Ownership does not change.
+ * Returns the regions inside the loop (to select them).
+ */
+export function separateLasso(loop: LngLat[]): number[] {
+  if (loop.length < 3) return [];
+  return takeShape([[closed(loop)]] as Geom, '', { cut: true, separate: true });
 }
 
 /** The land inside a loop drawn on the map. */
 export function paintLasso(loop: LngLat[], cid: string, cut: boolean): number {
   if (loop.length < 3) return 0;
-  return takeShape([[closed(loop)]] as Geom, cid, { cut });
+  return takeShape([[closed(loop)]] as Geom, cid, { cut }).length;
 }
 
 /**
@@ -141,7 +179,7 @@ export function strokeShape(path: LngLat[], radius: number): Geom | null {
 /** The land a round brush swept, cut out of the regions it only partly covered. */
 export function paintStroke(path: LngLat[], radius: number, cid: string): number {
   const shape = strokeShape(path, radius);
-  return shape ? takeShape(shape, cid, { cut: true }) : 0;
+  return shape ? takeShape(shape, cid, { cut: true }).length : 0;
 }
 
 /**

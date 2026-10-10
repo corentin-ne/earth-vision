@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Polygon } from 'geojson';
 import type { LngLat, WorldBundle } from '../src/types';
 import { useWorld, loadWorld, undo, engine, countryAggregates } from '../src/world/store';
-import { paintLasso, paintStroke, strokeShape } from '../src/world/brush';
+import { paintLasso, paintStroke, separateLasso, strokeShape } from '../src/world/brush';
 import { Coastline, snapCoasts } from '../src/geo/coast';
 import { geomIssues } from '../src/geo/repair';
 import { geomArea } from '../src/geo/engine';
@@ -73,6 +73,47 @@ describe('lasso', () => {
     const island = Object.values(doc().regions).find((r) => r.cid === 'AAA' && r.id > 1)!;
     expect(geomArea(geoms()[island.id]) / geomArea(sq(0, 0))).toBeCloseTo(0.16, 2);
     for (const g of Object.values(geoms())) expect(geomIssues(g)).toEqual([]);
+  });
+});
+
+describe('separating with the lasso', () => {
+  it('takes a circled island off its region, exactly and without changing its owner', () => {
+    // Region 2 gets an island out at sea.
+    const b = world();
+    const island = sq(4, 0.2, 0.5).coordinates;
+    b.geoms[2] = { type: 'MultiPolygon', coordinates: [sq(1, 0).coordinates, island] } as never;
+    loadWorld(b);
+    const ids = separateLasso([[3.8, 0], [4.8, 0], [4.8, 1], [3.8, 1]]);
+    expect(ids.length).toBe(1);
+    const r = doc().regions[ids[0]];
+    expect(r.cid).toBe('BBB');
+    expect(ids[0]).not.toBe(2);
+    // The island's own outline, untouched; the mainland is a plain polygon again.
+    expect(geoms()[ids[0]]).toEqual({ type: 'Polygon', coordinates: island });
+    expect(geoms()[2].type).toBe('Polygon');
+    expect(r.area + doc().regions[2].area).toBeCloseTo(12000, 6);
+    undo();
+    expect(geoms()[2].type).toBe('MultiPolygon');
+  });
+
+  it('cuts a peninsula off along the loop, and just reports regions already separate', () => {
+    loadWorld(world());
+    const cut = separateLasso([[1.5, -0.1], [2.1, -0.1], [2.1, 0.6], [1.5, 0.6]]);
+    expect(cut.length).toBe(1);
+    expect(Object.keys(doc().regions).length).toBe(5);
+    expect(doc().regions[cut[0]].cid).toBe('BBB');
+    const whole = separateLasso([[-0.1, 0.996], [1.004, 0.996], [1.004, 2.1], [-0.1, 2.1]]);
+    expect(whole).toEqual([1]);
+    expect(Object.keys(doc().regions).length).toBe(5);
+  });
+
+  it('lets a plain lasso take just an island', () => {
+    const b = world();
+    b.geoms[2] = { type: 'MultiPolygon', coordinates: [sq(1, 0).coordinates, sq(4, 0.2, 0.5).coordinates] } as never;
+    loadWorld(b);
+    expect(paintLasso([[3.8, 0], [4.8, 0], [4.8, 1], [3.8, 1]], 'AAA', false)).toBe(1);
+    expect(doc().regions[2].cid).toBe('BBB');
+    expect(Object.values(doc().regions).filter((r) => r.cid === 'AAA').length).toBe(3);
   });
 });
 

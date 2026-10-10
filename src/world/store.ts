@@ -115,6 +115,8 @@ export interface State {
   layersOpen: boolean;
   /** Touch-friendly stand-ins for Alt+click (pick) and Ctrl+click (whole country) while painting. */
   brushMode: 'paint' | 'lasso' | 'pick' | 'whole';
+  /** The Split tool cuts along a line, or separates what a loop circles into its own region. */
+  splitMode: 'line' | 'lasso';
   /** Brush and lasso take only the land they cover, cutting the regions on their edge. */
   brushCut: boolean;
   /** Touch-friendly stand-in for Shift+click: clicks add regions to the selection. */
@@ -216,6 +218,7 @@ export const useWorld = create<State>(() => ({
   help: false,
   layersOpen: false,
   brushMode: 'paint',
+  splitMode: 'line',
   brushCut: prefs.brushCut ?? false,
   multiSelect: false,
   advancedOpen: false,

@@ -53,6 +53,10 @@
 - [x] Coasts: flat lowest ground (no dark blotches), snap coasts to the detailed coastline
 - [x] Brush: lasso, cut regions (brush and lasso take only what they cover), lasso clings to rivers
 
+## Done (2.18)
+- [x] Interfaces reorganised: one Tools menu, grouped layers, country page in tabs, folded brush options
+- [x] Split tool lasso: circle land to make it its own region
+
 ## Next
 - [ ] Timeline: snapshots of a world over the years, with an animated playback / video export
 - [ ] Wars & events: front lines and battles tied to dates on the timeline
