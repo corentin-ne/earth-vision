@@ -647,8 +647,10 @@ export function baseStyle(): StyleSpecification {
         paint: { 'line-color': ['coalesce', ['get', 'color'], '#ff2d55'], 'line-width': ['get', 'w'], 'line-opacity': 0.45 },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
-      { id: 'draw-fill', type: 'fill', source: 'draw', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#ff2d55', 'fill-opacity': 0.15 } },
-      { id: 'draw-line', type: 'line', source: 'draw', filter: ['all', ['match', ['geometry-type'], ['LineString', 'Polygon'], true, false], ['!=', ['get', 'kind'], 'sweep']], paint: { 'line-color': '#ff2d55', 'line-width': 2.5, 'line-dasharray': [2, 1] } },
+      { id: 'draw-fill', type: 'fill', source: 'draw', filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['!=', ['get', 'kind'], 'claim']], paint: { 'fill-color': '#ff2d55', 'fill-opacity': 0.15 } },
+      // Draw to claim: the loop under way, in the claiming country's colour.
+      { id: 'draw-claim', type: 'fill', source: 'draw', filter: ['==', ['get', 'kind'], 'claim'], paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.55 } },
+      { id: 'draw-line', type: 'line', source: 'draw', filter: ['all', ['match', ['geometry-type'], ['LineString', 'Polygon'], true, false], ['!=', ['get', 'kind'], 'sweep'], ['!=', ['get', 'kind'], 'claim']], paint: { 'line-color': '#ff2d55', 'line-width': 2.5, 'line-dasharray': [2, 1] } },
       {
         id: 'draw-points',
         type: 'circle',

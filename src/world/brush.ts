@@ -7,6 +7,7 @@ import { bbox, geomArea, pointInGeom } from '../geo/engine';
 import { snapTo } from '../geo/split';
 import { barriers, naturalOn } from '../geo/barriers';
 import { useWorld, cutRegions, transferRegions, regionsInBox, endGroup } from './store';
+import { addLand } from './edits';
 
 const get = useWorld.getState;
 
@@ -44,13 +45,13 @@ function partShares(g: RegionGeom, shape: Geom): number[] {
  * whole when most of it (or its middle) is inside. Whole islands of a region come off exactly,
  * along their own outline. One undo step. Returns the regions (or new parts) inside.
  */
-export function takeShape(shape: Geom, cid: string, opts: { cut: boolean; label?: string; separate?: boolean } = { cut: true }): number[] {
+export function takeShape(shape: Geom, cid: string, opts: { cut: boolean; label?: string; separate?: boolean; group?: string; countries?: boolean } = { cut: true }): number[] {
   const { doc, geoms } = get();
   if (!doc) return [];
   const shapeGeom = toGeom(shape);
   if (!shapeGeom) return [];
   const box = bbox(shapeGeom);
-  const group = `shape:${Date.now()}`;
+  const group = opts.group ?? `shape:${Date.now()}`;
   const label = opts.label ?? (opts.separate ? 'Separate into a region' : `Paint ${doc.countries[cid]?.name ?? 'unclaimed'}`);
   const inside = (p: LngLat) => pointInGeom(p, shapeGeom);
   const whole: number[] = [];
@@ -116,8 +117,14 @@ export function takeShape(shape: Geom, cid: string, opts: { cut: boolean; label?
       // identity, with the label point as a fallback (shapes are repaired on the way in).
       if (g && r && (insidePieces.has(g) || inside([r.cx, r.cy]))) taken.push(pid);
     }
+  if (opts.countries) {
+    // Whole countries: everything the owners of the land inside hold.
+    const owners = new Set(taken.map((id) => get().doc!.regions[id]?.cid).filter((c) => c && c !== cid));
+    const have = new Set(taken);
+    for (const r of Object.values(get().doc!.regions)) if (owners.has(r.cid) && !have.has(r.id)) taken.push(r.id);
+  }
   if (!opts.separate && taken.length) transferRegions(taken, cid, { group, label });
-  endGroup();
+  if (!opts.group) endGroup();
   return opts.separate ? taken : taken.filter((id) => get().doc!.regions[id]?.cid === cid);
 }
 
@@ -131,10 +138,25 @@ export function separateLasso(loop: LngLat[]): number[] {
   return takeShape([[closed(loop)]] as Geom, '', { cut: true, separate: true });
 }
 
-/** The land inside a loop drawn on the map. */
-export function paintLasso(loop: LngLat[], cid: string, cut: boolean): number {
+export type LassoClaim = 'exact' | 'regions' | 'countries';
+
+/**
+ * Draw to claim: what a loop drawn on the map gives to country `cid`. 'exact' is the drawn
+ * shape itself (regions on its edge are cut), 'regions' every region mostly inside, 'countries'
+ * the whole of every country with land inside. With `sea`, the part of the loop over the sea
+ * becomes new land of the country too. One undo step. Returns how many regions changed hands
+ * or were raised.
+ */
+export function paintLasso(loop: LngLat[], cid: string, claim: LassoClaim | boolean = 'exact', sea = false): number {
   if (loop.length < 3) return 0;
-  return takeShape([[closed(loop)]] as Geom, cid, { cut }).length;
+  // (A boolean is the old "cut regions" switch.)
+  const mode: LassoClaim = claim === true ? 'exact' : claim === false ? 'regions' : claim;
+  const group = `lasso:${Date.now()}`;
+  const label = `${get().doc?.countries[cid]?.name ?? 'Unclaimed land'} claims the drawn land`;
+  let n = takeShape([[closed(loop)]] as Geom, cid, { cut: mode === 'exact', countries: mode === 'countries', group, label }).length;
+  if (sea && addLand(loop, cid, { group, quiet: true, label }) != null) n++;
+  endGroup();
+  return n;
 }
 
 /**

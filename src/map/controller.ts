@@ -1438,7 +1438,7 @@ export class MapController {
 
   /** A loop drawn with the lasso: its land goes to the brush's country. */
   private finishPaintLasso(pts: LngLat[]) {
-    const { doc, brushCid, brushCut } = get();
+    const { doc, brushCid, lassoClaim, lassoSea } = get();
     if (!doc) return;
     if (pts.length < 4) return toast('Draw a loop around the land to take');
     if (brushCid && !doc.countries[brushCid]) return toast('Pick a country to paint with first', 'error');
@@ -1446,14 +1446,24 @@ export class MapController {
     const a = this.map.unproject([0, 0]);
     const b = this.map.unproject([0, 10]);
     const loop = activeNatural() ? magnetize(pts, Math.abs(a.lat - b.lat)) : pts;
-    const n = paintLasso(loop, brushCid, brushCut);
-    if (!n) toast(brushCut ? 'Nothing to take in that loop' : 'No region lies mostly in that loop — turn on “Cut regions” to take parts');
+    const n = paintLasso(loop, brushCid, lassoClaim, lassoSea);
+    const who = doc.countries[brushCid]?.name ?? 'Unclaimed land';
+    if (n) toast(`${who} takes ${n} ${lassoClaim === 'exact' ? 'piece' : 'region'}${n > 1 ? 's' : ''} of land · Ctrl+Z to undo`, 'ok');
+    if (!n) toast(lassoClaim === 'exact' ? 'Nothing to take in that loop' : 'No region lies mostly in that loop — choose “Exact shape” to take parts');
   }
 
   /** The loop so far, closed back to where it started. */
   private renderLasso() {
     const pts = this.lasso?.pts ?? [];
-    this.src('draw')?.setData(fc(pts.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [...pts, pts[0]] } }] : []));
+    const features: Feature[] = [];
+    if (pts.length > 1) features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [...pts, pts[0]] } });
+    // Draw to claim: the loop fills with the colour of the country that will take it.
+    if (this.lasso?.purpose === 'paint' && pts.length > 2) {
+      const c = get().doc?.countries[get().brushCid];
+      const color = c ? vivid(c.color, LOOKS[get().mapStyle].vivid) : '#ffffff';
+      features.push({ type: 'Feature', properties: { kind: 'claim', color }, geometry: { type: 'Polygon', coordinates: [[...pts, pts[0]]] } });
+    }
+    this.src('draw')?.setData(fc(features));
   }
 
   private cancelLasso() {

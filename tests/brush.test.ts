@@ -166,3 +166,29 @@ describe('snap to coast', () => {
     expect(snapCoasts({ 0: sq(0, 0) }, coast)).toEqual({});
   });
 });
+
+describe('draw to claim', () => {
+  beforeEach(() => loadWorld(world()));
+
+  it('takes whole countries when asked', () => {
+    // A small loop in one corner of BBB.
+    expect(paintLasso([[1.6, 0.1], [1.9, 0.1], [1.9, 0.4], [1.6, 0.4]], 'AAA', 'countries')).toBe(0);
+    // Region 2 mostly circled: the whole of BBB follows.
+    const n = paintLasso([[0.99, -0.1], [2.1, -0.1], [2.1, 1.01], [0.99, 1.01]], 'AAA', 'countries');
+    expect(n).toBe(2);
+    expect(Object.values(doc().regions).every((r) => r.cid === 'AAA')).toBe(true);
+  });
+
+  it('claims land and sea in one undo step', () => {
+    // Half over region 2, half out at sea to the east.
+    const n = paintLasso([[1.5, 0.2], [2.6, 0.2], [2.6, 0.8], [1.5, 0.8]], 'AAA', 'exact', true);
+    expect(n).toBe(2);
+    expect(Object.keys(doc().regions).length).toBe(6);
+    const agg = countryAggregates(doc());
+    expect(agg.AAA.regions).toBe(4);
+    for (const g of Object.values(geoms())) expect(geomIssues(g)).toEqual([]);
+    undo();
+    expect(Object.keys(doc().regions).length).toBe(4);
+    expect(doc().regions[2].cid).toBe('BBB');
+  });
+});

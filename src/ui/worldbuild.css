@@ -695,3 +695,74 @@ button.natural-head {
 .layers-pop .style-preview {
   aspect-ratio: 2 / 1;
 }
+
+/* Draw to claim (lasso) */
+.lasso-claim {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lasso-claim > small {
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.lasso-claim .segmented {
+  margin: 0;
+}
+
+.claim-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.claim-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px 7px;
+  border-radius: 12px;
+  background: var(--fill-1);
+  border: 1px solid transparent;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.claim-card:hover {
+  background: var(--fill-2);
+}
+.claim-card.on {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+.claim-card svg {
+  width: 100%;
+  max-width: 66px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.claim-card .ca-grid {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1;
+}
+.claim-card .ca-take {
+  fill: var(--claim);
+  opacity: 0.9;
+}
+.claim-card .ca-loop {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.3;
+  stroke-dasharray: 2.5 2;
+}
+.claim-card .ca-border {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 1.8;
+}
+.lasso-claim .hint {
+  margin: 0;
+}

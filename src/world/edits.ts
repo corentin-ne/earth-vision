@@ -202,13 +202,17 @@ export function realmOf(cid: string): string {
 
 // ── New land, deleting regions ───────────────────────────────────────────────
 
-/** Turns a drawn outline into a new region (the part that isn't land yet), owned by `cid`. */
-export function addLand(outline: LngLat[], cid: string): number | null {
+/**
+ * Turns a drawn outline into a new region (the part that isn't land yet), owned by `cid`.
+ * `quiet` neither selects it nor complains when the outline is all land; `group` makes it
+ * part of a larger undo step.
+ */
+export function addLand(outline: LngLat[], cid: string, opts: { group?: string; quiet?: boolean; label?: string } = {}): number | null {
   const { doc, geoms } = get();
   if (!doc) return null;
   const carved = carveLand(outline, geoms);
   if (!carved) {
-    toast('Draw the outline over the sea: this is land already', 'error');
+    if (!opts.quiet) toast('Draw the outline over the sea: this is land already', 'error');
     return null;
   }
   const id = nextRegionId();
@@ -218,8 +222,8 @@ export function addLand(outline: LngLat[], cid: string): number | null {
     geoms: { ...carved.neighbours, [id]: carved.geom },
     regions: { [id]: { id, name: newLandName(), cid: owner, area: geomArea(carved.geom), cx: lp[0], cy: lp[1] } },
   };
-  commit(`Raise new land${owner ? ` for ${doc.countries[owner].name}` : ''}`, patch);
-  select({ cid: owner || null, regions: [id] });
+  commit(opts.label ?? `Raise new land${owner ? ` for ${doc.countries[owner].name}` : ''}`, patch, { group: opts.group });
+  if (!opts.quiet) select({ cid: owner || null, regions: [id] });
   return id;
 }
 

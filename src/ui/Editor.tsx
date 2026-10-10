@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type MouseEvent as ReactMouseEvent, type RefObject } from 'react';
 import { MapController, setMapCtl, mapCtl } from '../map/controller';
 import {
   useWorld,
@@ -696,7 +696,67 @@ const BRUSH_MODES = [
   ['whole', 'flag', 'Country'],
 ] as const;
 
-/** Brush and lasso take only the land they cover, cutting the regions on their edge. */
+/** Tiny pictures of what each way of claiming takes: a grid of regions, and the part that changes hands. */
+const CLAIM_ART: Record<'exact' | 'regions' | 'countries', ReactNode> = {
+  exact: (
+    <>
+      <path d="M2 2h40v26H2z M16 2v26 M29 2v26 M2 15h40" className="ca-grid" />
+      <path d="M12 9c5-5 14-4 19 0s4 12-2 14-13 2-17-3-4-7 0-11z" className="ca-take" />
+    </>
+  ),
+  regions: (
+    <>
+      <path d="M16 2h13v13H16z M16 15h13v13H16z" className="ca-take" />
+      <path d="M2 2h40v26H2z M16 2v26 M29 2v26 M2 15h40" className="ca-grid" />
+      <path d="M12 9c5-5 14-4 19 0s4 12-2 14-13 2-17-3-4-7 0-11z" className="ca-loop" />
+    </>
+  ),
+  countries: (
+    <>
+      <path d="M2 2h27v26H2z" className="ca-take" />
+      <path d="M2 2h40v26H2z M16 2v26 M2 15h27" className="ca-grid" />
+      <path d="M29 2v26" className="ca-border" />
+      <path d="M12 12c2-3 6-3 8 0s1 6-2 7-6 0-7-3 0-3 1-4z" className="ca-loop" />
+    </>
+  ),
+};
+
+const CLAIMS = [
+  ['exact', 'Exact shape', 'Just what you draw. Regions on the edge are cut.'],
+  ['regions', 'Regions', 'Every region mostly inside the loop, whole.'],
+  ['countries', 'Countries', 'All of each country you circle a part of.'],
+] as const;
+
+/** Draw to claim: what the lasso takes, shown as three picture cards. */
+function LassoClaim() {
+  const claim = useWorld((s) => s.lassoClaim);
+  const sea = useWorld((s) => s.lassoSea);
+  const color = useWorld((s) => s.doc?.countries[s.brushCid]?.color ?? '#9aa4b6');
+  const current = CLAIMS.find(([v]) => v === claim)!;
+  return (
+    <div className="lasso-claim" style={{ '--claim': color } as CSSProperties}>
+      <small>Draw to claim</small>
+      <div className="claim-cards">
+        {CLAIMS.map(([v, label, desc]) => (
+          <button key={v} className={'claim-card' + (claim === v ? ' on' : '')} onClick={() => useWorld.setState({ lassoClaim: v })} title={desc}>
+            <svg viewBox="0 0 44 30" aria-hidden>
+              {CLAIM_ART[v]}
+            </svg>
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+      <p className="hint">{current[2]} An island circled comes off whole.</p>
+      <label className="toggle" title="The part of the loop over the sea becomes new land of the country">
+        <input type="checkbox" checked={sea} onChange={(e) => useWorld.setState({ lassoSea: e.target.checked })} />
+        <span className="switch" />
+        <Icon name="island" size={15} /> Sea too: raise new land where the loop is over water
+      </label>
+    </div>
+  );
+}
+
+/** The brush takes only the land it covers, cutting the regions on its edge. */
 function CutToggle() {
   const cut = useWorld((s) => s.brushCut);
   const mode = useWorld((s) => s.brushMode);
@@ -743,7 +803,7 @@ function DesktopToolDock() {
               <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
             </label>
           )}
-          <CutToggle />
+          {brushMode === 'lasso' ? <LassoClaim /> : <CutToggle />}
           <NaturalBorders />
           <p className="hint">
             {brushMode === 'lasso' ? 'Draw a loop around the land to take' : 'Drag to paint'} · <kbd>Alt</kbd>+click picks a country · <kbd>Ctrl</kbd>+click takes a whole country · hold <kbd>Space</kbd> to pan
@@ -915,7 +975,7 @@ function PhoneBrush() {
               <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
             </label>
           )}
-          <CutToggle />
+          {brushMode === 'lasso' ? <LassoClaim /> : <CutToggle />}
           <NaturalBorders />
         </>
       )}

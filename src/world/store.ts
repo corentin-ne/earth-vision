@@ -117,6 +117,10 @@ export interface State {
   brushMode: 'paint' | 'lasso' | 'pick' | 'whole';
   /** The Split tool cuts along a line, or separates what a loop circles into its own region. */
   splitMode: 'line' | 'lasso';
+  /** Draw to claim: what a paint lasso takes — the drawn shape, the regions in it, or whole countries. */
+  lassoClaim: 'exact' | 'regions' | 'countries';
+  /** The part of a paint lasso over the sea becomes new land of the country. */
+  lassoSea: boolean;
   /** Brush and lasso take only the land they cover, cutting the regions on their edge. */
   brushCut: boolean;
   /** Touch-friendly stand-in for Shift+click: clicks add regions to the selection. */
@@ -219,6 +223,8 @@ export const useWorld = create<State>(() => ({
   layersOpen: false,
   brushMode: 'paint',
   splitMode: 'line',
+  lassoClaim: 'exact',
+  lassoSea: false,
   brushCut: prefs.brushCut ?? false,
   multiSelect: false,
   advancedOpen: false,

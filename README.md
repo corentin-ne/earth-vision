@@ -19,7 +19,11 @@ their code is kept under [`legacy/`](legacy/).
   below; pin any world as the main one, rename, duplicate, export or delete it.
 - **Paint** regions into a country by dragging (`B`): adjustable brush, `Alt`+click to pick a country,
   `Ctrl`+click to take a whole country, hold `Space` to pan. One stroke = one undo step.
-  A **lasso** takes everything inside a loop you draw. With **Cut regions** on, the brush (at its
+  **Draw to claim** with the **lasso**: draw any shape and it fills with the country's colour as
+  you go. Choose what it takes — the *exact shape* (regions on its edge are cut, so a country can
+  push into another along any line you like), the *regions* inside, or whole *countries* — and
+  whether the part over the sea becomes new land. Circling an island takes just the island.
+  A lasso takes everything inside a loop you draw. With **Cut regions** on, the brush (at its
   pixel size) and the lasso take only the land they cover: regions on the edge are cut in two, so
   you can claim half a province or carve an enclave. With natural borders on, a lasso drawn along
   a river or crest clings to it.
