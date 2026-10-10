@@ -480,8 +480,12 @@ function SaveBadge() {
   useEffect(() => onSaveState(setPending), []);
   return (
     <span className={'save-badge' + (pending ? ' pending' : '')} title={pending ? 'Saving…' : 'All changes saved in this browser'}>
-      {pending ? <span className="save-dot" /> : <Icon name="check" size={13} />}
-      <span className="hide-phone">{pending ? 'Saving' : 'Saved'}</span>
+      {/* Both states take the same room, so nothing beside the badge moves when it flips. */}
+      <span className="save-icon">{pending ? <span className="save-dot" /> : <Icon name="check" size={13} />}</span>
+      <span className="save-label hide-phone">
+        <span aria-hidden={!pending}>Saving</span>
+        <span aria-hidden={pending}>Saved</span>
+      </span>
     </span>
   );
 }

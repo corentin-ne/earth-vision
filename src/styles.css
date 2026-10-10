@@ -2254,6 +2254,25 @@ input.num-field {
 .save-badge.pending {
   color: var(--muted);
 }
+.save-icon {
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+/* The two words share one cell: the badge is always as wide as the longer one. */
+.save-label {
+  display: inline-grid;
+}
+.save-label > span {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+.save-badge.pending .save-label > span:first-child,
+.save-badge:not(.pending) .save-label > span:last-child {
+  visibility: visible;
+}
 .save-dot {
   width: 7px;
   height: 7px;
