@@ -1155,36 +1155,34 @@ function SelectionBubble() {
   useEffect(() => {
     const map = mapCtl?.map;
     if (!map || !anchor) return;
-    let raf = 0;
+    let lastX = NaN;
+    let lastY = NaN;
+    let lastHidden: boolean | null = null;
+    // Placed in the map's own render pass, at sub-pixel precision: the bubble moves in the very
+    // frame the map does. (Waiting for the next animation frame, and rounding to whole pixels,
+    // is what made it trail and judder.)
     const place = () => {
-      raf = 0;
       const el = ref.current;
       if (!el) return;
       const p = map.project(anchor);
       const c = map.getContainer();
       // Hidden when its spot is off screen or on the far side of the globe.
       const hidden = p.x < 0 || p.y < 0 || p.x > c.clientWidth || p.y > c.clientHeight || farSide(map.getCenter(), anchor, useWorld.getState().globe);
-      el.style.visibility = hidden ? 'hidden' : '';
-      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
-    };
-    const queue = () => (raf ||= requestAnimationFrame(place));
-    // While the map moves the bubble fades away, and comes back in place when it stops:
-    // following the map frame by frame always lagged a little and looked jerky.
-    const hide = () => ref.current?.classList.add('moving');
-    const show = () => {
-      place();
-      ref.current?.classList.remove('moving');
+      if (hidden !== lastHidden) {
+        el.style.visibility = hidden ? 'hidden' : '';
+        lastHidden = hidden;
+      }
+      if (p.x === lastX && p.y === lastY) return;
+      lastX = p.x;
+      lastY = p.y;
+      el.style.transform = `translate3d(${p.x.toFixed(2)}px, ${p.y.toFixed(2)}px, 0)`;
     };
     place();
-    if (map.isMoving()) hide();
-    map.on('movestart', hide);
-    map.on('moveend', show);
-    map.on('resize', queue);
+    map.on('render', place);
+    map.on('resize', place);
     return () => {
-      map.off('movestart', hide);
-      map.off('moveend', show);
-      map.off('resize', queue);
-      cancelAnimationFrame(raf);
+      map.off('render', place);
+      map.off('resize', place);
     };
   }, [anchor, view?.key]);
   if (!view || details || (tool !== 'select' && tool !== 'city' && tool !== 'draw')) return null;
