@@ -77,8 +77,8 @@ export interface Look {
 
 export const LOOKS: Record<MapStyleId, Look> = {
   political: {
-    ocean: '#4f93cf',
-    depth: [[0, '#c9f0f2'], [-40, '#a8e2ee'], [-160, '#86cdea'], [-700, '#6bb6e2'], [-2500, '#5aa5d9'], [-5000, '#4f98d1'], [-8000, '#4389c6']],
+    ocean: '#86b3d6',
+    depth: [[0, '#e3f1f5'], [-40, '#d0e7f0'], [-160, '#bcdaea'], [-700, '#a7cce2'], [-2500, '#98c0db'], [-5000, '#8bb5d4'], [-8000, '#7faacb']],
     water: { light: '#ffffff', shade: '#1d4f7a', strength: 0.5 },
     landBase: '#e8e2d0',
     unclaimed: null,
@@ -86,16 +86,16 @@ export const LOOKS: Record<MapStyleId, Look> = {
     seam: true,
     reliefBrightness: 1,
     hillshade: true,
-    shade: { main: 1, deep: 0.7, shadow: 'rgba(38,16,52,0.62)', highlight: 'rgba(255,236,170,0.6)', contrast: 0.12 },
-    tint: { strength: 1, low: '30,10,40', peak: '255,250,236' },
-    vivid: 1,
+    shade: { main: 0.95, deep: 0.75, shadow: 'rgba(8,14,26,0.5)', highlight: 'rgba(255,255,255,0.22)', contrast: 0.12 },
+    tint: { strength: 1, low: '8,14,26', peak: '250,250,247' },
+    vivid: 0.7,
     veil: 0,
     graticule: 'rgba(40,70,110,0.08)',
     countryBorder: '#2b2b3d',
     countryBorderOpacity: 0.85,
     countryBorderWidth: 1.1,
-    regionBorder: 'rgba(255,255,255,0.6)',
-    coast: 'rgba(40,80,120,0.55)',
+    regionBorder: 'rgba(255,255,255,0.32)',
+    coast: 'rgba(30,50,80,0.5)',
     coastGlow: 'rgba(240,250,255,0.75)',
     coastShadow: 'rgba(16,48,92,0.32)',
     lake: '#c9e4f4',
@@ -120,8 +120,8 @@ export const LOOKS: Record<MapStyleId, Look> = {
     seam: false,
     reliefBrightness: 1,
     hillshade: true,
-    shade: { main: 0.85, deep: 0.6, shadow: 'rgba(40,30,20,0.55)', highlight: 'rgba(255,253,242,0.4)', contrast: 0.22 },
-    tint: { strength: 0.45, low: '18,46,30', peak: '255,255,255' },
+    shade: { main: 0.85, deep: 0.6, shadow: 'rgba(14,16,22,0.45)', highlight: 'rgba(255,255,255,0.2)', contrast: 0.22 },
+    tint: { strength: 0.45, low: '14,16,22', peak: '255,255,255' },
     vivid: 0.6,
     veil: 0,
     graticule: 'rgba(0,0,0,0.06)',
@@ -235,8 +235,8 @@ export function vivid(hex: string, k: number): string {
   let h = 0;
   if (d) h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
   // Greys stay grey; everything else gains saturation, and light colours come down toward mid-tones.
-  if (sat > 0.04) sat = Math.min(0.82, sat + (1 - sat) * 0.3 * k);
-  l = l - Math.max(0, l - 0.46) * 0.62 * k;
+  if (sat > 0.04) sat = Math.min(0.66, sat * (1 + 0.15 * k));
+  l = l - Math.max(0, l - 0.5) * 0.72 * k;
   const c = (1 - Math.abs(2 * l - 1)) * sat;
   const x = c * (1 - Math.abs((h % 2) - 1));
   const [r1, g1, b1] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
@@ -255,8 +255,8 @@ export function tintRamp(t: Look['tint']): ExpressionSpecification {
   const c = (rgb: string, a: number) => `rgba(${rgb},${Math.min(1, a * k).toFixed(3)})`;
   const stops: [number, string][] = [
     [0, c(t.low, 0)],
-    [2, c(t.low, 0.26)],
-    [120, c(t.low, 0.14)],
+    [2, c(t.low, 0.1)],
+    [120, c(t.low, 0.05)],
     [350, c(t.low, 0)],
     [351, c(t.peak, 0)],
     [800, c(t.peak, 0.2)],
@@ -474,7 +474,7 @@ export function baseStyle(): StyleSpecification {
         type: 'line',
         source: 'borders-country',
         minzoom: 3,
-        paint: { 'line-color': 'rgba(255,255,255,0.6)', 'line-width': zoomWidth(3), 'line-opacity': 0.5 },
+        paint: { 'line-color': 'rgba(255,255,255,0.6)', 'line-width': zoomWidth(2.4), 'line-opacity': 0.22 },
         layout: { 'line-join': 'round', 'line-cap': 'round' },
       },
       {
