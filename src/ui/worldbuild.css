@@ -766,3 +766,15 @@ button.natural-head {
 .lasso-claim .hint {
   margin: 0;
 }
+
+/* The selection bubble steps aside while the map moves. */
+.sel-bubble-anchor {
+  transition: opacity 0.22s ease-out;
+}
+.sel-bubble-anchor.moving {
+  opacity: 0;
+  transition: opacity 0.1s ease-in;
+}
+.sel-bubble-anchor.moving .sel-bubble {
+  pointer-events: none;
+}

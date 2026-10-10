@@ -53,9 +53,9 @@ their code is kept under [`legacy/`](legacy/).
   them in one click; *Cut at rivers & crests* on a region page cuts it without painting.
 - **Alliances**: found one, name and colour it, add or remove members (world panel or a country's
   page); the shield button (`U`) colours the map by alliance, outlines each one and greys out the rest.
-- **Regions first**: a click on the map selects the region under it (its page shows the country it
-  belongs to); a second click, or *Part of …*, opens the whole country. Clicking a country's name
-  selects that country.
+- **Country first, then region**: a click on the map selects the country under it; a click inside
+  the selected country picks the region (its page shows *Part of …*), and a click on that region
+  again goes back to the country. Clicking a country's name selects that country.
 - **Lore** on every country, region, city and pin, with `[[links]]`: write `[[France]]` or
   `[[Paris|the capital]]` and it becomes a link to it (suggestions appear as you type); pages list
   where they are *mentioned*.

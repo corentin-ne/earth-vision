@@ -1036,6 +1036,9 @@ export class MapController {
     });
     m.on('mouseup', () => this.onUp());
     m.on('touchend', () => this.onUp());
+    // A gesture the system takes over (notification shade, app switch…) ends without a touchend:
+    // whatever was under way is finished all the same, so panning is never left switched off.
+    m.on('touchcancel', () => this.onUp());
     m.on('touchmove', (e) => {
       if (this.lasso && e.points.length === 1) this.extendLasso(e as unknown as MapMouseEvent);
       else if (this.sweep && e.points.length === 1) {
@@ -1149,10 +1152,14 @@ export class MapController {
         const ids = selection.regions.includes(rid) ? selection.regions.filter((x) => x !== rid) : [...selection.regions, rid];
         select({ cid: selection.cid ?? (r.cid || null), regions: ids, anchor });
         return;
+      } else if (r.cid && doc.countries[r.cid] && selection.cid !== r.cid) {
+        // First click on a country: the country.
+        select({ cid: r.cid, regions: [], anchor });
       } else if (selection.regions.length === 1 && selection.regions[0] === rid) {
-        // Second click on the same region: back to the whole country.
+        // Again on the region already picked: back to the whole country.
         select({ cid: r.cid || null, regions: [], anchor });
       } else {
+        // A click inside the selected country (or on unclaimed land): the region.
         select({ cid: r.cid || null, regions: [rid], anchor });
       }
       this.centerOn(anchor);
@@ -1263,6 +1270,9 @@ export class MapController {
       this.lasso = { pts: [[e.lngLat.lng, e.lngLat.lat]], last: [e.point.x, e.point.y], purpose: 'split' };
       this.renderLasso();
     } else if (tool === 'select') {
+      // A finger on the map pans it, whatever is under it: on a phone a name or a pin lies under
+      // almost every touch, and dragging those instead made the map feel stuck.
+      if (oe && 'touches' in oe) return;
       // Names and pins can be dragged: remember what was pressed, the drag starts once it moves.
       const mark = this.markAtPoint(e.point, 2);
       const m = mark ? doc.marks?.[mark] : null;

@@ -1164,11 +1164,21 @@ function SelectionBubble() {
       el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
     };
     const queue = () => (raf ||= requestAnimationFrame(place));
+    // While the map moves the bubble fades away, and comes back in place when it stops:
+    // following the map frame by frame always lagged a little and looked jerky.
+    const hide = () => ref.current?.classList.add('moving');
+    const show = () => {
+      place();
+      ref.current?.classList.remove('moving');
+    };
     place();
-    map.on('move', queue);
+    if (map.isMoving()) hide();
+    map.on('movestart', hide);
+    map.on('moveend', show);
     map.on('resize', queue);
     return () => {
-      map.off('move', queue);
+      map.off('movestart', hide);
+      map.off('moveend', show);
       map.off('resize', queue);
       cancelAnimationFrame(raf);
     };
