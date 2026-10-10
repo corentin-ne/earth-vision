@@ -48,6 +48,8 @@ export interface Look {
    * peaks fading to `peak` — one colour per country becomes a gradient that follows the land.
    */
   tint: { strength: number; low: string; peak: string };
+  /** How much richer the country colours are drawn than they are stored (0 = as picked). */
+  vivid: number;
   /** Darkening veil drawn over the land, for the night look. */
   veil: number;
   graticule: string;
@@ -75,8 +77,8 @@ export interface Look {
 
 export const LOOKS: Record<MapStyleId, Look> = {
   political: {
-    ocean: '#7fb0d8',
-    depth: [[0, '#d3eef4'], [-40, '#bfe4f1'], [-160, '#a9d6ec'], [-700, '#93c6e4'], [-2500, '#84b9de'], [-5000, '#77acd6'], [-8000, '#6a9fcd']],
+    ocean: '#4f93cf',
+    depth: [[0, '#c9f0f2'], [-40, '#a8e2ee'], [-160, '#86cdea'], [-700, '#6bb6e2'], [-2500, '#5aa5d9'], [-5000, '#4f98d1'], [-8000, '#4389c6']],
     water: { light: '#ffffff', shade: '#1d4f7a', strength: 0.5 },
     landBase: '#e8e2d0',
     unclaimed: null,
@@ -84,8 +86,9 @@ export const LOOKS: Record<MapStyleId, Look> = {
     seam: true,
     reliefBrightness: 1,
     hillshade: true,
-    shade: { main: 1, deep: 0.65, shadow: 'rgba(22,26,56,0.6)', highlight: 'rgba(255,251,236,0.55)', contrast: 0.12 },
-    tint: { strength: 1, low: '18,46,30', peak: '255,253,246' },
+    shade: { main: 1, deep: 0.7, shadow: 'rgba(38,16,52,0.62)', highlight: 'rgba(255,236,170,0.6)', contrast: 0.12 },
+    tint: { strength: 1, low: '30,10,40', peak: '255,250,236' },
+    vivid: 1,
     veil: 0,
     graticule: 'rgba(40,70,110,0.08)',
     countryBorder: '#2b2b3d',
@@ -119,6 +122,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
     hillshade: true,
     shade: { main: 0.85, deep: 0.6, shadow: 'rgba(40,30,20,0.55)', highlight: 'rgba(255,253,242,0.4)', contrast: 0.22 },
     tint: { strength: 0.45, low: '18,46,30', peak: '255,255,255' },
+    vivid: 0.6,
     veil: 0,
     graticule: 'rgba(0,0,0,0.06)',
     countryBorder: 'rgb(179,1,158)',
@@ -152,6 +156,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
     hillshade: false,
     shade: { main: 0, deep: 0, shadow: 'rgba(0,0,0,0)', highlight: 'rgba(0,0,0,0)', contrast: 0 },
     tint: { strength: 0, low: '0,0,0', peak: '255,255,255' },
+    vivid: 0,
     veil: 0,
     graticule: 'rgba(0,0,0,0.05)',
     countryBorder: '#171717',
@@ -185,6 +190,7 @@ export const LOOKS: Record<MapStyleId, Look> = {
     hillshade: true,
     shade: { main: 1, deep: 0.7, shadow: 'rgba(0,2,12,0.8)', highlight: 'rgba(150,190,255,0.28)', contrast: 0.1 },
     tint: { strength: 0.7, low: '0,4,16', peak: '200,225,255' },
+    vivid: 0.8,
     veil: 0.58,
     graticule: 'rgba(160,190,255,0.07)',
     countryBorder: '#e9ecff',
@@ -207,6 +213,37 @@ export const LOOKS: Record<MapStyleId, Look> = {
     selection: '#ffcc00',
   },
 };
+
+const vividCache = new Map<string, string>();
+/**
+ * A stored colour as the map draws it: more saturated and a little deeper, so pastel palettes
+ * come out rich under the shading (the stored colour, and every swatch, stay as picked).
+ */
+export function vivid(hex: string, k: number): string {
+  if (k <= 0) return hex;
+  const key = hex + k;
+  const hit = vividCache.get(key);
+  if (hit) return hit;
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let l = (max + min) / 2;
+  const d = max - min;
+  let sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d) h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  // Greys stay grey; everything else gains saturation, and light colours come down toward mid-tones.
+  if (sat > 0.04) sat = Math.min(0.82, sat + (1 - sat) * 0.3 * k);
+  l = l - Math.max(0, l - 0.46) * 0.62 * k;
+  const c = (1 - Math.abs(2 * l - 1)) * sat;
+  const x = c * (1 - Math.abs((h % 2) - 1));
+  const [r1, g1, b1] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
+  const out = '#' + [r1, g1, b1].map((v) => Math.round((v + l - c / 2) * 255).toString(16).padStart(2, '0')).join('');
+  vividCache.set(key, out);
+  return out;
+}
 
 /**
  * The height tint as a `color-relief` ramp: nothing at sea level (the elevation tiles are 0 m

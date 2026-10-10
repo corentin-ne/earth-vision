@@ -4,7 +4,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection, Geometry, Point } from 'geojson';
 import type { Country, LngLat, Mark, Region } from '../types';
-import { LOOKS, baseStyle, asset, depthRamp, tintRamp, type Look } from './style';
+import { LOOKS, baseStyle, asset, depthRamp, tintRamp, vivid, type Look } from './style';
 import { WaterLayer, rgb } from './water';
 import { dropCuts } from './cuts';
 import {
@@ -536,7 +536,7 @@ export class MapController {
       const a = doc.alliances.find((x) => (allianceView === 'all' || x.id === allianceView) && x.members.includes(cid));
       return a ? a.color : mute(c.color, mapStyle === 'night');
     }
-    if (c) return c.color;
+    if (c) return vivid(c.color, LOOKS[mapStyle].vivid);
     const u = LOOKS[mapStyle].unclaimed;
     return u ?? 'rgba(0,0,0,0)';
   }
@@ -551,6 +551,8 @@ export class MapController {
     const { doc, thematic } = get();
     if (!doc || !this.loaded) return;
     this.thematic = thematic && this.thematicOn() ? computeThematic(doc, thematic) : null;
+    // Stripes take the occupier's colour as this look draws it.
+    this.syncOccupation();
     for (const r of Object.values(doc.regions)) this.setColor(r.id, this.colorOf(r.cid, r));
   }
 
@@ -717,7 +719,7 @@ export class MapController {
     const features: Feature[] = [];
     for (const r of Object.values(doc.regions)) {
       if (!r.occ || !geoms[r.id]) continue;
-      const color = doc.countries[r.occ]?.color ?? '#888888';
+      const color = vivid(doc.countries[r.occ]?.color ?? '#888888', LOOKS[get().mapStyle].vivid);
       features.push({ type: 'Feature', properties: { pat: this.hatch(color) }, geometry: geoms[r.id] });
     }
     this.src('occupied')?.setData(fc(features));
