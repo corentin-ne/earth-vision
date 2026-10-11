@@ -1099,14 +1099,14 @@ export class MapController {
       }
       return;
     }
-    if ((tool === 'split' || tool === 'draw') && this.drawPts.length) {
+    if ((tool === 'split' || tool === 'draw' || tool === 'measure') && this.drawPts.length) {
       this.renderDraw([e.lngLat.lng, e.lngLat.lat]);
     }
     const mark = tool === 'select' ? this.markAtPoint(e.point) : null;
     const label = tool === 'select' && !mark ? this.labelAtPoint(e.point) : null;
     const city = tool !== 'paint' && tool !== 'draw' && !mark ? this.cityAtPoint(e.point) : null;
     const region = city == null && !mark ? this.regionAtPoint(e.point) : null;
-    this.setHover(tool === 'split' || tool === 'draw' || mark || label ? null : region);
+    this.setHover(tool === 'split' || tool === 'draw' || tool === 'measure' || mark || label ? null : region);
     this.map.getCanvas().style.cursor =
       tool === 'select' ? (mark || label ? 'move' : city != null || region != null ? 'pointer' : '') : tool === 'city' ? (city != null ? 'move' : 'copy') : 'crosshair';
     const m = mark ? get().doc?.marks?.[mark] : null;
@@ -1181,6 +1181,9 @@ export class MapController {
         this.drawPts.push(at);
         this.renderDraw();
       }
+    } else if (tool === 'measure') {
+      this.drawPts.push([e.lngLat.lng, e.lngLat.lat]);
+      this.renderDraw();
     } else if (tool === 'city') {
       if (this.cityAtPoint(e.point) != null) return;
       const id = addCity(+e.lngLat.lng.toFixed(4), +e.lngLat.lat.toFixed(4));
@@ -1197,6 +1200,9 @@ export class MapController {
     } else if (tool === 'draw' && this.drawPts.length) {
       this.drawPts.pop();
       this.finishDraw();
+    } else if (tool === 'measure') {
+      // The second click of the double click repeated the last point.
+      this.undoDrawPoint();
     } else if (tool === 'select') {
       const rid = this.regionAtPoint(e.point);
       if (rid != null) this.map.easeTo({ center: e.lngLat, zoom: this.map.getZoom() + 1.2, duration: 450 });
@@ -1497,6 +1503,11 @@ export class MapController {
     this.renderDraw();
   }
 
+  /** The points clicked so far with the Split, Draw or Measure tool. */
+  get drawPoints(): readonly LngLat[] {
+    return this.drawPts;
+  }
+
   finishSplit() {
     const pts = this.drawPts;
     this.cancelDraw();
@@ -1528,7 +1539,7 @@ export class MapController {
   }
 
   private onToolChange(s: State, p: State) {
-    if (p.tool === 'split' || p.tool === 'draw') this.cancelDraw();
+    if (p.tool === 'split' || p.tool === 'draw' || p.tool === 'measure') this.cancelDraw();
     if (s.tool !== 'paint') {
       this.onBrush?.(null);
       this.sweep = null;
@@ -1554,6 +1565,7 @@ export class MapController {
       else if (e.key === 'Escape') this.cancelDraw();
       else if (e.key === 'Backspace') this.undoDrawPoint();
     }
+    if (get().tool === 'measure' && !isTyping(e) && e.key === 'Backspace') this.undoDrawPoint();
     if (get().tool === 'split' && !isTyping(e)) {
       if (e.key === 'Enter') this.finishSplit();
       else if (e.key === 'Escape') this.cancelDraw();

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Alliance, City, Country, LineKind, LngLat, Patch, Region, RegionGeom, WorldBundle, WorldDoc } from '../types';
+import { inheritPieces } from './eras';
 import { GeoEngine, bbox, geomArea, labelPoint, pointInGeom } from '../geo/engine';
 import { insertCutVertices, splitGeom } from '../geo/split';
 import { healGeoms } from '../geo/heal';
@@ -8,7 +9,7 @@ import type { NaturalOpts } from '../geo/barriers';
 import { rescale } from './stats';
 import { uid } from '../util';
 
-export type Tool = 'select' | 'paint' | 'split' | 'city' | 'draw';
+export type Tool = 'select' | 'paint' | 'split' | 'city' | 'draw' | 'measure';
 /** What the Draw tool makes: new land, a kind of line, a name or a pin. */
 export type DrawKind = 'land' | LineKind | 'label' | 'pin';
 
@@ -86,6 +87,8 @@ export function onWorldChange(fn: Listener) {
 function emit(c: ChangeSet) {
   listeners.forEach((l) => l(c));
 }
+/** For changes made outside `commit` (looking at a chapter of the timeline). */
+export const emitChange = emit;
 
 /** Shared topology of the current world (kept outside React state). */
 export const engine = new GeoEngine();
@@ -159,6 +162,11 @@ export interface State {
   statsOpen: boolean;
   posterOpen: boolean;
   dataOpen: boolean;
+  timelineOpen: boolean;
+  /** Chapter of the timeline shown on the map (`doc` is then that past, read-only). */
+  era: string | null;
+  /** The real world while a chapter is shown; null when `doc` is the present. */
+  present: WorldDoc | null;
 }
 
 const DEFAULT_LAYERS: Layers = {
@@ -246,6 +254,9 @@ export const useWorld = create<State>(() => ({
   statsOpen: false,
   posterOpen: false,
   dataOpen: false,
+  timelineOpen: false,
+  era: null,
+  present: null,
 }));
 
 useWorld.subscribe((s, prev) => {
@@ -280,6 +291,7 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
   let geoms = s.geoms;
   let alliances = doc.alliances;
   let marks = doc.marks ?? {};
+  let timeline = doc.timeline;
 
   if (patch.regions) {
     regions = { ...regions };
@@ -350,8 +362,19 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
     }
     changes.marks = true;
   }
+  if (patch.timeline) {
+    timeline = [...(timeline ?? [])];
+    inv.timeline = {};
+    for (const [id, v] of Object.entries(patch.timeline)) {
+      const i = timeline.findIndex((e) => e.id === id);
+      inv.timeline[id] = i >= 0 ? timeline[i] : null;
+      if (v && i >= 0) timeline[i] = v;
+      else if (v) timeline.push(v);
+      else if (i >= 0) timeline.splice(i, 1);
+    }
+  }
   changes.countries.delete('');
-  const nextDoc: WorldDoc = { ...doc, regions, countries, cities, alliances, marks, meta: { ...doc.meta, modified: Date.now() } };
+  const nextDoc: WorldDoc = { ...doc, regions, countries, cities, alliances, marks, timeline, meta: { ...doc.meta, modified: Date.now() } };
   set({ doc: nextDoc, geoms, geomVersion: patch.geoms ? s.geomVersion + 1 : s.geomVersion });
   return { inv, changes };
 }
@@ -359,7 +382,7 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
 /** Earlier values win: `a` happened first. */
 function mergeInverse(a: Patch, b: Patch): Patch {
   const out: Patch = {};
-  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks'] as const) {
+  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks', 'timeline'] as const) {
     if (a[key] || b[key]) out[key] = { ...(b[key] as object), ...(a[key] as object) } as never;
   }
   return out;
@@ -368,7 +391,7 @@ function mergeInverse(a: Patch, b: Patch): Patch {
 /** Later values win: `b` happened last. */
 function mergeForward(a: Patch, b: Patch): Patch {
   const out: Patch = {};
-  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks'] as const) {
+  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks', 'timeline'] as const) {
     if (a[key] || b[key]) out[key] = { ...(a[key] as object), ...(b[key] as object) } as never;
   }
   return out;
@@ -425,6 +448,10 @@ const pendingLabels = new Set<string>();
 export function commit(label: string, patch: Patch, opts: { group?: string; deferLabels?: boolean } = {}) {
   const doc = get().doc;
   if (!doc) return;
+  if (get().present) {
+    toast('This is the past: go back to the present to change the world', 'error');
+    return;
+  }
   // Every new shape is checked: a broken one (open ring, spike, zero-area loop…) is rebuilt
   // before it reaches the map, the merge or the saved file.
   if (patch.geoms) {
@@ -443,8 +470,8 @@ export function commit(label: string, patch: Patch, opts: { group?: string; defe
   if (patch.geoms) {
     const g = apply({ geoms: patch.geoms });
     const rest = withDerived({ regions: patch.regions, countries: patch.countries, cities: patch.cities, geoms: patch.geoms });
-    const r = apply({ regions: rest.regions, countries: rest.countries, cities: rest.cities, alliances: patch.alliances, marks: patch.marks });
-    full = { ...rest, alliances: patch.alliances, marks: patch.marks };
+    const r = apply({ regions: rest.regions, countries: rest.countries, cities: rest.cities, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline });
+    full = { ...rest, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline };
     inv = mergeInverse(g.inv, r.inv);
     changes = { ...r.changes, geoms: true, regions: new Set([...g.changes.regions, ...r.changes.regions]) };
   } else if (opts.deferLabels && opts.group && patch.regions) {
@@ -493,7 +520,7 @@ export function endGroup() {
 
 function replay(entry: HistoryEntry, patch: Patch) {
   const geomFirst = patch.geoms ? apply({ geoms: patch.geoms }) : null;
-  const r = apply({ regions: patch.regions, countries: patch.countries, cities: patch.cities, alliances: patch.alliances, marks: patch.marks });
+  const r = apply({ regions: patch.regions, countries: patch.countries, cities: patch.cities, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline });
   const changes = r.changes;
   if (geomFirst) {
     changes.geoms = true;
@@ -504,18 +531,18 @@ function replay(entry: HistoryEntry, patch: Patch) {
 }
 
 export function undo() {
-  const { past, future } = get();
+  const { past, future, present } = get();
   const e = past[past.length - 1];
-  if (!e) return;
+  if (!e || present) return;
   set({ past: past.slice(0, -1), future: [...future, e] });
   replay(e, e.inv);
   toast(`Undid: ${e.label}`);
 }
 
 export function redo() {
-  const { past, future } = get();
+  const { past, future, present } = get();
   const e = future[future.length - 1];
-  if (!e) return;
+  if (!e || present) return;
   set({ future: future.slice(0, -1), past: [...past, e] });
   replay(e, e.fwd);
   toast(`Redid: ${e.label}`);
@@ -607,6 +634,9 @@ export function loadWorld(b: WorldBundle) {
     statsOpen: false,
     posterOpen: false,
     dataOpen: false,
+    timelineOpen: false,
+    era: null,
+    present: null,
   });
   pendingLabels.clear();
   if (repaired.fixed) {
@@ -619,12 +649,13 @@ export function loadWorld(b: WorldBundle) {
 
 export function closeWorld() {
   for (const url of Object.values(get().flagUrls)) URL.revokeObjectURL(url);
-  set({ doc: null, geoms: {}, flags: {}, flagUrls: {}, past: [], future: [], passthrough: undefined });
+  set({ doc: null, geoms: {}, flags: {}, flagUrls: {}, past: [], future: [], passthrough: undefined, era: null, present: null, timelineOpen: false });
 }
 
 export function currentBundle(): WorldBundle {
   const s = get();
-  return { doc: s.doc!, geoms: s.geoms, flags: s.flags, passthrough: s.passthrough };
+  // Never the past being looked at: what is saved and exported is the world as it is now.
+  return { doc: s.present ?? s.doc!, geoms: s.geoms, flags: s.flags, passthrough: s.passthrough };
 }
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
@@ -645,7 +676,11 @@ export function select(sel: Partial<Selection>) {
 }
 
 export function setTool(tool: Tool) {
-  const { selection, doc } = get();
+  const { selection, doc, present } = get();
+  if (present && tool !== 'select' && tool !== 'measure') {
+    toast('This is the past: go back to the present to change the world');
+    return;
+  }
   // Every tool but select works on the map: get the details and world panels out of the way.
   if (tool !== 'select') set({ detailsOpen: false, worldOpen: false });
   // Painting starts with the selected country as the brush.
@@ -987,7 +1022,9 @@ export function cutRegions(
     }
   }
   const n = Object.keys(out).length;
-  if (n) commit(opts.label ?? `Split ${n} region${n > 1 ? 's' : ''}`, patch, { group: opts.group });
+  // The chapters of the timeline know the pieces as they knew the region.
+  const timeline = n && doc.timeline?.length ? inheritPieces(doc.timeline, out) : undefined;
+  if (n) commit(opts.label ?? `Split ${n} region${n > 1 ? 's' : ''}`, timeline ? { ...patch, timeline } : patch, { group: opts.group });
   return out;
 }
 
@@ -1148,7 +1185,8 @@ export function setFlag(cid: string, blob: Blob | null) {
 }
 
 export function setTitle(title: string) {
-  const doc = get().doc;
+  const { doc, present } = get();
   if (!doc) return;
+  if (present) set({ present: { ...present, meta: { ...present.meta, title, modified: Date.now() } } });
   set({ doc: { ...doc, meta: { ...doc.meta, title, modified: Date.now() } } });
 }

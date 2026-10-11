@@ -70,6 +70,14 @@ their code is kept under [`legacy/`](legacy/).
   overlord; *Realms* colours vassals in their overlord's colours.
 - **Colour the map by** (layers panel): any figure in classes (population, density, GDP per person,
   area…), any text field as categories (language, government…), realms or states — with a legend.
+- **Timeline** (`T`): *Keep this moment* stores the world as it is — who owns and occupies what,
+  the countries' names, colours and flags — as a **chapter** with a date, a name and its story.
+  Carry on editing, keep the next one. Click a chapter to see the map as it was (read-only, `,` and
+  `.` step through them), **play** the history, read who gained and lost land since the chapter
+  before, or **return the world** to a chapter in one undo step. Regions cut later stay with whoever
+  held them then; chapters travel in the `.map` file.
+- **Measure** (`M`): click along a path for its length in km; three points or more also give the
+  area they enclose.
 - **Statistics** (`S`): rank every country by any figure, or compare several side by side. The home
   screen sums up the world (land, claimed share, people, cities, alliances…).
 - **Poster** (Export menu): the view in 2–4× resolution, framed like an atlas page, with a title

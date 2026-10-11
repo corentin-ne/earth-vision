@@ -26,15 +26,17 @@ export function startAutosave() {
 
   const flush = debounce(() => {
     const s = useWorld.getState();
-    if (!s.doc) return;
-    const id = s.doc.meta.id;
+    // While a chapter of the timeline is shown, `doc` is that past: the present is what is saved.
+    const doc = s.present ?? s.doc;
+    if (!doc) return;
+    const id = doc.meta.id;
     const geoms = s.geomVersion !== savedGeomVersion ? s.geoms : null;
     const newFlags = Object.keys(s.flags).filter((k) => !savedFlags.has(k));
     savedGeomVersion = s.geomVersion;
     newFlags.forEach((k) => savedFlags.add(k));
     saving = saving
       .then(async () => {
-        await saveDoc(s.doc!);
+        await saveDoc(doc);
         if (geoms) await saveGeoms(id, geoms);
         for (const k of newFlags) await saveFlag(id, k, s.flags[k]);
       })
@@ -55,7 +57,7 @@ export function startAutosave() {
       savedFlags = new Set(Object.keys(s.flags));
       return;
     }
-    if (s.doc !== p.doc || s.geomVersion !== p.geomVersion || s.flags !== p.flags) {
+    if ((s.present ?? s.doc) !== (p.present ?? p.doc) || s.geomVersion !== p.geomVersion || s.flags !== p.flags) {
       emitSave(true);
       flush();
     }

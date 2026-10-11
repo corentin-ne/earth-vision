@@ -1,0 +1,310 @@
+/* ── Timeline: the chapters of the world's history, along the bottom ───────── */
+.timeline {
+  position: absolute;
+  left: 76px;
+  right: calc(var(--inspector-w) + 28px);
+  bottom: 30px;
+  z-index: 3;
+  max-width: 720px;
+  min-width: 300px;
+  margin: 0 auto;
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 22px;
+  animation: tl-rise 0.45s var(--spring);
+}
+@keyframes tl-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+}
+.timeline.in-past {
+  box-shadow:
+    var(--shadow),
+    var(--rim),
+    0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.tl-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+  color: var(--fg);
+}
+.tl-head > svg {
+  color: var(--accent);
+  flex: none;
+}
+.tl-head h2 {
+  margin: 0 4px;
+  font-size: 15px;
+}
+.tl-head .icon-btn {
+  width: 32px;
+  height: 32px;
+}
+.tl-head .btn {
+  margin: 0 2px 0 6px;
+  gap: 6px;
+  white-space: nowrap;
+}
+.timeline .flip {
+  transform: scaleX(-1);
+}
+.tl-empty {
+  margin: 0 6px 2px;
+}
+
+/* The row of chapters, joined by a line. */
+.tl-track {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  padding: 2px 2px 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tl-chip {
+  position: relative;
+  flex: none;
+  max-width: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 7px 12px 8px;
+  border-radius: 13px;
+  background: var(--fill-2);
+  border: 1px solid var(--line);
+  color: var(--fg-2);
+  text-align: left;
+  transition:
+    background 0.2s var(--ease),
+    color 0.2s var(--ease),
+    border-color 0.2s var(--ease);
+}
+.tl-chip + .tl-chip::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  width: 9px;
+  height: 2px;
+  background: var(--line);
+}
+.tl-chip small {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tl-chip strong {
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-chip:hover {
+  color: var(--fg);
+  border-color: var(--stroke-2);
+}
+.tl-chip.on {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.tl-chip.on small {
+  color: var(--accent);
+}
+.tl-chip.now {
+  border-style: dashed;
+}
+
+/* The chapter shown: its date, name, story, and what can be done with it. */
+.tl-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tl-fields {
+  display: flex;
+  gap: 6px;
+}
+.tl-edit input,
+.tl-edit textarea {
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--glass-2);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13.5px;
+}
+.tl-edit input:focus,
+.tl-edit textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.tl-date {
+  width: 110px;
+  flex: none;
+}
+.tl-name {
+  flex: 1;
+  font-weight: 600;
+}
+.tl-notes {
+  resize: vertical;
+  min-height: 34px;
+  max-height: 120px;
+  line-height: 1.4;
+}
+.tl-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tl-actions .icon-btn {
+  width: 32px;
+  height: 32px;
+}
+.tl-actions .icon-btn.danger {
+  color: var(--danger);
+}
+.tl-actions .btn {
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.tl-changes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 0 6px;
+  font-size: 12.5px;
+  color: var(--fg-2);
+}
+.tl-changes > small {
+  color: var(--muted);
+}
+.tl-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.tl-change i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex: none;
+}
+.tl-change b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tl-change.up b {
+  color: var(--accent);
+}
+.tl-change.down b {
+  color: var(--danger);
+}
+.tl-past {
+  margin: 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Hints of the map tools sit above the timeline. */
+.editor:has(.timeline) .split-hint {
+  bottom: auto;
+  top: 86px;
+}
+/* The legends of the map (alliances, colours) move out of its way. */
+@media (min-width: 761px) {
+  .editor:has(.timeline) .alliance-legend {
+    bottom: auto;
+    top: 86px;
+    transform-origin: top left;
+  }
+}
+/* No tool of the rail is on (measuring): no lit pill. */
+.tools.no-tool .tool-indicator {
+  opacity: 0;
+}
+/* Looking at the past: the editing tools step back. */
+.editor.past .tools .tool:not(.on) {
+  opacity: 0.35;
+}
+.measure-out {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+.measure-out strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.measure-out small {
+  color: var(--muted);
+}
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .tl-head .btn {
+    font-size: 0;
+    gap: 0;
+    padding: 0 9px;
+  }
+}
+
+@media (max-width: 760px) {
+  /* Under the top bar: the bottom of the screen belongs to the tools and the sheets. */
+  .timeline {
+    left: calc(10px + var(--sal));
+    right: calc(10px + var(--sar));
+    top: 72px;
+    bottom: auto;
+    min-width: 0;
+    max-height: 46vh;
+    overflow-y: auto;
+    padding: 6px 8px 8px;
+    gap: 6px;
+    border-radius: 20px;
+    z-index: 7;
+  }
+  .tl-head .btn {
+    font-size: 0;
+    gap: 0;
+    padding: 0 9px;
+  }
+  .tl-date {
+    width: 84px;
+  }
+  .tl-notes {
+    display: none;
+  }
+  .tl-actions {
+    flex-wrap: wrap;
+  }
+  .tl-actions .btn {
+    padding: 0 9px;
+    font-size: 12.5px;
+  }
+  .tl-past {
+    display: none;
+  }
+  .editor:has(.timeline) .split-hint {
+    top: auto;
+    bottom: var(--above-bar);
+  }
+}

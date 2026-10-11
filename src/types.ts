@@ -94,6 +94,25 @@ export type Mark =
   | { id: string; type: 'label'; kind: LabelKind; text: string; lng: number; lat: number; size: number; angle: number; color?: string }
   | { id: string; type: 'pin'; name: string; icon: string; lng: number; lat: number; notes?: string; color?: string };
 
+/** What a chapter of the timeline remembers of a country: who it was, not its figures. */
+export type EraCountry = Pick<Country, 'cid' | 'name' | 'color' | 'flag' | 'capital' | 'label' | 'labelFixed' | 'colorMode' | 'gradient' | 'overlord'>;
+
+/** A chapter of the world's history: who owned what at one moment. */
+export interface Era {
+  id: string;
+  name: string;
+  /** Free text: "1815", "Third Age, year 12"… */
+  date: string;
+  notes?: string;
+  /** Chapters are shown by rising `order`. */
+  order: number;
+  /** Country id → the regions it owned (unclaimed land is left out). */
+  own: Record<string, number[]>;
+  /** Region id → the country occupying it. */
+  occ?: Record<number, string>;
+  countries: Record<string, EraCountry>;
+}
+
 export interface StatDef {
   key: string;
   /** Scaling stats live on regions and follow them when they change hands. */
@@ -136,6 +155,8 @@ export interface WorldDoc {
   marks?: Record<string, Mark>;
   /** Ids of the extra data layers (reefs, volcanoes…) shown on this world. */
   overlays?: string[];
+  /** Chapters of the world's history, to look back at, replay or return to. */
+  timeline?: Era[];
   view?: ViewState;
 }
 
@@ -155,4 +176,5 @@ export interface Patch {
   geoms?: Record<number, RegionGeom | null>;
   alliances?: Record<string, Alliance | null>;
   marks?: Record<string, Mark | null>;
+  timeline?: Record<string, Era | null>;
 }

@@ -16,7 +16,7 @@
 // fields, the camera), so a .map round trip loses nothing.
 import { unzipSync, zipSync, strFromU8, strToU8, type Zippable } from 'fflate';
 import type { Feature, FeatureCollection, Point } from 'geojson';
-import type { City, Country, CountryState, LngLat, Mark, Region, RegionGeom, WaterLabel, WorldBundle, WorldDoc, StatDef, Alliance } from '../types';
+import type { City, Country, CountryState, Era, LngLat, Mark, Region, RegionGeom, WaterLabel, WorldBundle, WorldDoc, StatDef, Alliance } from '../types';
 import { geomArea, labelPoint, GeoEngine } from '../geo/engine';
 import { distributeByArea } from '../world/stats';
 import { uid } from '../util';
@@ -98,6 +98,7 @@ interface Sidecar {
   cities?: Record<number, { pop?: number; notes?: string }>;
   marks?: Record<string, Mark>;
   overlays?: string[];
+  timeline?: Era[];
 }
 
 const OWNED = new Set([SIDECAR, 'country_simple.json', 'region_simple.json', 'city.json', 'water.json', 'map_info.json', 'alliance/alliances.json']);
@@ -240,6 +241,7 @@ export function importAmap(bytes: Uint8Array, fileName = 'World'): WorldBundle {
     alliances,
     marks: side?.marks,
     overlays: side?.overlays,
+    timeline: side?.timeline?.length ? side.timeline : undefined,
     view: side?.view ?? (Number.isFinite(lastX) && Number.isFinite(lastY) ? { center: [lastX, lastY], zoom: Math.max(1.5, Number(settingsFile.last_zoom) || 2) } : undefined),
   };
   return { doc, geoms, flags, passthrough };
@@ -416,6 +418,7 @@ function buildSidecar(doc: WorldDoc): Sidecar {
     cities,
     marks: doc.marks && Object.keys(doc.marks).length ? doc.marks : undefined,
     overlays: doc.overlays?.length ? doc.overlays : undefined,
+    timeline: doc.timeline?.length ? doc.timeline : undefined,
   };
 }
 

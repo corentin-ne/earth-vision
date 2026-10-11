@@ -35,11 +35,15 @@ import { DrawOptions, MarkPanel, RegionExtras, DRAW_KINDS } from './WorldbuildPa
 import { DataWindow, FindReplaceWindow, StatsWindow, ThematicLegend, ThematicPicker } from './Windows';
 import { PosterDialog } from './PosterDialog';
 import { markNoun } from '../world/edits';
+import { TimelineBar, toggleTimeline } from './Timeline';
+import { stepChapter, viewChapter } from '../world/timeline';
+import { pathLength, ringArea } from '../geo/measure';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
   const details = useWorld((s) => s.detailsOpen);
   const zen = useWorld((s) => s.zen);
+  const past = useWorld((s) => !!s.present);
   const [ready, setReady] = useState(false);
   // Never keep the editor behind the veil, even if the map cannot load (e.g. no WebGL).
   useEffect(() => {
@@ -47,7 +51,7 @@ export function Editor({ onHome }: { onHome: () => void }) {
     return () => clearTimeout(t);
   }, []);
   return (
-    <div className={'editor' + (details ? ' details-open' : '') + (ready ? ' ready' : '') + (zen ? ' zen' : '')}>
+    <div className={'editor' + (details ? ' details-open' : '') + (ready ? ' ready' : '') + (zen ? ' zen' : '') + (past ? ' past' : '')}>
       <MapView onReady={() => setReady(true)} />
       <LoadingVeil ready={ready} />
       {zen ? (
@@ -64,10 +68,12 @@ export function Editor({ onHome }: { onHome: () => void }) {
           <ThematicLegend />
           <SnapCard />
           <BrushCursor />
+          <TimelineBar />
         </>
       )}
       <HoverTip />
       <SplitHint />
+      <MeasureHint />
       <ShortcutsHelp />
       <AdvancedPanel />
       <StatsWindow />
@@ -237,7 +243,7 @@ function HoverTip() {
         <strong>{h.text}</strong>
       </div>
     );
-  if (!h || !doc || (h.region == null && h.city == null) || tool === 'split' || tool === 'draw') return null;
+  if (!h || !doc || (h.region == null && h.city == null) || tool === 'split' || tool === 'draw' || tool === 'measure') return null;
   const r = h.region != null ? doc.regions[h.region] : null;
   const c = r ? doc.countries[r.cid] : undefined;
   const city = h.city != null ? doc.cities[h.city] : null;
@@ -319,6 +325,44 @@ function SplitHint() {
   );
 }
 
+const fmtKm = (km: number) => (km >= 100 ? Math.round(km).toLocaleString('en') : km.toFixed(1)) + ' km';
+
+/** The Measure tool's readout: the length of the path clicked so far, and the area it encloses. */
+function MeasureHint() {
+  const tool = useWorld((s) => s.tool);
+  const mobile = useMobile();
+  const [, setN] = useState(0);
+  useEffect(() => drawBus.on(setN), []);
+  if (tool !== 'measure') return null;
+  const pts = (mapCtl?.drawPoints ?? []) as LngLat[];
+  const area = pts.length > 2 ? ringArea(pts) : 0;
+  return (
+    <div className="split-hint measure-hint">
+      <Icon name="ruler" size={16} />
+      {pts.length < 2 ? (
+        <span>{pts.length ? 'Now the next point.' : mobile ? 'Tap two points or more to measure.' : 'Click two points or more to measure a distance; three or more also give an area.'}</span>
+      ) : (
+        <span className="measure-out">
+          <strong>{fmtKm(pathLength(pts))}</strong>
+          {area > 0 && (
+            <small>
+              encloses {fmtCompact(area)} km²
+            </small>
+          )}
+        </span>
+      )}
+      {pts.length > 0 && (
+        <button className="btn small" onClick={() => mapCtl?.cancelDraw()}>
+          Clear
+        </button>
+      )}
+      <button className="btn primary small" onClick={() => setTool('select')}>
+        Done
+      </button>
+    </div>
+  );
+}
+
 // ── Top bar ──────────────────────────────────────────────────────────────────
 
 function TopBar({ onHome }: { onHome: () => void }) {
@@ -373,6 +417,10 @@ function TopBar({ onHome }: { onHome: () => void }) {
               <Icon name="flag" size={15} /> <span className="grow">Flags of the world</span>
               <kbd>F</kbd>
             </button>
+            <button onClick={tool(toggleTimeline)}>
+              <Icon name="clock" size={15} /> <span className="grow">Timeline: chapters of history</span>
+              <kbd>T</kbd>
+            </button>
             <button onClick={tool(surprise)}>
               <Icon name="dice" size={15} /> <span className="grow">Visit a random country</span>
               <kbd>R</kbd>
@@ -387,6 +435,10 @@ function TopBar({ onHome }: { onHome: () => void }) {
               <kbd>A</kbd>
             </button>
             <div className="menu-label">Map</div>
+            <button onClick={tool(() => setTool('measure'))}>
+              <Icon name="ruler" size={15} /> <span className="grow">Measure distances & areas</span>
+              <kbd>M</kbd>
+            </button>
             <button onClick={tool(() => useWorld.setState({ dataOpen: true }))}>
               <Icon name="database" size={15} /> <span className="grow">Data layers</span>
               <kbd>O</kbd>
@@ -496,6 +548,9 @@ const SHORTCUTS: [string, string][] = [
   ['K', 'Split regions'],
   ['C', 'Cities'],
   ['D', 'Draw: new land, roads, names, pins'],
+  ['T', 'Timeline: chapters of history'],
+  [',  .', 'Previous / next chapter'],
+  ['M', 'Measure distances & areas'],
   ['Drag a name', 'Move a country name (Select)'],
   ['S', 'Statistics'],
   ['O', 'Data layers (reefs, peaks…)'],
@@ -655,7 +710,7 @@ function ToolDock() {
 function ToolButtons({ bare }: { bare?: boolean }) {
   const tool = useWorld((s) => s.tool);
   return (
-    <div className={'tools' + (bare ? '' : ' glass')} style={{ '--i': TOOLS.findIndex((t) => t.id === tool) } as CSSProperties}>
+    <div className={'tools' + (bare ? '' : ' glass') + (TOOLS.some((t) => t.id === tool) ? '' : ' no-tool')} style={{ '--i': TOOLS.findIndex((t) => t.id === tool) } as CSSProperties}>
       <span className="tool-indicator" aria-hidden />
       {TOOLS.map((t) => (
         <button key={t.id} className={'tool' + (tool === t.id ? ' on' : '')} onClick={() => setTool(t.id)} title={`${t.label} (${t.key})`} aria-label={t.label}>
@@ -916,6 +971,12 @@ function PhoneDock() {
               </button>
               <button onClick={pick(() => (allianceView ? useWorld.setState({ allianceView: null }) : viewAlliance('all')))}>
                 <Icon name="shield" size={16} /> <span className="grow">{allianceView ? 'Hide alliances' : 'Show alliances'}</span>
+              </button>
+              <button onClick={pick(toggleTimeline)}>
+                <Icon name="clock" size={16} /> <span className="grow">Timeline</span>
+              </button>
+              <button onClick={pick(() => setTool('measure'))}>
+                <Icon name="ruler" size={16} /> <span className="grow">Measure</span>
               </button>
               <button onClick={pick(() => useWorld.setState({ posterOpen: true }))}>
                 <Icon name="frame" size={16} /> <span className="grow">Poster</span>
@@ -1516,6 +1577,9 @@ export function useShortcuts() {
         else if (k === 'k') setTool('split');
         else if (k === 'c') setTool('city');
         else if (k === 'd') setTool('draw');
+        else if (k === 'm' && useWorld.getState().doc) setTool(useWorld.getState().tool === 'measure' ? 'select' : 'measure');
+        else if (k === 't' && useWorld.getState().doc) toggleTimeline();
+        else if ((k === ',' || k === '.') && useWorld.getState().timelineOpen) stepChapter(k === ',' ? -1 : 1);
         else if (k === 's' && useWorld.getState().doc) useWorld.setState((s) => ({ statsOpen: !s.statsOpen }));
         else if (k === 'o' && useWorld.getState().doc) useWorld.setState((s) => ({ dataOpen: !s.dataOpen }));
         else if (k === 'g') useWorld.setState((s) => ({ globe: !s.globe }));
@@ -1546,6 +1610,7 @@ export function useShortcuts() {
         else if (k === 'escape' && useWorld.getState().advancedOpen) useWorld.setState({ advancedOpen: false });
         else if (k === 'escape' && useWorld.getState().galleryOpen) useWorld.setState({ galleryOpen: false });
         else if (k === 'escape' && useWorld.getState().markSel) useWorld.setState({ markSel: null });
+        else if (k === 'escape' && useWorld.getState().tool === 'select' && useWorld.getState().era && !useWorld.getState().selection.cid && !useWorld.getState().selection.regions.length && useWorld.getState().selection.city == null) viewChapter(null);
         else if (k === 'escape' && useWorld.getState().tool !== 'split' && useWorld.getState().tool !== 'draw') {
           if (useWorld.getState().tool !== 'select') setTool('select');
           else select({});
