@@ -71,6 +71,49 @@ export interface City {
   notes?: string;
 }
 
+/** A part of a city: an arrondissement, a quarter, a borough… */
+export interface District {
+  id: string;
+  name: string;
+  /** Its number in the city ("7" for the 7th arrondissement), when it has one. */
+  num?: number;
+  color: string;
+  pop?: number;
+  geom: RegionGeom;
+  /** km² */
+  area: number;
+  notes?: string;
+  /** The real area it was made from (see io/osm). */
+  src?: string;
+}
+
+export type TransitMode = 'metro' | 'tram' | 'train' | 'bus';
+
+export interface Station {
+  id: string;
+  name: string;
+  lng: number;
+  lat: number;
+}
+
+/** A line of the city's network: the stations it calls at, in order. */
+export interface TransitLine {
+  id: string;
+  name: string;
+  color: string;
+  mode: TransitMode;
+  stops: string[];
+}
+
+/** A city seen up close: its districts and its transit network. */
+export interface CityPlan {
+  /** What its districts are called: "Arrondissement", "Quartier", "Borough"… */
+  unit?: string;
+  districts: Record<string, District>;
+  stations: Record<string, Station>;
+  lines: Record<string, TransitLine>;
+}
+
 export interface WaterLabel {
   id: number;
   name: string;
@@ -157,6 +200,8 @@ export interface WorldDoc {
   overlays?: string[];
   /** Chapters of the world's history, to look back at, replay or return to. */
   timeline?: Era[];
+  /** City id → its districts and transit network. */
+  plans?: Record<number, CityPlan>;
   view?: ViewState;
 }
 
@@ -177,4 +222,5 @@ export interface Patch {
   alliances?: Record<string, Alliance | null>;
   marks?: Record<string, Mark | null>;
   timeline?: Record<string, Era | null>;
+  plans?: Record<number, CityPlan | null>;
 }

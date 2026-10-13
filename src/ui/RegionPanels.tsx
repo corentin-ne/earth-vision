@@ -23,6 +23,7 @@ import { loadBarriers, naturalOn } from '../geo/barriers';
 import { cutAlongNature } from '../world/natural';
 import { MultiExtras } from './WorldbuildPanels';
 import { LoreField, Backlinks } from './Lore';
+import { openCity, planOf } from '../world/city';
 
 /** Cuts regions along the rivers and crests that cross them (the brush's setting, or big rivers + crests). */
 async function cutNatural(ids: number[]) {
@@ -212,6 +213,9 @@ export function CityPanel({ id }: { id: number }) {
   const owner = regionAt([city.lng, city.lat]);
   const country = owner ? doc.countries[owner.cid] : undefined;
   const isCapital = country?.capital === id;
+  const plan = planOf(id);
+  const nd = Object.keys(plan.districts).length;
+  const nl = Object.keys(plan.lines).length;
   return (
     <div className="panel-body">
       <div className="panel-title">
@@ -239,6 +243,14 @@ export function CityPanel({ id }: { id: number }) {
           {city.lat.toFixed(2)}°, {city.lng.toFixed(2)}°
         </Stat>
       </div>
+      <button className="city-open" onClick={() => openCity(id)}>
+        <Icon name="districts" size={22} />
+        <span className="grow">
+          <strong>Open the city</strong>
+          <small>{nd || nl ? [nd ? `${nd} district${nd > 1 ? 's' : ''}` : null, nl ? `${nl} transit line${nl > 1 ? 's' : ''}` : null].filter(Boolean).join(' · ') : 'Districts, arrondissements, metro lines…'}</small>
+        </span>
+        <Icon name="chevron" size={16} />
+      </button>
       <div className="actions">
         <button className={'btn' + (isCapital ? ' primary' : '')} disabled={!country || isCapital} onClick={() => makeCapital(id)}>
           <Icon name="crown" size={15} /> {isCapital ? 'Capital' : 'Make capital'}

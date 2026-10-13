@@ -14,6 +14,7 @@ const Editor = lazy(() => import('./ui/Editor').then((m) => ({ default: m.Editor
 // Start fetching it right away anyway, so opening a world rarely waits on the network.
 const preloadEditor = () => void import('./ui/Editor');
 import { Icon } from './ui/icons';
+import { back as cityBack } from './world/cityBack';
 
 export default function App() {
   const [view, setView] = useState<'boot' | 'home' | 'editor'>('boot');
@@ -57,7 +58,8 @@ export default function App() {
     if (busy) return true;
     if (view !== 'editor') return false;
     const s = useWorld.getState();
-    if (s.zen) useWorld.setState({ zen: false });
+    if (s.cityView != null) cityBack();
+    else if (s.zen) useWorld.setState({ zen: false });
     else if (s.flagMakerFor) useWorld.setState({ flagMakerFor: null });
     else if (s.flagView) useWorld.setState({ flagView: null });
     else if (s.detailsOpen) useWorld.setState({ detailsOpen: false });

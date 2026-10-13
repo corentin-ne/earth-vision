@@ -38,6 +38,8 @@ import { markNoun } from '../world/edits';
 import { TimelineBar, toggleTimeline } from './Timeline';
 import { stepChapter, viewChapter } from '../world/timeline';
 import { pathLength, ringArea } from '../geo/measure';
+import { CityEditor } from './CityEditor';
+import { openCity } from '../world/city';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
@@ -83,6 +85,7 @@ export function Editor({ onHome }: { onHome: () => void }) {
       <FlagGallery />
       <FlagLightbox />
       <FlagMaker />
+      <CityEditor />
     </div>
   );
 }
@@ -547,6 +550,7 @@ const SHORTCUTS: [string, string][] = [
   ['B', 'Paint regions'],
   ['K', 'Split regions'],
   ['C', 'Cities'],
+  ['Open city', 'Districts & transit lines of a city (its bubble or page)'],
   ['D', 'Draw: new land, roads, names, pins'],
   ['T', 'Timeline: chapters of history'],
   [',  .', 'Previous / next chapter'],
@@ -1131,7 +1135,7 @@ function useSelectionView() {
   if (sel.city != null && doc.cities[sel.city]) {
     const c = doc.cities[sel.city];
     const of = Object.values(doc.countries).find((k) => k.capital === c.id);
-    return { key: `city:${c.id}`, kind: 'City', title: c.name, sub: of ? `Capital of ${of.name}` : c.capital ? 'Capital' : 'City', anchor: sel.anchor ?? ([c.lng, c.lat] as LngLat), body: <CityPanel id={c.id} /> };
+    return { key: `city:${c.id}`, kind: 'City', city: c.id, title: c.name, sub: of ? `Capital of ${of.name}` : c.capital ? 'Capital' : 'City', anchor: sel.anchor ?? ([c.lng, c.lat] as LngLat), body: <CityPanel id={c.id} /> };
   }
   if (sel.regions.length > 1) {
     const first = doc.regions[sel.regions[0]];
@@ -1260,6 +1264,11 @@ function SelectionBubble() {
             Details <Icon name="chevron" size={14} />
           </span>
         </button>
+        {view.city != null && (
+          <button className="sel-bubble-open" onClick={() => openCity(view.city!)} title="Open the city: its districts and transit lines">
+            <Icon name="districts" size={15} /> Open city
+          </button>
+        )}
         <button
           className="icon-btn sel-bubble-x"
           onClick={() => {
@@ -1555,6 +1564,8 @@ export function useShortcuts() {
       const t = e.target as HTMLElement;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const k = e.key.toLowerCase();
+      // In a city only saving and undo/redo are shared with the world map; the rest is its own.
+      if (useWorld.getState().cityView != null && !((e.ctrlKey || e.metaKey) && (k === 's' || k === 'z' || k === 'y'))) return;
       if ((e.ctrlKey || e.metaKey) && k === 's') {
         e.preventDefault();
         if (useWorld.getState().doc) flushAutosave().then(() => toast('Saved', 'ok'));

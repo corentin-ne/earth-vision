@@ -68,6 +68,9 @@ const P: Record<string, string> = {
   pause: 'M8 5v14 M16 5v14',
   back: 'M4 12a8 8 0 1 0 2.6-5.9 M4 4v5h5',
   bookmark: 'M7 4h10v16l-5-4-5 4z',
+  arrowLeft: 'M19 12H5 M11 6l-6 6 6 6',
+  train: 'M7 4h10a2 2 0 0 1 2 2v9a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V6a2 2 0 0 1 2-2z M5 11h14 M9 15h.01 M15 15h.01 M8 18l-2 3 M16 18l2 3',
+  districts: 'M4 4h7v9H4z M13 4h7v5h-7z M13 11h7v9h-7z M4 15h7v5H4z',
   heal: 'M4.9 13.4l5.7 5.7a3 3 0 0 0 4.2 0l4.3-4.3a3 3 0 0 0 0-4.2l-5.7-5.7a3 3 0 0 0-4.2 0L4.9 9.2a3 3 0 0 0 0 4.2z M10 12h.01 M12 10h.01 M12 14h.01 M14 12h.01',
 };
 

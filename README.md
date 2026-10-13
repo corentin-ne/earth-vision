@@ -36,6 +36,20 @@ their code is kept under [`legacy/`](legacy/).
   region of its own (an island comes off exactly along its shore), selected and ready for
   *New country here*.
 - **Cities** (`C`): add, drag, rename, hide, set as capital.
+- **Open a city** (its bubble on the map, or its page) to see it up close on a street map and
+  rebuild it:
+  - **Districts**: fetch the *real* quarters, arrondissements and neighbouring towns from
+    OpenStreetMap and click the ones the city takes (add the suburbs to make it bigger), or
+    **draw** your own — a district drawn over others is cut out of them, with its share of their
+    people. Rename them, **number** them ("7 · Bassins à flot"), colour them, merge them, write
+    their lore. Set the city's population and share it among the districts.
+  - **Transit**: create metro, tram, train and bus lines, then click the map to place the
+    stations one after the other (they take the name of the street or neighbourhood). Click a
+    line to add a stop on it, click a station of another line to make an interchange, drag
+    stations to move them. Lines sharing a stretch run side by side.
+  - Four backgrounds: pale streets, full streets, dark, or blank (invented cities, offline).
+    The street map and the real districts need a connection; everything you make is saved with
+    the world, undone with `Ctrl+Z` and travels in the `.map` file.
 - Populations travel with the land: they are stored per region and summed per country.
 - Living water: the sea is coloured by the real sea-floor depth (pale shelves, deep trenches) and its
   surface is a small GPU shader — drifting swell lit by the sun, with glints — that costs next to nothing
@@ -160,6 +174,7 @@ cd android && ./gradlew assembleDebug
 | Region splitting, and cutting along rivers and crests | [`src/geo/split.ts`](src/geo/split.ts), [`src/geo/barriers.ts`](src/geo/barriers.ts), [`src/world/natural.ts`](src/world/natural.ts) |
 | A+ `.map` import/export (a zip whose header reads `A+WM`) | [`src/io/amap.ts`](src/io/amap.ts) |
 | MapLibre rendering & map tools | [`src/map/`](src/map/) |
+| Cities up close: districts, transit lines, real areas from OpenStreetMap | [`src/world/city.ts`](src/world/city.ts), [`src/map/cityMap.ts`](src/map/cityMap.ts), [`src/io/osm.ts`](src/io/osm.ts) |
 | UI | [`src/ui/`](src/ui/) |
 | Look: Spark UI kit tokens and components, SchneiderPocket's corners, lit rim and condensed titles | [`src/theme/spark.css`](src/theme/spark.css), [`src/ui/rimlight.ts`](src/ui/rimlight.ts) |
 
@@ -190,4 +205,5 @@ AMAP_FILE=path/to/world.map npm test       # + a full import/export round trip o
 
 Relief, borders, lakes, rivers and places: [Natural Earth](https://www.naturalearthdata.com) (public domain).
 Elevation: Mapzen Terrain Tiles via AWS Open Data. Labels: Open Sans (OpenMapTiles font build).
+City street maps: [OpenFreeMap](https://openfreemap.org) © OpenMapTiles, data from OpenStreetMap; real districts: © OpenStreetMap contributors (Overpass API).
 Rendering: [MapLibre GL JS](https://maplibre.org).

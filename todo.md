@@ -57,8 +57,12 @@
 - [x] Interfaces reorganised: one Tools menu, grouped layers, country page in tabs, folded brush options
 - [x] Split tool lasso: circle land to make it its own region
 
+## Done (2.20 – 2.21)
+- [x] Timeline of chapters to look back at, replay and return to; measure tool
+- [x] Cities up close: real or hand-drawn districts (numbered, populated, merged), metro / tram / train / bus lines with stations and interchanges, on a street map
+
 ## Next
-- [ ] Timeline: snapshots of a world over the years, with an animated playback / video export
+- [ ] Cities: show districts and lines on the world map when zoomed in; picture export of a city
 - [ ] Wars & events: front lines and battles tied to dates on the timeline
 - [ ] Relief at zoom 6 (would need a finer source than Natural Earth)
 - [ ] Native desktop wrapper (Tauri) once a Rust toolchain is installed — the PWA covers offline use meanwhile

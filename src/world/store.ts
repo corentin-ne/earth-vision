@@ -75,6 +75,8 @@ export interface ChangeSet {
   geoms: boolean;
   alliances: boolean;
   marks: boolean;
+  /** Districts and transit networks of the cities. */
+  plans?: boolean;
   all: boolean;
 }
 
@@ -167,6 +169,8 @@ export interface State {
   era: string | null;
   /** The real world while a chapter is shown; null when `doc` is the present. */
   present: WorldDoc | null;
+  /** City opened up close (its districts and transit network), over the world map. */
+  cityView: number | null;
 }
 
 const DEFAULT_LAYERS: Layers = {
@@ -257,6 +261,7 @@ export const useWorld = create<State>(() => ({
   timelineOpen: false,
   era: null,
   present: null,
+  cityView: null,
 }));
 
 useWorld.subscribe((s, prev) => {
@@ -292,6 +297,7 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
   let alliances = doc.alliances;
   let marks = doc.marks ?? {};
   let timeline = doc.timeline;
+  let plans = doc.plans;
 
   if (patch.regions) {
     regions = { ...regions };
@@ -373,8 +379,19 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
       else if (i >= 0) timeline.splice(i, 1);
     }
   }
+  if (patch.plans) {
+    plans = { ...plans };
+    inv.plans = {};
+    for (const [k, v] of Object.entries(patch.plans)) {
+      const id = Number(k);
+      inv.plans[id] = plans[id] ?? null;
+      if (v) plans[id] = v;
+      else delete plans[id];
+    }
+    changes.plans = true;
+  }
   changes.countries.delete('');
-  const nextDoc: WorldDoc = { ...doc, regions, countries, cities, alliances, marks, timeline, meta: { ...doc.meta, modified: Date.now() } };
+  const nextDoc: WorldDoc = { ...doc, regions, countries, cities, alliances, marks, timeline, plans, meta: { ...doc.meta, modified: Date.now() } };
   set({ doc: nextDoc, geoms, geomVersion: patch.geoms ? s.geomVersion + 1 : s.geomVersion });
   return { inv, changes };
 }
@@ -382,7 +399,7 @@ function apply(patch: Patch): { inv: Patch; changes: ChangeSet } {
 /** Earlier values win: `a` happened first. */
 function mergeInverse(a: Patch, b: Patch): Patch {
   const out: Patch = {};
-  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks', 'timeline'] as const) {
+  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks', 'timeline', 'plans'] as const) {
     if (a[key] || b[key]) out[key] = { ...(b[key] as object), ...(a[key] as object) } as never;
   }
   return out;
@@ -391,7 +408,7 @@ function mergeInverse(a: Patch, b: Patch): Patch {
 /** Later values win: `b` happened last. */
 function mergeForward(a: Patch, b: Patch): Patch {
   const out: Patch = {};
-  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks', 'timeline'] as const) {
+  for (const key of ['regions', 'countries', 'cities', 'geoms', 'alliances', 'marks', 'timeline', 'plans'] as const) {
     if (a[key] || b[key]) out[key] = { ...(a[key] as object), ...(b[key] as object) } as never;
   }
   return out;
@@ -470,8 +487,8 @@ export function commit(label: string, patch: Patch, opts: { group?: string; defe
   if (patch.geoms) {
     const g = apply({ geoms: patch.geoms });
     const rest = withDerived({ regions: patch.regions, countries: patch.countries, cities: patch.cities, geoms: patch.geoms });
-    const r = apply({ regions: rest.regions, countries: rest.countries, cities: rest.cities, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline });
-    full = { ...rest, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline };
+    const r = apply({ regions: rest.regions, countries: rest.countries, cities: rest.cities, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline, plans: patch.plans });
+    full = { ...rest, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline, plans: patch.plans };
     inv = mergeInverse(g.inv, r.inv);
     changes = { ...r.changes, geoms: true, regions: new Set([...g.changes.regions, ...r.changes.regions]) };
   } else if (opts.deferLabels && opts.group && patch.regions) {
@@ -520,7 +537,7 @@ export function endGroup() {
 
 function replay(entry: HistoryEntry, patch: Patch) {
   const geomFirst = patch.geoms ? apply({ geoms: patch.geoms }) : null;
-  const r = apply({ regions: patch.regions, countries: patch.countries, cities: patch.cities, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline });
+  const r = apply({ regions: patch.regions, countries: patch.countries, cities: patch.cities, alliances: patch.alliances, marks: patch.marks, timeline: patch.timeline, plans: patch.plans });
   const changes = r.changes;
   if (geomFirst) {
     changes.geoms = true;
@@ -637,6 +654,7 @@ export function loadWorld(b: WorldBundle) {
     timelineOpen: false,
     era: null,
     present: null,
+    cityView: null,
   });
   pendingLabels.clear();
   if (repaired.fixed) {
@@ -644,12 +662,12 @@ export function loadWorld(b: WorldBundle) {
     set({ geomVersion: get().geomVersion + 1 });
     toast(`Repaired ${repaired.fixed} broken region shape${repaired.fixed > 1 ? 's' : ''}`, 'ok');
   }
-  emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, alliances: true, marks: true, all: true });
+  emit({ regions: new Set(), countries: new Set(), cities: true, geoms: true, alliances: true, marks: true, plans: true, all: true });
 }
 
 export function closeWorld() {
   for (const url of Object.values(get().flagUrls)) URL.revokeObjectURL(url);
-  set({ doc: null, geoms: {}, flags: {}, flagUrls: {}, past: [], future: [], passthrough: undefined, era: null, present: null, timelineOpen: false });
+  set({ doc: null, geoms: {}, flags: {}, flagUrls: {}, past: [], future: [], passthrough: undefined, era: null, present: null, timelineOpen: false, cityView: null });
 }
 
 export function currentBundle(): WorldBundle {
@@ -1105,7 +1123,7 @@ export function deleteCity(id: number) {
   if (!c) return;
   const countries: Record<string, Country> = {};
   for (const k of Object.values(doc.countries)) if (k.capital === id) countries[k.cid] = { ...k, capital: undefined };
-  commit(`Delete ${c.name}`, { cities: { [id]: null }, countries });
+  commit(`Delete ${c.name}`, { cities: { [id]: null }, countries, plans: doc.plans?.[id] ? { [id]: null } : undefined });
   select({});
 }
 

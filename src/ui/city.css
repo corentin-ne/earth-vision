@@ -1,0 +1,498 @@
+/* ── City view: a city up close, over the world map ─────────────────────── */
+.city-view {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: #dfe7ee;
+  animation: city-in 0.35s var(--ease-out);
+}
+@keyframes city-in {
+  from {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+}
+.city-view .city-map {
+  position: absolute;
+  inset: 0;
+}
+/* Over a pale street map the panels need more body than over the dark globe. */
+.city-view .glass {
+  background: rgba(17, 23, 38, 0.93);
+}
+.city-view .maplibregl-ctrl-attrib {
+  font-size: 11px;
+}
+
+.city-bar {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  height: 58px;
+  max-width: calc(100% - var(--inspector-w) - 42px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 9px;
+  z-index: 7;
+  border-radius: 22px;
+}
+.city-bar .sep {
+  width: 1px;
+  height: 24px;
+  background: var(--stroke);
+  margin: 0 5px;
+  flex: none;
+}
+.city-bar .city-back {
+  flex: none;
+}
+.city-bar .world-title {
+  display: block;
+  width: 190px;
+  min-width: 60px;
+  flex: 1 1 auto;
+}
+.city-bar .menu button.on {
+  color: var(--accent);
+}
+
+.city-panel {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: var(--inspector-w);
+  display: flex;
+  flex-direction: column;
+  z-index: 6;
+  overflow: hidden;
+  border-radius: 24px;
+}
+.city-tabs {
+  position: relative;
+  flex: none;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--stroke);
+}
+.city-tabs .segmented {
+  margin: 0;
+  padding: 3px;
+  border-radius: 13px;
+}
+.city-tabs .segmented button {
+  padding: 9px 8px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  gap: 7px;
+}
+.city-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.city-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.city-body > .stats {
+  margin: 0;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+}
+
+/* The two ways to get districts, as big buttons. */
+.city-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.city-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 12px;
+  border-radius: 14px;
+  text-align: left;
+  background: var(--fill-1);
+  border: 1px solid var(--stroke);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
+}
+.city-action:hover {
+  background: var(--fill-2);
+  border-color: rgba(62, 207, 178, 0.45);
+  transform: translateY(-1px);
+}
+.city-action.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.city-action svg {
+  color: var(--accent);
+  margin-bottom: 3px;
+}
+.city-action strong {
+  font-size: 14px;
+}
+.city-action small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.city-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.city-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.city-levels .chip-btn {
+  padding: 6px 11px;
+  font-size: 12.5px;
+  font-weight: 500;
+  gap: 4px;
+  max-width: 100%;
+}
+.city-levels .chip-btn strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.callout .save-dot {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--accent);
+  animation: city-pulse 1s ease-in-out infinite;
+}
+@keyframes city-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* The district, line or station being edited. */
+.city-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--fill-1);
+  border: 1px solid var(--stroke-2);
+  border-left: 4px solid var(--c, var(--accent));
+  animation: pop 0.3s var(--spring);
+}
+.city-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.city-card .title-input {
+  font-size: 17px;
+  margin-left: 0;
+  min-width: 0;
+}
+.city-num {
+  flex: none;
+  width: 46px;
+  padding: 6px 4px;
+  text-align: center;
+  font-weight: 750;
+  font-size: 16px;
+  border-radius: 10px;
+}
+.city-card .stats {
+  margin: 0;
+}
+.city-swatches {
+  grid-template-columns: repeat(auto-fill, minmax(24px, 1fr));
+  gap: 6px;
+}
+.city-swatches .swatch {
+  border-radius: 8px;
+}
+.city-notes {
+  width: 100%;
+  resize: vertical;
+  font-size: 13px;
+}
+.city-select {
+  flex: 1 1 120px;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.city-card .actions > .btn {
+  flex: 0 1 auto;
+}
+
+.city-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.city-list > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 11px;
+  text-align: left;
+}
+.city-list > button:hover {
+  background: var(--fill-1);
+}
+.city-list > button.on {
+  background: var(--accent-soft);
+}
+.city-list .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+.city-list small {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.city-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: #10151f;
+  font-weight: 750;
+  font-size: 13px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+.city-chip {
+  flex: none;
+  display: inline-block;
+  min-width: 30px;
+  padding: 2px 8px;
+  border-radius: 7px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12.5px;
+  text-align: center;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+}
+.city-bullet {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+.city-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--stroke);
+}
+.city-foot .field-row {
+  grid-template-columns: auto 1fr;
+}
+.city-empty {
+  margin: 0;
+}
+
+/* The stops of a line, strung along it. */
+.city-stops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.city-stops li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 9px;
+}
+.city-stops li::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--c);
+}
+.city-stops li:first-child::before {
+  top: 50%;
+}
+.city-stops li:last-child::before {
+  bottom: 50%;
+}
+.city-stops li:only-child::before {
+  display: none;
+}
+.city-stops li.on {
+  background: var(--accent-soft);
+}
+.city-stops li > button.grow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 5px 4px 5px 7px;
+  text-align: left;
+  font-size: 13.5px;
+}
+.city-stops .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.city-stops .city-chip {
+  min-width: 0;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.stop-dot {
+  position: relative;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--c, #333);
+}
+.stop-dot.big {
+  width: 18px;
+  height: 18px;
+  border-color: var(--fg-2);
+}
+.city-card.station {
+  border-left-color: var(--fg-2);
+}
+.city-on {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.city-on small {
+  color: var(--muted);
+}
+.city-new {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.city-new .segmented {
+  margin: 0;
+}
+
+.city-hint {
+  left: calc((100% - var(--inspector-w) - 14px) / 2);
+  max-width: calc(100% - var(--inspector-w) - 60px);
+  z-index: 7;
+}
+.city-hint > span {
+  min-width: 0;
+}
+
+/* A way into the city from the world map. */
+.sel-bubble-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 2px;
+  padding: 7px 11px;
+  border-radius: 11px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+  font-size: 13px;
+}
+.sel-bubble-open:hover {
+  background: var(--accent-hi);
+}
+.city-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  text-align: left;
+  background: var(--accent-soft);
+  border: 1px solid rgba(62, 207, 178, 0.4);
+  transition:
+    background 0.15s,
+    transform 0.15s;
+}
+.city-open:hover {
+  background: rgba(62, 207, 178, 0.24);
+  transform: translateY(-1px);
+}
+.city-open > svg:first-child {
+  color: var(--accent);
+  flex: none;
+}
+.city-open strong {
+  display: block;
+}
+.city-open small {
+  display: block;
+  color: var(--fg-2);
+  font-size: 12.5px;
+}
+
+/* ── Phones: the panel is a sheet at the bottom, folded by a tap on its tabs ── */
+@media (max-width: 760px) {
+  .city-bar {
+    top: 8px;
+    left: calc(8px);
+    right: 8px;
+    max-width: none;
+    height: 52px;
+  }
+  .city-bar .world-title {
+    width: auto;
+  }
+  .city-panel.sheet {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    height: min(48vh, calc(100% - 150px));
+  }
+  .city-panel.sheet.peek {
+    height: auto;
+  }
+  .city-panel.sheet.peek .city-scroll {
+    display: none;
+  }
+  .city-panel.sheet.peek .city-tabs {
+    border-bottom: 0;
+  }
+  .city-tabs {
+    padding-top: 16px;
+  }
+  .city-hint {
+    left: 50%;
+    max-width: calc(100% - 16px);
+    width: max-content;
+    top: 68px;
+    bottom: auto;
+    font-size: 12.5px;
+  }
+}
