@@ -14,6 +14,7 @@ import {
   toast,
   type Tool,
   type MapStyleId,
+  type MapTab,
   type Layers,
 } from '../world/store';
 import { CountryPanel } from './CountryPanel';
@@ -32,7 +33,7 @@ import { AllianceLegend, viewAlliance } from './AlliancePanel';
 import { SnapCard } from './SnapCard';
 import { naturalOn, type RiverLevel } from '../geo/barriers';
 import { DrawOptions, MarkPanel, RegionExtras, DRAW_KINDS } from './WorldbuildPanels';
-import { DataWindow, FindReplaceWindow, StatsWindow, ThematicLegend, ThematicPicker } from './Windows';
+import { DataLayers, FindReplaceWindow, StatsWindow, ThematicLegend, ThematicPicker } from './Windows';
 import { PosterDialog } from './PosterDialog';
 import { markNoun } from '../world/edits';
 import { TimelineBar, toggleTimeline } from './Timeline';
@@ -84,7 +85,6 @@ export function Editor({ onHome }: { onHome: () => void }) {
       <AdvancedPanel />
       <StatsWindow />
       <FindReplaceWindow />
-      <DataWindow />
       <PosterDialog />
       <FlagGallery />
       <FlagLightbox />
@@ -412,12 +412,12 @@ function TopBar({ onHome }: { onHome: () => void }) {
       <div className="sep" />
       <Search />
       <div className="menu-wrap" ref={toolsRef}>
-        <button className={'icon-btn' + (tools ? ' on' : '')} onClick={() => setTools(!tools)} title="Tools: statistics, data layers, find & replace, advanced…">
-          <Icon name="tune" />
+        <button className={'icon-btn' + (tools ? ' on' : '')} onClick={() => setTools(!tools)} title="World: statistics, flags, timeline, find & replace, repairs…">
+          <Icon name="menu" />
         </button>
         {tools && (
           <div className="menu glass">
-            <div className="menu-label">This world</div>
+            <div className="menu-label">Explore this world</div>
             <button onClick={tool(() => useWorld.setState({ statsOpen: true }))}>
               <Icon name="chart" size={15} /> <span className="grow">Statistics</span>
               <kbd>S</kbd>
@@ -434,24 +434,16 @@ function TopBar({ onHome }: { onHome: () => void }) {
               <Icon name="dice" size={15} /> <span className="grow">Visit a random country</span>
               <kbd>R</kbd>
             </button>
-            <div className="menu-label">Edit</div>
+            <div className="menu-label">Change everywhere</div>
             <button onClick={tool(() => useWorld.setState({ findOpen: true }))}>
               <Icon name="replace" size={15} /> <span className="grow">Find & replace</span>
               <kbd>Ctrl H</kbd>
             </button>
             <button onClick={tool(() => useWorld.setState({ advancedOpen: true }))}>
-              <Icon name="heal" size={15} /> <span className="grow">Advanced tools</span>
+              <Icon name="heal" size={15} /> <span className="grow">Repair & automate</span>
               <kbd>A</kbd>
             </button>
-            <div className="menu-label">Map</div>
-            <button onClick={tool(() => setTool('measure'))}>
-              <Icon name="ruler" size={15} /> <span className="grow">Measure distances & areas</span>
-              <kbd>M</kbd>
-            </button>
-            <button onClick={tool(() => useWorld.setState({ dataOpen: true }))}>
-              <Icon name="database" size={15} /> <span className="grow">Data layers</span>
-              <kbd>O</kbd>
-            </button>
+            <div className="menu-label hide-phone">Help</div>
             <button className="hide-phone" onClick={tool(() => useWorld.setState({ help: true }))}>
               <Icon name="keyboard" size={15} /> <span className="grow">Keyboard shortcuts</span>
               <kbd>?</kbd>
@@ -460,18 +452,18 @@ function TopBar({ onHome }: { onHome: () => void }) {
         )}
       </div>
       <div className="menu-wrap" ref={menuRef}>
-        <button className={'icon-btn' + (menu ? ' on' : '')} onClick={() => setMenu(!menu)} title="Export">
+        <button className={'icon-btn' + (menu ? ' on' : '')} onClick={() => setMenu(!menu)} title="Save & share: .map file, picture, poster">
           <Icon name="download" />
         </button>
         {menu && (
           <div className="menu glass">
-            <div className="menu-label">Export</div>
+            <div className="menu-label">Save & share</div>
             <button onClick={() => exportAs('map')}>
               <Icon name="file" size={15} /> <span className="grow">World map (.map)</span>
               <kbd>Ctrl E</kbd>
             </button>
             <button onClick={() => exportAs('png')}>
-              <Icon name="camera" size={15} /> <span className="grow">Image of this view (.png)</span>
+              <Icon name="camera" size={15} /> <span className="grow">Picture of this view (.png)</span>
               <kbd>P</kbd>
             </button>
             <button
@@ -551,41 +543,65 @@ function SaveBadge() {
   );
 }
 
-const SHORTCUTS: [string, string][] = [
-  ['V', 'Select'],
-  ['B', 'Paint regions'],
-  ['K', 'Split regions'],
-  ['C', 'Cities'],
-  ['Open city', 'Districts & transit lines of a city (its bubble or page)'],
-  ['D', 'Draw: new land, roads, names, pins'],
-  ['T', 'Timeline: chapters of history'],
-  [',  .', 'Previous / next chapter'],
-  ['M', 'Measure distances & areas'],
-  ['Drag a name', 'Move a country name (Select)'],
-  ['S', 'Statistics'],
-  ['O', 'Data layers (reefs, peaks…)'],
-  ['Ctrl + H', 'Find & replace'],
-  ['[  ]', 'Smaller / bigger brush'],
-  ['Brush panel', 'Lasso · cut regions (take only what is covered)'],
-  ['Alt + click', 'Pick a country (paint)'],
-  ['Ctrl + click', 'Take a whole country (paint)'],
-  ['Space', 'Pan while painting'],
-  ['N', 'Brush stops at rivers & crests'],
-  ['Shift + click', 'Select several regions'],
-  ['G', 'Globe / flat map'],
-  ['H', 'Hide the tools (just the map)'],
-  ['U', 'Alliances on the map'],
-  ['L', 'Map style & layers'],
-  ['R', 'Surprise me: random country'],
-  ['P', 'Save a picture of the view'],
-  ['A', 'Advanced tools'],
-  ['F', 'Flags of the world'],
-  ['Ctrl + K', 'Search'],
-  ['Ctrl + Z / Y', 'Undo / redo'],
-  ['Ctrl + S', 'Save now'],
-  ['Ctrl + E', 'Export .map'],
-  ['Esc', 'Back / cancel'],
-  ['?', 'This help'],
+/** The shortcuts, grouped the way the interface is: tools, the map, the world, then everything else. */
+const SHORTCUTS: [string, [string, string][]][] = [
+  [
+    'Tools',
+    [
+      ['V', 'Select'],
+      ['B', 'Paint regions'],
+      ['K', 'Split regions'],
+      ['C', 'Cities'],
+      ['D', 'Draw: new land, roads, names, pins'],
+      ['M', 'Measure distances & areas'],
+    ],
+  ],
+  [
+    'Painting & selecting',
+    [
+      ['[  ]', 'Smaller / bigger brush'],
+      ['Alt + click', 'Pick a country'],
+      ['Ctrl + click', 'Take a whole country'],
+      ['Space', 'Pan while painting'],
+      ['N', 'Brush stops at rivers & crests'],
+      ['Shift + click', 'Select several regions'],
+      ['Drag a name', 'Move a country name (Select)'],
+    ],
+  ],
+  [
+    'Map',
+    [
+      ['L', 'Map panel: look, layers & data'],
+      ['O', 'Real-world data (reefs, peaks…)'],
+      ['U', 'Colour by alliances'],
+      ['G', 'Globe / flat map'],
+      ['H', 'Hide the tools (just the map)'],
+    ],
+  ],
+  [
+    'World',
+    [
+      ['S', 'Statistics'],
+      ['F', 'Flags of the world'],
+      ['T', 'Timeline: chapters of history'],
+      [',  .', 'Previous / next chapter'],
+      ['R', 'Visit a random country'],
+      ['Ctrl + H', 'Find & replace'],
+      ['A', 'Repair & automate'],
+    ],
+  ],
+  [
+    'General',
+    [
+      ['Ctrl + K', 'Search'],
+      ['Ctrl + Z / Y', 'Undo / redo'],
+      ['Ctrl + S', 'Save now'],
+      ['Ctrl + E', 'Save as .map'],
+      ['P', 'Save a picture of the view'],
+      ['Esc', 'Back / cancel'],
+      ['?', 'This help'],
+    ],
+  ],
 ];
 
 function ShortcutsHelp() {
@@ -602,18 +618,23 @@ function ShortcutsHelp() {
             <Icon name="x" />
           </button>
         </div>
-        <div className="shortcut-grid">
-          {SHORTCUTS.map(([k, label]) => (
-            <div key={k} className="shortcut">
-              <span>{label}</span>
-              <span className="keys">
-                {k.split(' + ').map((p, i) => (
-                  <kbd key={i}>{p}</kbd>
-                ))}
-              </span>
+        {SHORTCUTS.map(([group, keys]) => (
+          <section key={group} className="shortcut-group">
+            <div className="menu-label">{group}</div>
+            <div className="shortcut-grid">
+              {keys.map(([k, label]) => (
+                <div key={k} className="shortcut">
+                  <span>{label}</span>
+                  <span className="keys">
+                    {k.split(' + ').map((p, i) => (
+                      <kbd key={i}>{p}</kbd>
+                    ))}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </section>
+        ))}
       </div>
     </div>
   );
@@ -704,12 +725,14 @@ function Search() {
 
 // ── Tools ────────────────────────────────────────────────────────────────────
 
-const TOOLS: { id: Tool; icon: IconName; label: string; key: string }[] = [
+/** Every way of working on the map, in the tool rail. Measure stays in "More" on phones, where the bar is short. */
+const TOOLS: { id: Tool; icon: IconName; label: string; key: string; wide?: boolean }[] = [
   { id: 'select', icon: 'pointer', label: 'Select', key: 'V' },
   { id: 'paint', icon: 'brush', label: 'Paint regions', key: 'B' },
   { id: 'split', icon: 'knife', label: 'Split regions', key: 'K' },
   { id: 'city', icon: 'city', label: 'Cities', key: 'C' },
   { id: 'draw', icon: 'pen', label: 'Draw: land, routes, names, pins', key: 'D' },
+  { id: 'measure', icon: 'ruler', label: 'Measure distances & areas', key: 'M', wide: true },
 ];
 
 function ToolDock() {
@@ -719,10 +742,11 @@ function ToolDock() {
 /** The tool switcher; `bare` drops its own glass card (inside the phone bar). */
 function ToolButtons({ bare }: { bare?: boolean }) {
   const tool = useWorld((s) => s.tool);
+  const tools = bare ? TOOLS.filter((t) => !t.wide) : TOOLS;
   return (
-    <div className={'tools' + (bare ? '' : ' glass') + (TOOLS.some((t) => t.id === tool) ? '' : ' no-tool')} style={{ '--i': TOOLS.findIndex((t) => t.id === tool) } as CSSProperties}>
+    <div className={'tools' + (bare ? '' : ' glass') + (tools.some((t) => t.id === tool) ? '' : ' no-tool')} style={{ '--i': tools.findIndex((t) => t.id === tool) } as CSSProperties}>
       <span className="tool-indicator" aria-hidden />
-      {TOOLS.map((t) => (
+      {tools.map((t) => (
         <button key={t.id} className={'tool' + (tool === t.id ? ' on' : '')} onClick={() => setTool(t.id)} title={`${t.label} (${t.key})`} aria-label={t.label}>
           <Icon name={t.icon} size={20} />
           <span className="tool-tip">
@@ -919,7 +943,6 @@ function PhoneDock() {
   const layersOpen = useWorld((s) => s.layersOpen);
   const snapping = useWorld((s) => !!s.snap);
   const globe = useWorld((s) => s.globe);
-  const allianceView = useWorld((s) => s.allianceView);
   const [more, setMore] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   useOutside(moreRef, more, useCallback(() => setMore(false), []));
@@ -976,17 +999,14 @@ function PhoneDock() {
           </button>
           {more && (
             <div className="menu glass phone-more">
+              <button onClick={pick(() => setTool('measure'))}>
+                <Icon name="ruler" size={16} /> <span className="grow">Measure</span>
+              </button>
               <button onClick={pick(() => useWorld.setState({ globe: !globe }))}>
                 <Icon name={globe ? 'flat' : 'globe'} size={16} /> <span className="grow">{globe ? 'Flat map' : 'Globe'}</span>
               </button>
-              <button onClick={pick(() => (allianceView ? useWorld.setState({ allianceView: null }) : viewAlliance('all')))}>
-                <Icon name="shield" size={16} /> <span className="grow">{allianceView ? 'Hide alliances' : 'Show alliances'}</span>
-              </button>
               <button onClick={pick(toggleTimeline)}>
                 <Icon name="clock" size={16} /> <span className="grow">Timeline</span>
-              </button>
-              <button onClick={pick(() => setTool('measure'))}>
-                <Icon name="ruler" size={16} /> <span className="grow">Measure</span>
               </button>
               <button onClick={pick(() => useWorld.setState({ posterOpen: true }))}>
                 <Icon name="frame" size={16} /> <span className="grow">Poster</span>
@@ -1450,8 +1470,8 @@ const STYLES: { id: MapStyleId; label: string; desc: string }[] = [
 
 type LayerItem = { key: keyof Layers; label: string; icon: IconName; hint: string; needs?: keyof Layers };
 
-/** The map's layers in four short tabs of tiles, instead of one long list of switches. */
-const LAYER_TABS: { id: string; label: string; icon: IconName; items: LayerItem[] }[] = [
+/** The map's layers, a page of tiles for each kind of thing on it. */
+const LAYER_TABS: { id: MapTab; label: string; icon: IconName; items: LayerItem[] }[] = [
   {
     id: 'names',
     label: 'Names',
@@ -1490,7 +1510,7 @@ const LAYER_TABS: { id: string; label: string; icon: IconName; items: LayerItem[
     ],
   },
   {
-    id: 'water',
+    id: 'sky',
     label: 'Sky & sea',
     icon: 'river',
     items: [
@@ -1502,8 +1522,23 @@ const LAYER_TABS: { id: string; label: string; icon: IconName; items: LayerItem[
   },
 ];
 
-const TAB_KEY = 'ev:layers-tab';
+/** The Map panel's pages: its look first, then what is drawn on it, then real-world data. */
+const MAP_TABS: { id: MapTab; label: string; icon: IconName }[] = [
+  { id: 'style', label: 'Look', icon: 'palette' },
+  ...LAYER_TABS.map(({ id, label, icon }) => ({ id, label: label === 'Sky & sea' ? 'Sky' : label, icon })),
+  { id: 'data', label: 'Data', icon: 'database' },
+];
 
+/** Opens the Map panel on one of its pages. */
+export function openMapPanel(tab?: MapTab) {
+  useWorld.setState((s) => ({ layersOpen: true, mapTab: tab ?? s.mapTab }));
+}
+
+/**
+ * The map controls (globe, the Map panel, hiding the tools) and the Map panel itself: one place
+ * for everything about how the map looks — style, what it is coloured by, the layers drawn on
+ * it and real-world data — none of which changes the world.
+ */
 function LayersPanel() {
   const open = useWorld((s) => s.layersOpen);
   const setOpen = useCallback((v: boolean) => useWorld.setState({ layersOpen: v }), []);
@@ -1512,38 +1547,17 @@ function LayersPanel() {
   const mapStyle = useWorld((s) => s.mapStyle);
   const globe = useWorld((s) => s.globe);
   const layers = useWorld((s) => s.layers);
-  const allianceView = useWorld((s) => s.allianceView);
-  const [tabId, setTabId] = useState(() => {
-    try {
-      return localStorage.getItem(TAB_KEY) ?? 'names';
-    } catch {
-      return 'names';
-    }
-  });
-  const tab = LAYER_TABS.find((t) => t.id === tabId) ?? LAYER_TABS[0];
-  const pickTab = (id: string) => {
-    setTabId(id);
-    try {
-      localStorage.setItem(TAB_KEY, id);
-    } catch {
-      /* private mode: the tab is just not remembered */
-    }
-  };
+  const tabId = useWorld((s) => s.mapTab);
+  const overlays = useWorld((s) => s.doc?.overlays?.length ?? 0);
+  const layerTab = LAYER_TABS.find((t) => t.id === tabId);
   return (
     <div className="layers" ref={ref}>
       <div className="layers-buttons glass">
-        <button className="icon-btn" onClick={() => useWorld.setState({ globe: !globe })} title={globe ? 'Flat map' : 'Globe'}>
-          <Icon name={globe ? 'flat' : 'globe'} />
-        </button>
-        <button className={'icon-btn' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title="Map style & layers (L)">
+        <button className={'icon-btn' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title="Map: look, layers & data (L)">
           <Icon name="layers" />
         </button>
-        <button
-          className={'icon-btn' + (allianceView ? ' on' : '')}
-          onClick={() => (allianceView ? useWorld.setState({ allianceView: null }) : viewAlliance('all'))}
-          title="Alliances on the map (U)"
-        >
-          <Icon name="shield" />
+        <button className="icon-btn" onClick={() => useWorld.setState({ globe: !globe })} title={globe ? 'Flat map (G)' : 'Globe (G)'}>
+          <Icon name={globe ? 'flat' : 'globe'} />
         </button>
         <button className="icon-btn" onClick={enterZen} title="Hide the tools, just the map (H)">
           <Icon name="eyeOff" />
@@ -1551,58 +1565,77 @@ function LayersPanel() {
       </div>
       {open && (
         <div className="layers-pop glass">
-          <div className="menu-label">Map style</div>
-          <div className="style-grid">
-            {STYLES.map((s) => (
-              <button key={s.id} className={'style-chip ' + s.id + (mapStyle === s.id ? ' on' : '')} onClick={() => useWorld.setState({ mapStyle: s.id })} title={s.desc}>
-                <span className="style-preview" />
-                {s.label}
-              </button>
-            ))}
+          <div className="map-head">
+            <Icon name="layers" size={16} />
+            <strong className="grow">Map</strong>
+            <small>How it looks — never changes your world</small>
           </div>
-          <div className="menu-label">Colour the map by</div>
-          <ThematicPicker />
           <div className="layer-tabs" role="tablist">
-            {LAYER_TABS.map((t) => {
-              const n = t.items.filter((i) => layers[i.key]).length;
-              return (
-                <button key={t.id} role="tab" aria-selected={tab.id === t.id} className={'layer-tab' + (tab.id === t.id ? ' on' : '')} onClick={() => pickTab(t.id)}>
-                  <Icon name={t.icon} size={15} />
-                  <span>{t.label}</span>
-                  <small>
-                    {n}/{t.items.length}
-                  </small>
-                </button>
-              );
-            })}
-          </div>
-          <div className="layer-tiles" key={tab.id}>
-            {tab.items.map((i) => {
-              const off = !!i.needs && !layers[i.needs];
+            {MAP_TABS.map((t) => {
+              const items = LAYER_TABS.find((l) => l.id === t.id)?.items;
+              const count = items ? `${items.filter((i) => layers[i.key]).length}/${items.length}` : t.id === 'data' ? (overlays ? `${overlays} on` : 'off') : null;
               return (
                 <button
-                  key={i.key}
-                  className={'layer-tile' + (layers[i.key] ? ' on' : '')}
-                  disabled={off}
-                  aria-pressed={layers[i.key]}
-                  title={i.hint}
-                  onClick={() => useWorld.setState({ layers: { ...layers, [i.key]: !layers[i.key] } })}
+                  key={t.id}
+                  role="tab"
+                  aria-selected={tabId === t.id}
+                  className={'layer-tab' + (tabId === t.id ? ' on' : '')}
+                  onClick={() => useWorld.setState({ mapTab: t.id })}
                 >
-                  <Icon name={i.icon} size={18} />
-                  <span>{i.label}</span>
+                  <Icon name={t.icon} size={15} />
+                  <span>{t.label}</span>
+                  <small>{count ?? '\u00a0'}</small>
                 </button>
               );
             })}
           </div>
-          <button
-            className="btn small layer-data"
-            onClick={() => {
-              setOpen(false);
-              useWorld.setState({ dataOpen: true });
-            }}
-          >
-            <Icon name="database" size={14} /> Data layers: reefs, peaks, earthquakes…
-          </button>
+          <div className="map-page" key={tabId}>
+            {tabId === 'style' && (
+              <>
+                <div className="menu-label">Style</div>
+                <div className="style-grid">
+                  {STYLES.map((s) => (
+                    <button key={s.id} className={'style-chip ' + s.id + (mapStyle === s.id ? ' on' : '')} onClick={() => useWorld.setState({ mapStyle: s.id })} title={s.desc}>
+                      <span className="style-preview" />
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="menu-label">Colour the countries by</div>
+                <ThematicPicker />
+                <div className="menu-label">View</div>
+                <div className="segmented">
+                  <button className={globe ? 'on' : ''} onClick={() => useWorld.setState({ globe: true })}>
+                    <Icon name="globe" size={14} /> Globe
+                  </button>
+                  <button className={globe ? '' : 'on'} onClick={() => useWorld.setState({ globe: false })}>
+                    <Icon name="flat" size={14} /> Flat map
+                  </button>
+                </div>
+              </>
+            )}
+            {layerTab && (
+              <div className="layer-tiles">
+                {layerTab.items.map((i) => {
+                  const off = !!i.needs && !layers[i.needs];
+                  return (
+                    <button
+                      key={i.key}
+                      className={'layer-tile' + (layers[i.key] ? ' on' : '')}
+                      disabled={off}
+                      aria-pressed={layers[i.key]}
+                      title={i.hint}
+                      onClick={() => useWorld.setState({ layers: { ...layers, [i.key]: !layers[i.key] } })}
+                    >
+                      <Icon name={i.icon} size={18} />
+                      <span>{i.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {tabId === 'data' && <DataLayers />}
+          </div>
         </div>
       )}
     </div>
@@ -1644,7 +1677,7 @@ export function useShortcuts() {
         else if (k === 't' && useWorld.getState().doc) toggleTimeline();
         else if ((k === ',' || k === '.') && useWorld.getState().timelineOpen) stepChapter(k === ',' ? -1 : 1);
         else if (k === 's' && useWorld.getState().doc) useWorld.setState((s) => ({ statsOpen: !s.statsOpen }));
-        else if (k === 'o' && useWorld.getState().doc) useWorld.setState((s) => ({ dataOpen: !s.dataOpen }));
+        else if (k === 'o' && useWorld.getState().doc) (useWorld.getState().layersOpen && useWorld.getState().mapTab === 'data' ? useWorld.setState({ layersOpen: false }) : openMapPanel('data'));
         else if (k === 'g') useWorld.setState((s) => ({ globe: !s.globe }));
         else if (k === 'l') useWorld.setState((s) => ({ layersOpen: !s.layersOpen }));
         else if (k === 'r' && useWorld.getState().doc) surprise();
@@ -1665,7 +1698,6 @@ export function useShortcuts() {
         }
         else if (k === 'escape' && useWorld.getState().statsOpen) useWorld.setState({ statsOpen: false });
         else if (k === 'escape' && useWorld.getState().findOpen) useWorld.setState({ findOpen: false });
-        else if (k === 'escape' && useWorld.getState().dataOpen) useWorld.setState({ dataOpen: false });
         else if (k === 'escape' && useWorld.getState().posterOpen) useWorld.setState({ posterOpen: false });
         else if (k === 'escape' && useWorld.getState().detailsOpen) useWorld.setState({ detailsOpen: false });
         else if (k === 'escape' && useWorld.getState().worldOpen) useWorld.setState({ worldOpen: false });

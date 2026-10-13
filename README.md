@@ -115,7 +115,13 @@ their code is kept under [`legacy/`](legacy/).
   long countries along their shape, atlas style.
 - **Find & replace** (`Ctrl+H`) across country, state, region and city names, details, lore and map
   names, with a preview, as one undo step.
-- **Data layers** (`O`) from free, open sources: coral reefs, glaciers, ice shelves, mountain ranges
+- **Find your way around**: the tool rail holds every way of working on the map (select, paint,
+  split, cities, draw, measure); the **Map panel** (`L`) everything about how it looks (style,
+  what the countries are coloured by — figures, realms or alliances —, names, borders, land,
+  sky & sea, real-world data); the **World menu** what concerns the whole world (statistics,
+  flags, timeline, find & replace, repair & automate); **Save & share** the .map file, pictures
+  and posters.
+- **Data layers** (Map panel › Data, `O`) from free, open sources: coral reefs, glaciers, ice shelves, mountain ranges
   and deserts, peaks, tectonic plates, time zones, ports, airports, live earthquakes (USGS) and
   natural events (NASA EONET). Each downloads once, then works offline.
 - Sharper relief: zoom 5 tiles from Natural Earth's 1:10m shaded relief.

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Country, WorldDoc } from '../types';
+import { viewAlliance } from './AlliancePanel';
 import { useWorld, countryAggregates, select, countryBounds, toast, type Thematic } from '../world/store';
 import { computeThematic, thematicKey, thematicOptions } from '../world/thematic';
 import { applyFindReplace, findReplace, type FindScope } from '../world/edits';
@@ -34,18 +35,30 @@ export function setThematic(t: Thematic | null) {
   useWorld.setState(t ? { thematic: t, allianceView: null } : { thematic: null });
 }
 
-/** "Colour the map by" select, for the layers popover. */
+const ALLIANCES = '__alliances';
+
+/** "Colour the map by" select, for the Map panel: country colours, alliances, or any figure. */
 export function ThematicPicker() {
   const doc = useWorld((s) => s.doc)!;
   const thematic = useWorld((s) => s.thematic);
+  const alliances = useWorld((s) => s.allianceView);
   const opts = useMemo(() => thematicOptions(doc), [doc.settings]);
   return (
     <select
       className="thematic-select"
-      value={thematicKey(thematic)}
-      onChange={(e) => setThematic(e.target.value ? (JSON.parse(e.target.value) as Thematic) : null)}
+      value={alliances ? ALLIANCES : thematicKey(thematic)}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === ALLIANCES) {
+          setThematic(null);
+          return viewAlliance('all');
+        }
+        useWorld.setState({ allianceView: null });
+        setThematic(v ? (JSON.parse(v) as Thematic) : null);
+      }}
     >
       <option value="">Countries (their own colours)</option>
+      <option value={ALLIANCES}>Alliances</option>
       {opts.map((o) => (
         <option key={thematicKey(o.value)} value={thematicKey(o.value)}>
           {o.label}
@@ -347,14 +360,8 @@ function FindReplaceBody() {
 // A stable empty list: a fresh `[]` in the selector would re-render forever (React #185).
 const NO_OVERLAYS: string[] = [];
 
-export function DataWindow() {
-  const open = useWorld((s) => s.dataOpen);
-  if (!open) return null;
-  return <DataBody />;
-}
-
-function DataBody() {
-  const close = () => useWorld.setState({ dataOpen: false });
+/** Real-world data layers, as a page of the Map panel. */
+export function DataLayers() {
   const on = useWorld((s) => s.doc?.overlays ?? NO_OVERLAYS);
   const [cached, setCached] = useState<Record<string, boolean>>({});
   useEffect(() => {
@@ -372,7 +379,7 @@ function DataBody() {
     useWorld.setState({ doc: { ...doc, overlays, meta: { ...doc.meta, modified: Date.now() } } });
   };
   return (
-    <Window icon="database" title="Data layers" onClose={close}>
+    <>
       <p className="hint">Real-world data from free, open sources, drawn over your map. Each layer downloads once, then works offline.</p>
       <div className="data-list">
         {OVERLAYS.map((o) => (
@@ -389,6 +396,6 @@ function DataBody() {
           </label>
         ))}
       </div>
-    </Window>
+    </>
   );
 }

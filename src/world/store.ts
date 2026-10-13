@@ -20,6 +20,7 @@ export type Thematic =
   | { kind: 'realm' }
   | { kind: 'states' };
 export type MapStyleId = 'political' | 'atlas' | 'plain' | 'night';
+export type MapTab = 'style' | 'names' | 'borders' | 'land' | 'sky' | 'data';
 
 export interface Layers {
   relief: boolean;
@@ -120,6 +121,8 @@ export interface State {
   /** Keyboard shortcuts overlay. */
   help: boolean;
   layersOpen: boolean;
+  /** Which page of the Map panel is shown: its look, the layers, or the real-world data. */
+  mapTab: MapTab;
   /** Touch-friendly stand-ins for Alt+click (pick) and Ctrl+click (whole country) while painting. */
   brushMode: 'paint' | 'lasso' | 'pick' | 'whole';
   /** The Split tool cuts along a line, or separates what a loop circles into its own region. */
@@ -165,7 +168,6 @@ export interface State {
   findOpen: boolean;
   statsOpen: boolean;
   posterOpen: boolean;
-  dataOpen: boolean;
   timelineOpen: boolean;
   /** Chapter of the timeline shown on the map (`doc` is then that past, read-only). */
   era: string | null;
@@ -236,6 +238,7 @@ export const useWorld = create<State>(() => ({
   toast: null,
   help: false,
   layersOpen: false,
+  mapTab: 'style',
   brushMode: 'paint',
   splitMode: 'line',
   lassoClaim: 'exact',
@@ -260,7 +263,6 @@ export const useWorld = create<State>(() => ({
   findOpen: false,
   statsOpen: false,
   posterOpen: false,
-  dataOpen: false,
   timelineOpen: false,
   era: null,
   present: null,
@@ -653,7 +655,6 @@ export function loadWorld(b: WorldBundle) {
     findOpen: false,
     statsOpen: false,
     posterOpen: false,
-    dataOpen: false,
     timelineOpen: false,
     era: null,
     present: null,

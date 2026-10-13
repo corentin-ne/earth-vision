@@ -50,7 +50,7 @@ export function AdvancedPanel() {
       <div className="modal glass advanced" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <Icon name="tune" />
-          <h2 className="grow">Advanced</h2>
+          <h2 className="grow">Repair & automate</h2>
           <button className="icon-btn" onClick={close} title="Close (Esc)">
             <Icon name="x" />
           </button>
