@@ -1,7 +1,7 @@
 // Real administrative areas (towns, arrondissements, quarters…) around a city, from
 // OpenStreetMap through the Overpass API. They are offered as shapes to turn into districts.
 import type { Position } from 'geojson';
-import type { RegionGeom } from '../types';
+import type { RegionGeom, TransitMode } from '../types';
 import { geomArea, labelPoint, pointInGeom } from '../geo/engine';
 
 /** An area that can become a district. */
@@ -315,4 +315,83 @@ export async function fetchTownAt(at: [number, number], signal?: AbortSignal): P
   const town = townOf(around.elements ?? []);
   if (!town) return { town: null, areas: [] };
   return { town: `r${town.id}`, areas: parseOverpass(await overpass(townQuery(town, false), signal)) };
+}
+
+// ── Real rail network ────────────────────────────────────────────────────────
+
+/** A real line: where it calls, in order. */
+export interface RealLine {
+  id: string;
+  name: string;
+  mode: TransitMode;
+  color?: string;
+  stops: { name: string; lng: number; lat: number }[];
+}
+
+interface OsmElement {
+  type: string;
+  id: number;
+  lat?: number;
+  lon?: number;
+  tags?: Record<string, string>;
+  members?: { type: string; ref: number; role?: string }[];
+}
+
+const RAIL: Record<string, TransitMode> = { subway: 'metro', tram: 'tram', light_rail: 'tram', train: 'train' };
+
+/**
+ * The lines in an Overpass answer of route relations and their stop nodes. A line is mapped once
+ * per direction and per branch: the variant with the most stops stands for it.
+ */
+export function parseRoutes(json: { elements?: OsmElement[] }): RealLine[] {
+  const nodes = new Map<number, OsmElement>();
+  for (const e of json.elements ?? []) if (e.type === 'node' && e.lat != null && e.lon != null) nodes.set(e.id, e);
+  const best = new Map<string, RealLine>();
+  for (const e of json.elements ?? []) {
+    const t = e.tags;
+    const mode = t && RAIL[t.route];
+    if (e.type !== 'relation' || !t || !mode) continue;
+    const name = (t.ref || t.name || '').trim();
+    if (!name) continue;
+    const members = (e.members ?? []).filter((m) => m.type === 'node' && nodes.has(m.ref));
+    // Stop positions when the line has them, else its platforms.
+    const picked = [/^stop/, /^platform/].map((re) => members.filter((m) => re.test(m.role ?? ''))).find((l) => l.length > 1) ?? [];
+    const stops: RealLine['stops'] = [];
+    for (const m of picked) {
+      const n = nodes.get(m.ref)!;
+      const stop = { name: (n.tags?.name ?? '').trim(), lng: +n.lon!.toFixed(6), lat: +n.lat!.toFixed(6) };
+      const prev = stops[stops.length - 1];
+      if (!stop.name || (prev && prev.name === stop.name)) continue;
+      stops.push(stop);
+    }
+    if (stops.length < 2) continue;
+    const key = `${mode}:${name}`;
+    const color = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(t.colour ?? '') ? t.colour.toUpperCase() : undefined;
+    const had = best.get(key);
+    if (!had || stops.length > had.stops.length) best.set(key, { id: `r${e.id}`, name, mode, color: color ?? had?.color, stops });
+    else if (!had.color && color) had.color = color;
+  }
+  const order: TransitMode[] = ['metro', 'tram', 'train', 'bus'];
+  return [...best.values()].sort((a, b) => order.indexOf(a.mode) - order.indexOf(b.mode) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/**
+ * The rail lines running through a box: metros, trams and light rail, and the suburban trains
+ * (RER, S-Bahn, commuter lines) — not long-distance trains, not buses.
+ */
+export async function fetchRail(box: [number, number, number, number], signal?: AbortSignal): Promise<RealLine[]> {
+  const [w, s, e, n] = box.map((v) => v.toFixed(5));
+  const b = `(${s},${w},${n},${e})`;
+  const route = 'relation["type"="route"]';
+  return parseRoutes(
+    await overpass(
+      `[out:json][timeout:40];(` +
+        `${route}["route"~"^(subway|tram|light_rail)$"]${b};` +
+        `${route}["route"="train"]["network"~"RER|S-Bahn|Cercan|Rodalies|Overground",i]${b};` +
+        `${route}["route"="train"]["passenger"~"suburban|urban"]${b};` +
+        `${route}["route"="train"]["service"="commuter"]${b};` +
+        `)->.r;.r out body;node(r.r);out body;`,
+      signal,
+    ),
+  );
 }

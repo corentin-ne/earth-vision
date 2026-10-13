@@ -19,13 +19,14 @@ import {
   sharePopulation,
   sortedDistricts,
   transitFeatures,
+  importLines,
   updateDistrict,
   updateStation,
   openCity,
 } from '../src/world/city';
 import { back } from '../src/world/cityBack';
 import { useCityUi } from '../src/world/cityUi';
-import { FINEST, MAIN, shownAreas, joinRings, parseOverpass, relationGeom, simplify, townOf, townQuery } from '../src/io/osm';
+import { FINEST, MAIN, shownAreas, parseRoutes, joinRings, parseOverpass, relationGeom, simplify, townOf, townQuery } from '../src/io/osm';
 import { exportAmap, importAmap } from '../src/io/amap';
 import { pointInGeom } from '../src/geo/engine';
 
@@ -220,6 +221,61 @@ describe('city transit', () => {
     expect(plan().stations[a].lng).toBeCloseTo(X + 0.005, 6);
     undo();
     expect(plan().stations[a].lng).toBe(X);
+  });
+});
+
+describe('real rail network', () => {
+  beforeEach(() => loadWorld(world()));
+  const node = (id: number, name: string, dx: number, dy = 0) => ({ type: 'node', id, lon: X + dx, lat: Y + dy, tags: { name } });
+  const route = (id: number, tags: Record<string, string>, stops: number[], role = 'stop') => ({
+    type: 'relation',
+    id,
+    tags: { type: 'route', ...tags },
+    members: [{ type: 'way', ref: 1, role: '' }, ...stops.map((ref) => ({ type: 'node', ref, role }))],
+  });
+  const answer = {
+    elements: [
+      node(1, 'Quinconces', 0),
+      node(2, 'Hôtel de Ville', 0.01),
+      node(3, 'Gare', 0.02),
+      // The other platform of the same station, a few metres away.
+      node(4, 'Hôtel de Ville', 0.0101, 0.0001),
+      node(5, 'Mériadeck', 0.01, 0.01),
+      route(10, { route: 'tram', ref: 'A', colour: '#81197f' }, [1, 2, 3]),
+      // The way back, and a short working: one line all the same.
+      route(11, { route: 'tram', ref: 'A' }, [3, 2, 1]),
+      route(12, { route: 'tram', ref: 'A' }, [1, 2]),
+      route(13, { route: 'subway', ref: '1' }, [5, 4], 'platform'),
+      route(14, { route: 'bus', ref: '9' }, [1, 2]),
+      route(15, { route: 'train', name: 'RER C' }, [3]),
+    ],
+  };
+
+  it('reads metros and trams once each, with their stops in order', () => {
+    const lines = parseRoutes(answer);
+    expect(lines.map((l) => `${l.mode} ${l.name}`)).toEqual(['metro 1', 'tram A']);
+    expect(lines[1].color).toBe('#81197F');
+    expect(lines[1].stops.map((s) => s.name)).toEqual(['Quinconces', 'Hôtel de Ville', 'Gare']);
+    expect(lines[0].stops.map((s) => s.name)).toEqual(['Mériadeck', 'Hôtel de Ville']);
+  });
+
+  it('brings them in as one undo step, meeting in interchanges', () => {
+    const mine = addLine(CITY);
+    const gare = addStop(CITY, mine, [X + 0.02, Y], { name: 'Gare' })!;
+    addStop(CITY, mine, [X + 0.03, Y]);
+    expect(importLines(CITY, parseRoutes(answer))).toBe(2);
+    const p = plan();
+    const tram = Object.values(p.lines).find((l) => l.name === 'A')!;
+    const metro = Object.values(p.lines).find((l) => l.name === '1')!;
+    // The existing Gare is reused; both platforms of Hôtel de Ville are one station.
+    expect(tram.stops[2]).toBe(gare);
+    expect(metro.stops[1]).toBe(tram.stops[1]);
+    expect(Object.keys(p.stations)).toHaveLength(5);
+    expect(metro.color).not.toBe(p.lines[mine].color);
+    // Importing again adds nothing.
+    expect(importLines(CITY, parseRoutes(answer))).toBe(0);
+    undo();
+    expect(Object.keys(plan().lines)).toEqual([mine]);
   });
 });
 

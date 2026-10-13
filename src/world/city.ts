@@ -5,7 +5,7 @@ import { difference, union, type Geom } from 'polyclip-ts';
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson';
 import type { CityPlan, District, LngLat, RegionGeom, Station, TransitLine, TransitMode } from '../types';
 import { commit, select, setTool, toast, useWorld } from './store';
-import { geomArea, labelPoint, pointInGeom } from '../geo/engine';
+import { bbox, geomArea, labelPoint, pointInGeom } from '../geo/engine';
 import { distanceKm } from '../geo/measure';
 import { uid } from '../util';
 
@@ -328,6 +328,69 @@ export function deleteStation(cityId: number, sid: string) {
   if (!s) return;
   const lines = Object.fromEntries(Object.entries(plan.lines).map(([id, l]) => [id, l.stops.includes(sid) ? { ...l, stops: l.stops.filter((x) => x !== sid) } : l]));
   put(cityId, `Remove ${s.name}`, prune({ ...plan, lines }));
+}
+
+/** A line to bring in from elsewhere (the real network): its name, look and stops in order. */
+export interface LineDraft {
+  name: string;
+  mode: TransitMode;
+  color?: string;
+  stops: { name: string; lng: number; lat: number }[];
+}
+
+const plain = (s: string) => s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+
+/**
+ * `plan` with the given lines added. Stops of the same name close to one another are one station
+ * (so lines meet in interchanges, with each other and with the lines already there); a line the
+ * plan already has (same name and kind) is left alone. `added` counts the new lines.
+ */
+export function withLines(plan: CityPlan, drafts: LineDraft[]): { plan: CityPlan; added: number } {
+  const stations = { ...plan.stations };
+  const lines = { ...plan.lines };
+  const byName = new Map<string, Station[]>();
+  for (const s of Object.values(stations)) byName.set(plain(s.name), [...(byName.get(plain(s.name)) ?? []), s]);
+  const have = new Set(Object.values(lines).map((l) => `${l.mode}:${plain(l.name)}`));
+  const used = Object.values(lines).map((l) => l.color);
+  let added = 0;
+  for (const d of drafts) {
+    if (have.has(`${d.mode}:${plain(d.name)}`)) continue;
+    const stops: string[] = [];
+    for (const p of d.stops) {
+      const same = byName.get(plain(p.name)) ?? [];
+      let st = same.find((s) => distanceKm([s.lng, s.lat], [p.lng, p.lat]) < 0.6);
+      if (!st) {
+        st = { id: newId(), name: p.name, lng: p.lng, lat: p.lat };
+        stations[st.id] = st;
+        byName.set(plain(p.name), [...same, st]);
+      }
+      if (stops[stops.length - 1] !== st.id) stops.push(st.id);
+    }
+    if (stops.length < 2) continue;
+    const id = newId();
+    const color = d.color ?? freeColor(LINE_COLORS, used);
+    used.push(color);
+    lines[id] = { id, name: d.name, color, mode: d.mode, stops };
+    have.add(`${d.mode}:${plain(d.name)}`);
+    added++;
+  }
+  return { plan: added ? prune({ ...plan, stations, lines }) : plan, added };
+}
+
+/** Adds lines brought in from elsewhere, as one undo step. Returns how many were new. */
+export function importLines(cityId: number, drafts: LineDraft[]): number {
+  const { plan, added } = withLines(planOf(cityId), drafts);
+  if (added) put(cityId, `Add ${added} real line${added > 1 ? 's' : ''}`, plan);
+  return added;
+}
+
+/** Where to look for the real network of a city: some 10 km around its centre, and over all its districts. */
+export function cityBox(cityId: number): [number, number, number, number] | null {
+  const city = useWorld.getState().doc?.cities[cityId];
+  if (!city) return null;
+  const dx = 0.06 / Math.max(0.3, Math.cos((city.lat * Math.PI) / 180));
+  const boxes = [[city.lng - dx, city.lat - 0.06, city.lng + dx, city.lat + 0.06], ...Object.values(planOf(cityId).districts).map((d) => bbox(d.geom))];
+  return [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])), Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))];
 }
 
 export const linesAt = (plan: CityPlan, sid: string): TransitLine[] => Object.values(plan.lines).filter((l) => l.stops.includes(sid));

@@ -59,6 +59,7 @@
 
 ## Done (2.20 – 2.21)
 - [x] Timeline of chapters to look back at, replay and return to; measure tool
+- [x] Cities: real rail network import (metro, tram, RER), a city grows ring after ring, phone layout
 - [x] Cities up close: real or hand-drawn districts (numbered, populated, merged), metro / tram / train / bus lines with stations and interchanges, on a street map
 
 ## Next

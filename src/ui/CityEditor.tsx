@@ -6,6 +6,8 @@ import {
   MODES,
   addDistrict,
   addLine,
+  cityBox,
+  importLines,
   deleteDistrict,
   deleteLine,
   deleteStation,
@@ -29,7 +31,7 @@ import {
 } from '../world/city';
 import { FRESH, useCityUi, type Basemap } from '../world/cityUi';
 import { CityMap, cityMap, setCityMap } from '../map/cityMap';
-import { FINEST, MAIN, areaLevels, fetchAreas, shownAreas, type Candidate } from '../io/osm';
+import { FINEST, MAIN, areaLevels, fetchAreas, fetchRail, shownAreas, type Candidate, type RealLine } from '../io/osm';
 import { areasAround } from '../io/areas';
 import { labelPoint } from '../geo/engine';
 import type { CityPlan, District, TransitLine, TransitMode } from '../types';
@@ -73,6 +75,16 @@ function CityView({ id }: { id: number }) {
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   useOutside(menuRef, menu, useCallback(() => setMenu(false), []));
+  // Phones: while districts are being tapped or drawn on the map, the sheet folds to give it
+  // the screen; it comes back with the tool put down, or when something is picked to edit.
+  const onMap = useCityUi((s) => s.tab === 'districts' && s.tool !== 'pick');
+  const picked = useCityUi((s) => (s.tab === 'districts' ? s.tool === 'pick' && s.district : s.station));
+  useEffect(() => {
+    if (mobile) setPeek(onMap);
+  }, [mobile, onMap]);
+  useEffect(() => {
+    if (picked) setPeek(false);
+  }, [picked]);
 
   useEffect(() => {
     useCityUi.setState({ ...FRESH });
@@ -168,6 +180,8 @@ function CityView({ id }: { id: number }) {
       </header>
 
       <aside ref={panelRef} className={'city-panel glass' + (mobile ? ' sheet' : '') + (mobile && peek ? ' peek' : '')}>
+        {/* Phones: what a tap does is said on the sheet itself, so it never covers the map's own buttons. */}
+        {mobile && <CityHint id={id} inline />}
         <div
           className="city-tabs"
           onClick={(e) => {
@@ -186,7 +200,7 @@ function CityView({ id }: { id: number }) {
         </div>
         <div className="city-scroll">{tab === 'districts' ? <DistrictsTab id={id} /> : <TransitTab id={id} />}</div>
       </aside>
-      <CityHint id={id} />
+      {!mobile && <CityHint id={id} />}
     </div>
   );
 }
@@ -197,7 +211,7 @@ function usePlan(id: number): CityPlan {
 }
 
 /** What a click on the map does right now, said in one line at the bottom of the map. */
-function CityHint({ id }: { id: number }) {
+function CityHint({ id, inline }: { id: number; inline?: boolean }) {
   const ui = useCityUi();
   const plan = usePlan(id);
   const mobile = useMobile();
@@ -222,7 +236,7 @@ function CityHint({ id }: { id: number }) {
     );
   } else if (ui.tab === 'districts' && ui.tool === 'real') {
     if (!ui.areas?.length) return null;
-    text = ui.growing ? 'Collecting the towns around…' : `${tap} the dashed areas to add them · ${tap.toLowerCase()} anywhere further out to add the town there`;
+    text = ui.growing ? 'Collecting the towns around…' : mobile ? 'Tap an area to add it. Tap further out for the town there.' : 'Click the dashed areas to add them · click anywhere further out to add the town there';
     actions = (
       <button className="btn primary small" onClick={() => useCityUi.setState({ tool: 'pick' })}>
         Done
@@ -232,7 +246,7 @@ function CityHint({ id }: { id: number }) {
     icon = 'train';
     const line = ui.line ? plan.lines[ui.line] : undefined;
     if (!line) return null;
-    text = line.stops.length ? `${tap} the map to extend ${line.name} · ${tap.toLowerCase()} the line to add a stop on it · drag a station to move it` : `${tap} the map to place the first station of ${line.name}.`;
+    text = !line.stops.length ? `${tap} the map to place the first station of ${line.name}.` : mobile ? `Tap to extend ${line.name}, or on the line to add a stop. Drag stations.` : `Click the map to extend ${line.name} · click the line to add a stop on it · drag a station to move it`;
     actions = (
       <button className="btn primary small" onClick={() => useCityUi.setState({ line: null, station: null })}>
         Done
@@ -240,7 +254,7 @@ function CityHint({ id }: { id: number }) {
     );
   } else return null;
   return (
-    <div className="split-hint city-hint">
+    <div className={inline ? 'city-hint-inline' : 'split-hint city-hint'}>
       <Icon name={icon} size={16} />
       <span>{text}</span>
       {actions}
@@ -356,7 +370,7 @@ function RealAreas({ id }: { id: number }) {
   return (
     <div className="callout">
       <p>
-        <strong>Click the dashed areas on the map</strong> to add them to the city. Each town you add brings its own neighbours within reach, so the city can grow as far as you like — or click any spot further out to add the town there.
+        <strong>Pick the dashed areas on the map</strong> to add them to the city. Each town added brings its own neighbours within reach, so the city can grow as far as you like.
       </p>
       {levels.length > 1 && (
         <>
@@ -669,6 +683,110 @@ function StationCard({ id, sid, plan }: { id: number; sid: string; plan: CityPla
   );
 }
 
+const RAIL_KINDS: [TransitMode, string][] = [
+  ['metro', 'Metro'],
+  ['tram', 'Tram'],
+  ['train', 'RER & suburban'],
+];
+
+/** The rail lines that really run here, to start the network from: pick the kinds, add them all at once. */
+function RealNetwork({ id, onClose }: { id: number; onClose: () => void }) {
+  const [found, setFound] = useState<RealLine[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [kinds, setKinds] = useState<Record<string, boolean>>({ metro: true, tram: true, train: true });
+  const [again, setAgain] = useState(0);
+  const plan = usePlan(id);
+  useEffect(() => {
+    const box = cityBox(id);
+    if (!box) return;
+    const stop = new AbortController();
+    setFound(null);
+    setFailed(false);
+    fetchRail(box, stop.signal)
+      .then(setFound)
+      .catch(() => !stop.signal.aborted && setFailed(true));
+    return () => stop.abort();
+  }, [id, again]);
+  if (failed)
+    return (
+      <div className="callout">
+        <p>Could not fetch the real network (no connection, or the servers are busy).</p>
+        <div className="actions">
+          <button className="btn small" onClick={() => setAgain(again + 1)}>
+            Try again
+          </button>
+          <button className="btn small" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  if (!found)
+    return (
+      <div className="callout">
+        <p>
+          <span className="save-dot" /> Looking for the metro, tram and suburban lines here…
+        </p>
+      </div>
+    );
+  const have = new Set(Object.values(plan.lines).map((l) => `${l.mode}:${l.name.toLowerCase()}`));
+  const fresh = found.filter((l) => !have.has(`${l.mode}:${l.name.toLowerCase()}`));
+  const picked = fresh.filter((l) => kinds[l.mode]);
+  if (!fresh.length)
+    return (
+      <div className="callout">
+        <p>{found.length ? 'Every real line here is already in your network.' : 'No metro, tram or suburban line is known here. Draw your own!'}</p>
+        <div className="actions">
+          <button className="btn small" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  return (
+    <div className="callout">
+      <p>
+        <strong>{fresh.length} real lines</strong> run here. Choose what to bring in — you can then extend, recolour or remove any of them.
+      </p>
+      <div className="city-levels">
+        {RAIL_KINDS.map(([m, label]) => {
+          const n = fresh.filter((l) => l.mode === m).length;
+          return n ? (
+            <button key={m} className={'chip-btn' + (kinds[m] ? ' accent' : '')} onClick={() => setKinds({ ...kinds, [m]: !kinds[m] })} aria-pressed={kinds[m]}>
+              {kinds[m] && <Icon name="check" size={13} />} {label} · {n}
+            </button>
+          ) : null;
+        })}
+      </div>
+      <div className="city-on">
+        {picked.slice(0, 60).map((l) => (
+          <span key={l.id} className="city-chip" style={{ background: l.color ?? '#5b6578' }} title={`${l.stops.length} stops`}>
+            {l.name}
+          </span>
+        ))}
+      </div>
+      <div className="actions">
+        <button
+          className="btn primary small"
+          disabled={!picked.length}
+          onClick={() => {
+            const n = importLines(id, picked);
+            toast(n ? `${n} line${n > 1 ? 's' : ''} added` : 'Nothing new to add', n ? 'ok' : undefined);
+            onClose();
+            cityMap?.fit();
+          }}
+        >
+          <Icon name="plus" size={14} /> Add {picked.length} line{picked.length === 1 ? '' : 's'}
+        </button>
+        <button className="btn small" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+      <p className="hint">Lines and stations from OpenStreetMap contributors.</p>
+    </div>
+  );
+}
+
 function TransitTab({ id }: { id: number }) {
   const plan = usePlan(id);
   const ui = useCityUi();
@@ -676,6 +794,8 @@ function TransitTab({ id }: { id: number }) {
   const stats = networkStats(plan);
   const active = ui.line ? plan.lines[ui.line] : undefined;
   const [mode, setMode] = useState<TransitMode>('metro');
+  const [real, setReal] = useState(false);
+  const mobile = useMobile();
   return (
     <div className="city-body">
       <div className="stats compact">
@@ -683,6 +803,27 @@ function TransitTab({ id }: { id: number }) {
         <Stat label="Stations">{stats.stations}</Stat>
         <Stat label="Network">{stats.km.toFixed(1)} km</Stat>
       </div>
+
+      <div className="city-actions">
+        <button className={'city-action' + (real ? ' on' : '')} onClick={() => setReal(!real)}>
+          <Icon name="globe" size={20} />
+          <strong>Real network</strong>
+          <small>The metro, tram and RER lines that exist here</small>
+        </button>
+        <button className="city-action" onClick={() => (setReal(false), useCityUi.setState({ line: addLine(id, mode), station: null }))}>
+          <Icon name="plus" size={20} />
+          <strong>New {MODES[mode].label.toLowerCase()} line</strong>
+          <small>Then {mobile ? 'tap' : 'click'} the map to place its stations</small>
+        </button>
+      </div>
+      <div className="segmented city-modes" title="The kind of line New line creates">
+        {MODE_LIST.map((m) => (
+          <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>
+            {MODES[m].label}
+          </button>
+        ))}
+      </div>
+      {real && <RealNetwork id={id} onClose={() => setReal(false)} />}
 
       {ui.station && plan.stations[ui.station] && <StationCard id={id} sid={ui.station} plan={plan} />}
       {active && <LineCard id={id} line={active} plan={plan} />}
@@ -703,19 +844,7 @@ function TransitTab({ id }: { id: number }) {
         </div>
       )}
 
-      <div className="city-new">
-        <div className="segmented">
-          {MODE_LIST.map((m) => (
-            <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>
-              {MODES[m].label}
-            </button>
-          ))}
-        </div>
-        <button className="btn primary wide" onClick={() => useCityUi.setState({ line: addLine(id, mode), station: null })}>
-          <Icon name="plus" size={16} /> New {MODES[mode].label.toLowerCase()} line
-        </button>
-      </div>
-      {!lines.length && <p className="hint city-empty">Create a line, then click the map to place its stations one after the other. Click a station of another line to make an interchange.</p>}
+      {!lines.length && !real && <p className="hint city-empty">Start from the real network, or create a line and {mobile ? 'tap' : 'click'} the map to place its stations one after the other. A station of another line becomes an interchange.</p>}
     </div>
   );
 }

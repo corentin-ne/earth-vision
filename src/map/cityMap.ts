@@ -293,6 +293,10 @@ export class CityMap {
     const fade: ExpressionSpecification | number = districts ? 0.45 : active ? ['case', ['==', ['get', 'line'], active], 1, 0.4] : 1;
     for (const id of ['ev-net', 'ev-net-bus']) m.setPaintProperty(id, 'line-opacity', fade);
     m.setPaintProperty('ev-net-case', 'line-opacity', districts ? 0.3 : 0.9);
+    // While districts are worked on, the network steps back: faint stations, no names.
+    m.setPaintProperty('ev-st', 'circle-opacity', districts ? 0.35 : 1);
+    m.setPaintProperty('ev-st', 'circle-stroke-opacity', districts ? 0.35 : 1);
+    m.setLayoutProperty('ev-st-label', 'visibility', districts ? 'none' : 'visible');
     m.setFilter('ev-st-sel', ['==', ['get', 'id'], (!districts && ui.station) || '']);
     this.src('ev-centre')!.setData({ type: 'FeatureCollection', features: ds.length || net.stations.features.length ? [] : [{ type: 'Feature', geometry: { type: 'Point', coordinates: [city.lng, city.lat] }, properties: { id: 'c' } }] });
     this.drawDraft();

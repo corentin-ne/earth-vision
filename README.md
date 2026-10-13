@@ -47,7 +47,10 @@ their code is kept under [`legacy/`](legacy/).
     **draw** your own — a district drawn over others is cut out of them, with its share of their
     people. Rename them, **number** them ("7 · Bassins à flot"), colour them, merge them, write
     their lore. Set the city's population and share it among the districts.
-  - **Transit**: create metro, tram, train and bus lines, then click the map to place the
+  - **Transit**: start from the **real network** — the metro, tram and suburban rail lines
+    (RER, S-Bahn…) that exist there, with their colours and stations, from OpenStreetMap; no
+    buses, no long-distance trains — then change it, or create metro, tram, train and bus
+    lines of your own: click the map to place the
     stations one after the other (they take the name of the street or neighbourhood). Click a
     line to add a stop on it, click a station of another line to make an interchange, drag
     stations to move them. Lines sharing a stretch run side by side.
