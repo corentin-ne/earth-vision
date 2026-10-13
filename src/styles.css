@@ -3107,7 +3107,7 @@ input.num-field {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(50% - 30px + min(110px, 20vmin) + 30px);
+  top: calc(50% - 30px + min(150px, 26vmin) + 18px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3116,61 +3116,6 @@ input.num-field {
     opacity 0.45s ease,
     transform 0.5s var(--ease-out, ease-out),
     filter 0.45s ease;
-}
-.loading-bar {
-  width: 120px;
-  height: 3px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-}
-.loading-bar i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent), var(--accent-hi));
-  box-shadow: 0 0 10px var(--accent);
-  transition: width 0.6s var(--ease-out, ease-out);
-}
-.boot-sphere {
-  position: fixed;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  border-radius: 50%;
-  will-change: transform, width, height, opacity;
-  --glow: 30px;
-  /* The atmosphere: a thin bright rim and a soft blue halo. */
-  box-shadow:
-    0 0 0 1px rgba(170, 215, 255, 0.25),
-    0 0 calc(var(--glow) * 0.5) rgba(140, 200, 255, 0.45),
-    0 0 calc(var(--glow) * 1.6) rgba(62, 160, 230, 0.28);
-  animation: sphere-in 1.1s var(--ease-out, ease-out) backwards;
-}
-.boot-sphere::after {
-  /* Night falling over the far side, and the haze of the air at the edge. */
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.18), transparent 42%),
-    radial-gradient(circle at 50% 50%, transparent 62%, rgba(150, 205, 255, 0.28) 96%, rgba(190, 225, 255, 0.5));
-  pointer-events: none;
-}
-.boot-sphere canvas {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  display: block;
-}
-@keyframes sphere-in {
-  from {
-    opacity: 0;
-    filter: blur(8px) brightness(1.6);
-    scale: 0.55;
-  }
 }
 /* The map fades in under the lifting veil. */
 .editor .maplibregl-canvas {
@@ -3417,6 +3362,178 @@ input.num-field {
 @media (prefers-reduced-motion: reduce) {
   .editor .space-backdrop,
   .layer-tiles {
+    animation: none;
+  }
+}
+
+/* ── Loading: the astrolabe globe ───────────────────────────────────────── */
+.orrery {
+  position: absolute;
+  left: 50%;
+  top: calc(50% - 30px);
+  width: min(300px, 52vmin);
+  height: min(300px, 52vmin);
+  margin: calc(min(300px, 52vmin) / -2) 0 0 calc(min(300px, 52vmin) / -2);
+  transform-origin: 50% 50%;
+  animation: orrery-in 1.3s var(--ease-out, ease-out) backwards;
+  transition:
+    transform 1s cubic-bezier(0.65, 0, 0.25, 1),
+    opacity 0.45s ease 0.6s;
+}
+.orrery svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.orrery * {
+  vector-effect: non-scaling-stroke;
+}
+.orrery .mer,
+.orrery .par,
+.orrery .orrery-edge,
+.orrery .orbit-line,
+.orrery .orrery-axis line,
+.orrery .orrery-track,
+.orrery .orrery-progress {
+  fill: none;
+  stroke-linecap: round;
+}
+.orrery .mer,
+.orrery .par {
+  stroke: rgba(160, 225, 255, 0.42);
+  stroke-width: 0.8;
+}
+.orrery .par.eq {
+  stroke: rgba(127, 240, 216, 0.75);
+  stroke-width: 1.1;
+}
+.orrery .mer {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: meridian 8s linear infinite;
+}
+.orrery .orrery-edge {
+  stroke: rgba(200, 238, 255, 0.7);
+  stroke-width: 1.2;
+}
+.orrery .orrery-halo {
+  animation: halo 3.2s ease-in-out infinite;
+}
+.orrery .orrery-axis line {
+  stroke: rgba(200, 238, 255, 0.45);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.orrery .orbit-line {
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 0.8;
+}
+.orrery .orbit-line.front {
+  stroke: rgba(255, 255, 255, 0.32);
+}
+.orrery .moon {
+  fill: #f4f7ff;
+  filter: drop-shadow(0 0 4px rgba(220, 235, 255, 0.9));
+}
+.orrery .orrery-track {
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 1;
+}
+.orrery .orrery-progress {
+  stroke: url(#orrery-arc);
+  stroke-width: 1.6;
+  stroke-dasharray: 1;
+  filter: drop-shadow(0 0 3px rgba(62, 207, 178, 0.8));
+  transition: stroke-dashoffset 0.7s var(--ease-out, ease-out);
+}
+.orrery .glint {
+  fill: #e8f6ff;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: glint 3.4s ease-in-out infinite;
+}
+.orrery .orrery-orbit,
+.orrery .orrery-track,
+.orrery .orrery-progress,
+.orrery .orrery-axis,
+.orrery .glint {
+  transition: opacity 0.35s ease;
+}
+/* The hand-off: rings and moon fall away, the sphere grows into the real globe and dissolves. */
+.orrery.handoff {
+  opacity: 0;
+  animation: none;
+}
+.orrery.handoff :is(.orrery-orbit, .orrery-track, .orrery-progress, .orrery-axis, .glint) {
+  opacity: 0 !important;
+  animation: none;
+}
+/* Turning meridians: an ellipse narrowing and widening as the cosine of its longitude. */
+@keyframes meridian {
+  0% {
+    transform: scaleX(1);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  25% {
+    transform: scaleX(0);
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  50% {
+    transform: scaleX(-1);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  75% {
+    transform: scaleX(0);
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+@keyframes halo {
+  50% {
+    opacity: 0.55;
+  }
+}
+@keyframes glint {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.3) rotate(0deg);
+  }
+  45% {
+    opacity: 0.9;
+    transform: scale(1) rotate(45deg);
+  }
+}
+@keyframes orrery-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82) rotate(-8deg);
+    filter: blur(6px);
+  }
+}
+.loading-text strong {
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  font-size: 18px;
+  padding-left: 0.32em;
+  animation: title-in 1.2s var(--ease-out, ease-out) 0.2s backwards;
+}
+@keyframes title-in {
+  from {
+    opacity: 0;
+    letter-spacing: 0.9em;
+    filter: blur(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orrery,
+  .orrery .mer,
+  .orrery .glint,
+  .orrery .orrery-halo,
+  .loading-text strong {
     animation: none;
   }
 }

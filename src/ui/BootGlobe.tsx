@@ -1,187 +1,124 @@
 import { useEffect, useRef } from 'react';
 import { mapCtl } from '../map/controller';
-import { asset, LOOKS } from '../map/style';
 import { useWorld } from '../world/store';
 
-/** Pixels across the drawn sphere: it is scaled with CSS, so this only sets its sharpness. */
-const RES = 300;
-/** How long the little globe takes to grow into the real one once the map is ready. */
-export const HANDOFF_MS = 900;
+/** How long the drawn globe takes to grow into the real one once the map is ready. */
+export const HANDOFF_MS = 1000;
 const DEG = Math.PI / 180;
+/** The sphere's radius inside the drawing (viewBox −120…120). */
+const R = 80;
+const MERIDIANS = 6;
+const PARALLELS = [-60, -30, 0, 30, 60];
+/** How far we look down on the globe: the parallels open into thin ellipses. */
+const VIEW_TILT = 16;
 
-const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const lerpLng = (a: number, b: number, t: number) => a + ((((b - a + 540) % 360) - 180) * t);
-
-/** Where and how big the real globe stands on screen, and which way it faces. */
-function mapGlobe(): { x: number; y: number; r: number; lng: number; lat: number; bearing: number } | null {
+/** Where and how big the real globe stands on screen. */
+function mapGlobe(): { x: number; y: number; r: number; bearing: number } | null {
   const m = mapCtl?.map;
   if (!m) return null;
-  const el = m.getContainer();
-  const box = el.getBoundingClientRect();
+  const box = m.getContainer().getBoundingClientRect();
   const c = m.getCenter();
   const p = m.project(c);
-  if (!useWorld.getState().globe) return { x: box.left + p.x, y: box.top + p.y, r: Math.hypot(box.width, box.height), lng: c.lng, lat: c.lat, bearing: m.getBearing() };
+  if (!useWorld.getState().globe) return { x: box.left + p.x, y: box.top + p.y, r: Math.hypot(box.width, box.height), bearing: m.getBearing() };
   // MapLibre's globe: a world 512·2^zoom pixels around at the centre's latitude, seen in perspective.
-  const R = (512 * 2 ** m.getZoom()) / (2 * Math.PI) / Math.max(0.05, Math.cos(c.lat * DEG));
-  const cam = (box.height / 2) / Math.tan((((m as unknown as { transform?: { fov?: number } }).transform?.fov ?? 36.87) * DEG) / 2);
-  const r = cam * Math.tan(Math.asin(Math.min(0.999, R / (cam + R))));
-  return { x: box.left + p.x, y: box.top + p.y, r, lng: c.lng, lat: c.lat, bearing: m.getBearing() };
+  const rr = (512 * 2 ** m.getZoom()) / (2 * Math.PI) / Math.max(0.05, Math.cos(c.lat * DEG));
+  const fov = (m as unknown as { transform?: { fov?: number } }).transform?.fov ?? 36.87;
+  const cam = box.height / 2 / Math.tan((fov * DEG) / 2);
+  const r = cam * Math.tan(Math.asin(Math.min(0.999, rr / (cam + rr))));
+  return { x: box.left + p.x, y: box.top + p.y, r, bearing: m.getBearing() };
 }
 
 /**
- * The loading screen's globe: the real relief of the Earth on a turning sphere, lit from the side,
- * with its atmosphere. When the map is ready it swings round to the map's view and grows into the
- * real globe, which takes over under it.
+ * The loading screen: a globe drawn in fine lines like an astrolabe, its meridians turning, a
+ * moon on its orbit and a ring that closes as the world loads. When the map is ready the rings
+ * fall away and the drawn sphere grows to the exact size and place of the real globe, which fades
+ * in under it. All of it is vector and CSS, so it stays smooth while the map loads.
  */
-export function BootGlobe({ ready }: { ready: boolean }) {
-  const wrap = useRef<HTMLDivElement>(null);
-  const cv = useRef<HTMLCanvasElement>(null);
-  const readyRef = useRef(ready);
-  readyRef.current = ready;
+export function BootGlobe({ ready, progress }: { ready: boolean; progress: number }) {
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const canvas = cv.current!;
-    const ctx = canvas.getContext('2d', { willReadFrequently: false });
-    if (!ctx) return;
-    canvas.width = canvas.height = RES;
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const ocean = hex(LOOKS[useWorld.getState().mapStyle]?.ocean ?? '#c4def0');
-    const night = useWorld.getState().mapStyle === 'night';
+    const el = ref.current;
+    if (!el || !ready) return;
+    const box = el.getBoundingClientRect();
+    const cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+    const r0 = (box.width * R) / 240;
+    const W = window.innerWidth, H = window.innerHeight;
+    const to = mapGlobe() ?? { x: W / 2, y: H / 2, r: Math.hypot(W, H), bearing: 0 };
+    el.classList.add('handoff');
+    el.style.transform = `translate(${to.x - cx}px, ${to.y - cy}px) rotate(${-to.bearing}deg) scale(${to.r / r0})`;
+  }, [ready]);
 
-    // The sphere's geometry and light, worked out once per pixel.
-    const n = RES * RES;
-    const nx = new Float32Array(n), ny = new Float32Array(n), nz = new Float32Array(n), light = new Float32Array(n);
-    const inside = new Uint8Array(n);
-    const lx = -0.55, ly = 0.45, lz = 0.7; // from the upper left, a little in front
-    for (let j = 0; j < RES; j++)
-      for (let i = 0; i < RES; i++) {
-        const x = ((i + 0.5) / RES) * 2 - 1, y = 1 - ((j + 0.5) / RES) * 2;
-        const d = x * x + y * y;
-        const k = j * RES + i;
-        if (d > 1) continue;
-        const z = Math.sqrt(1 - d);
-        inside[k] = d > 0.985 ? 2 : 1; // the rim is anti-aliased
-        nx[k] = x; ny[k] = y; nz[k] = z;
-        const dot = Math.max(0, x * lx + y * ly + z * lz);
-        light[k] = 0.32 + 0.78 * dot ** 0.8;
-      }
-
-    let tex: ImageData | null = null;
-    const img = new Image();
-    img.onload = () => {
-      const c2 = document.createElement('canvas');
-      c2.width = img.width;
-      c2.height = img.height;
-      const g2 = c2.getContext('2d')!;
-      g2.drawImage(img, 0, 0);
-      tex = g2.getImageData(0, 0, img.width, img.height);
-    };
-    img.src = asset('tiles/relief/0/0/0.webp');
-
-    const out = ctx.createImageData(RES, RES);
-    const px = out.data;
-    const paint = (lng0: number, lat0: number) => {
-      const sinL = Math.sin(lat0 * DEG), cosL = Math.cos(lat0 * DEG);
-      const T = tex;
-      const tw = T?.width ?? 1, th = T?.height ?? 1;
-      for (let k = 0; k < n; k++) {
-        const o = k * 4;
-        if (!inside[k]) {
-          px[o + 3] = 0;
-          continue;
-        }
-        const x = nx[k], y = ny[k], z = nz[k];
-        // Turn the view direction back onto the Earth: latitude and longitude under this pixel.
-        const wy = y * cosL + z * sinL;
-        const wz = z * cosL - y * sinL;
-        const lat = Math.asin(wy);
-        const lng = lng0 * DEG + Math.atan2(x, wz);
-        let r = ocean[0], g = ocean[1], b = ocean[2];
-        // Deeper water away from the light.
-        const sea = 0.78 + 0.22 * z;
-        r *= sea; g *= sea; b *= sea;
-        if (T) {
-          const u = (((lng / (2 * Math.PI) + 0.5) % 1) + 1) % 1;
-          const lc = Math.max(-1.484, Math.min(1.484, lat));
-          const v = 0.5 - Math.log(Math.tan(Math.PI / 4 + lc / 2)) / (2 * Math.PI);
-          const ti = ((Math.min(th - 1, (v * th) | 0) * tw + Math.min(tw - 1, (u * tw) | 0)) * 4);
-          const a = T.data[ti + 3] / 255;
-          if (a > 0) {
-            // A touch richer than the pale atlas relief.
-            const tr = T.data[ti], tg = T.data[ti + 1], tb = T.data[ti + 2];
-            const m = (tr + tg + tb) / 3;
-            const sat = 1.45;
-            r = lerp(r, m + (tr - m) * sat - 14, a);
-            g = lerp(g, m + (tg - m) * sat - 10, a);
-            b = lerp(b, m + (tb - m) * sat - 18, a);
-          }
-        }
-        let l = light[k];
-        if (night) l *= 0.55;
-        // A soft glint of the sun on the water.
-        const spec = Math.max(0, x * -0.42 + y * 0.38 + z * 0.82) ** 40 * 32;
-        px[o] = r * l + spec;
-        px[o + 1] = g * l + spec;
-        px[o + 2] = b * l + spec;
-        px[o + 3] = inside[k] === 2 ? 170 : 255;
-      }
-      ctx.putImageData(out, 0, 0);
-    };
-
-    // Before the hand-off: a small globe in the middle, turning; then a flight into the map's globe.
-    let raf = 0;
-    let lng = 10, lat = 18;
-    let from: { x: number; y: number; r: number; lng: number; lat: number; bearing: number } | null = null;
-    let to: ReturnType<typeof mapGlobe> = null;
-    let t0 = 0;
-    let last = performance.now();
-    const place = (x: number, y: number, r: number, bearing: number, opacity: number) => {
-      const w = wrap.current;
-      if (!w) return;
-      w.style.transform = `translate(${x - r}px, ${y - r}px) rotate(${-bearing}deg)`;
-      w.style.width = w.style.height = `${2 * r}px`;
-      w.style.opacity = String(opacity);
-      w.style.setProperty('--glow', `${Math.max(14, r * 0.28)}px`);
-    };
-    const frame = (now: number) => {
-      raf = requestAnimationFrame(frame);
-      const dt = Math.min(0.1, (now - last) / 1000);
-      last = now;
-      const W = window.innerWidth, H = window.innerHeight;
-      const r0 = Math.min(110, Math.min(W, H) * 0.2);
-      if (!readyRef.current) {
-        if (!reduced) lng -= dt * 24;
-        paint(lng, lat);
-        place(W / 2, H / 2 - 30, r0, 0, 1);
-        return;
-      }
-      if (!from) {
-        from = { x: W / 2, y: H / 2 - 30, r: r0, lng, lat, bearing: 0 };
-        to = mapGlobe() ?? { x: W / 2, y: H / 2, r: Math.hypot(W, H), lng: lng - 30, lat: 10, bearing: 0 };
-        t0 = now;
-      }
-      const t = reduced ? 1 : Math.min(1, (now - t0) / HANDOFF_MS);
-      const e = easeInOut(t);
-      paint(lerpLng(from.lng, to!.lng, e), lerp(from.lat, to!.lat, e));
-      // It fades out over the last part, as the real globe fades in beneath it.
-      place(lerp(from.x, to!.x, e), lerp(from.y, to!.y, e), lerp(from.r, to!.r, e), lerp(from.bearing, to!.bearing, e), t < 0.55 ? 1 : 1 - (t - 0.55) / 0.45);
-      if (t >= 1) cancelAnimationFrame(raf);
-    };
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
+  const tiltY = Math.sin(VIEW_TILT * DEG);
   return (
-    <div className="boot-sphere" ref={wrap} aria-hidden>
-      <canvas ref={cv} />
+    <div className="orrery" ref={ref} aria-hidden>
+      <svg viewBox="-120 -120 240 240">
+        <defs>
+          <radialGradient id="orrery-body" cx="38%" cy="32%" r="75%">
+            <stop offset="0" stopColor="#2a5a8a" stopOpacity="0.55" />
+            <stop offset="0.55" stopColor="#10284a" stopOpacity="0.5" />
+            <stop offset="1" stopColor="#050b18" stopOpacity="0.2" />
+          </radialGradient>
+          <radialGradient id="orrery-rim" cx="50%" cy="50%" r="50%">
+            <stop offset="0.86" stopColor="#7fd8ff" stopOpacity="0" />
+            <stop offset="0.97" stopColor="#9fe3ff" stopOpacity="0.35" />
+            <stop offset="1" stopColor="#c8f0ff" stopOpacity="0" />
+          </radialGradient>
+          <linearGradient id="orrery-arc" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="var(--accent-hi, #7ff0d8)" />
+            <stop offset="1" stopColor="var(--accent, #3ecfb2)" />
+          </linearGradient>
+          <clipPath id="orrery-clip">
+            <circle r={R} />
+          </clipPath>
+        </defs>
+
+        {/* The orbit behind the globe. */}
+        <g className="orrery-orbit" transform="rotate(-14)">
+          <ellipse rx="108" ry="26" className="orbit-line" />
+        </g>
+
+        <circle r={R + 10} fill="url(#orrery-rim)" className="orrery-halo" />
+        <circle r={R} fill="url(#orrery-body)" />
+        <g clipPath="url(#orrery-clip)" className="orrery-lines">
+          <g transform="rotate(-23.4)">
+            {PARALLELS.map((lat) => {
+              const rx = R * Math.cos(lat * DEG);
+              return <ellipse key={lat} cy={-R * Math.sin(lat * DEG) * Math.cos(VIEW_TILT * DEG)} rx={rx} ry={rx * tiltY} className={'par' + (lat === 0 ? ' eq' : '')} />;
+            })}
+            {Array.from({ length: MERIDIANS }, (_, k) => (
+              <ellipse key={k} rx={R} ry={R} className="mer" style={{ animationDelay: `${(-8 / (MERIDIANS * 2)) * k}s` }} />
+            ))}
+          </g>
+        </g>
+        <circle r={R} className="orrery-edge" />
+        {/* The axis, out through the poles. */}
+        <g transform="rotate(-23.4)" className="orrery-axis">
+          <line y1={-R - 18} y2={-R - 4} />
+          <line y1={R + 4} y2={R + 18} />
+        </g>
+
+        {/* The front half of the orbit and its moon, passing in front of the globe. */}
+        <g className="orrery-orbit" transform="rotate(-14)">
+          <path d="M -108 0 A 108 26 0 0 0 108 0" className="orbit-line front" />
+          <circle r="3.2" className="moon">
+            <animateMotion dur="7s" repeatCount="indefinite" path="M 108 0 A 108 26 0 1 1 -108 0 A 108 26 0 1 1 108 0" />
+          </circle>
+        </g>
+
+        {/* Progress: a fine ring closing around everything. */}
+        <circle r="116" className="orrery-track" />
+        <circle r="116" className="orrery-progress" pathLength={1} style={{ strokeDashoffset: 1 - progress }} transform="rotate(-90)" />
+
+        {[
+          [-98, -78, 0],
+          [96, -64, 1.3],
+          [84, 86, 2.1],
+          [-90, 74, 0.7],
+        ].map(([x, y, d], i) => (
+          <path key={i} className="glint" style={{ animationDelay: `${d}s` }} transform={`translate(${x} ${y})`} d="M0 -5 L1 -1 L5 0 L1 1 L0 5 L-1 1 L-5 0 L-1 -1 Z" />
+        ))}
+      </svg>
     </div>
   );
-}
-
-function hex(c: string): [number, number, number] {
-  const m = /^#?([0-9a-f]{6})$/i.exec(c.trim());
-  if (!m) return [60, 110, 170];
-  const v = parseInt(m[1], 16);
-  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
 }

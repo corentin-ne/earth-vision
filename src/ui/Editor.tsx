@@ -132,14 +132,11 @@ function LoadingVeil({ ready }: { ready: boolean }) {
   if (gone) return null;
   return (
     <div className={'loading-veil' + (ready ? ' out' : '')} aria-busy={!ready}>
-      <BootGlobe ready={ready} />
+      <BootGlobe ready={ready} progress={ready ? 1 : (step + 1) / LOADING_STEPS.length} />
       <div className="loading-text">
         <strong>{title}</strong>
         <span className="loading-step" key={step}>
           {LOADING_STEPS[step]}…
-        </span>
-        <span className="loading-bar">
-          <i style={{ width: `${((step + 1) / LOADING_STEPS.length) * 100}%` }} />
         </span>
       </div>
     </div>
@@ -1494,11 +1491,12 @@ const LAYER_TABS: { id: string; label: string; icon: IconName; items: LayerItem[
   },
   {
     id: 'water',
-    label: 'Water',
+    label: 'Sky & sea',
     icon: 'river',
     items: [
       { key: 'waves', label: 'Waves', icon: 'river', hint: 'Animated water and surf' },
       { key: 'rivers', label: 'Rivers', icon: 'river', hint: 'Rivers, shown over borders too' },
+      { key: 'clouds', label: 'Clouds', icon: 'sparkle', hint: 'Soft clouds over the globe, clearing as you zoom in' },
       { key: 'graticule', label: 'Grid', icon: 'globe', hint: 'Lines of latitude and longitude' },
     ],
   },

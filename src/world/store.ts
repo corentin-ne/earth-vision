@@ -51,6 +51,8 @@ export interface Layers {
   curvedLabels: boolean;
   /** Every country takes the colours of its flag. */
   flagColors: boolean;
+  /** A deck of clouds over the globe. */
+  clouds: boolean;
 }
 
 export interface Selection {
@@ -194,6 +196,7 @@ const DEFAULT_LAYERS: Layers = {
   stateBorders: true,
   curvedLabels: false,
   flagColors: false,
+  clouds: true,
 };
 
 const PREFS = 'cmaps:prefs';
