@@ -82,11 +82,30 @@ export function SpaceBackdrop() {
       bound?.map.on('move', onMove);
     };
 
+    // Per star, once: its direction's sines, and its colour (stars are drawn grouped by colour).
+    const colorOf = (s: Star) => (s.hue < 0.15 ? '#ffd9b0' : s.hue > 0.85 ? '#bcd4ff' : '#eef3ff');
+    stars.sort((a, b) => colorOf(a).localeCompare(colorOf(b)));
+    const N = stars.length;
+    const sLat = new Float64Array(N), cLat = new Float64Array(N), sLng = new Float64Array(N), cLng = new Float64Array(N);
+    stars.forEach((s, i) => {
+      sLat[i] = Math.sin(s.lat * DEG);
+      cLat[i] = Math.cos(s.lat * DEG);
+      sLng[i] = Math.sin(s.lng * DEG);
+      cLng[i] = Math.cos(s.lng * DEG);
+    });
+    // Where each star stands on screen, worked out again only when the view moves.
+    const sx = new Float32Array(N), sy = new Float32Array(N);
+    const onScreen = new Uint8Array(N);
+    let sky = skyNow();
+    let skyAt = 0;
+    let blank = false;
+
     const draw = (now: number) => {
       raf = requestAnimationFrame(draw);
       if (document.hidden) return;
+      const viewMoved = moved;
       // Twinkling needs ~20 frames a second at most; moving the map redraws at once.
-      if (!moved && (reduced || now - lastDraw < 50)) return;
+      if (!viewMoved && (reduced || now - lastDraw < 50)) return;
       moved = false;
       lastDraw = now;
       bind();
@@ -96,40 +115,72 @@ export function SpaceBackdrop() {
       const zoom = m?.getZoom() ?? 1.6;
       const W = cv.width, H = cv.height;
       const cx = W / 2, cy = H / 2;
+      // Zoomed in, the globe covers the whole screen and hides the sky: nothing to draw.
+      if ((512 * 2 ** zoom * dpr) / (2 * Math.PI) >= Math.hypot(W, H) / 2) {
+        if (!blank) ctx.clearRect(0, 0, W, H);
+        blank = true;
+        return;
+      }
+      blank = false;
       // The sky is looked at from just behind the globe: the same rotation as the map.
       const lat0 = c.lat * DEG;
       const sinL = Math.sin(lat0), cosL = Math.cos(lat0);
+      const sinC = Math.sin(c.lng * DEG), cosC = Math.cos(c.lng * DEG);
+      const sinB = Math.sin(bearing), cosB = Math.cos(bearing);
       const scale = Math.max(W, H) * 0.62;
-      const project = (lng: number, lat: number) => {
-        const l = (lng - c.lng) * DEG, p = lat * DEG;
-        const x = Math.cos(p) * Math.sin(l);
-        const y = cosL * Math.sin(p) - sinL * Math.cos(p) * Math.cos(l);
-        const z = sinL * Math.sin(p) + cosL * Math.cos(p) * Math.cos(l);
+      // A direction (its sines) to the screen.
+      let pz = 0;
+      const toScreen = (sp: number, cp: number, sl: number, clng: number, out: { x: number; y: number }) => {
+        const sinl = sl * cosC - clng * sinC, cosl = clng * cosC + sl * sinC;
+        const x = cp * sinl;
+        const y = cosL * sp - sinL * cp * cosl;
+        const z = sinL * sp + cosL * cp * cosl;
         // Spread the whole sphere around the globe (a fisheye), so every direction has its place.
         const k = scale * (1.25 - 0.55 * z);
         const rx = x * k, ry = -y * k;
-        return { x: cx + rx * Math.cos(bearing) - ry * Math.sin(bearing), y: cy + rx * Math.sin(bearing) + ry * Math.cos(bearing), z };
+        out.x = cx + rx * cosB - ry * sinB;
+        out.y = cy + rx * sinB + ry * cosB;
+        pz = z;
+      };
+      const pt = { x: 0, y: 0 };
+      const project = (lng: number, lat: number) => {
+        toScreen(Math.sin(lat * DEG), Math.cos(lat * DEG), Math.sin(lng * DEG), Math.cos(lng * DEG), pt);
+        return { x: pt.x, y: pt.y, z: pz };
       };
 
       ctx.clearRect(0, 0, W, H);
       // Stars, fading away as the view closes in (the sky is mostly hidden by then anyway).
       const fade = Math.max(0, Math.min(1, (4.5 - zoom) / 2.5));
       if (fade > 0) {
+        if (viewMoved) {
+          for (let i = 0; i < N; i++) {
+            toScreen(sLat[i], cLat[i], sLng[i], cLng[i], pt);
+            sx[i] = pt.x;
+            sy[i] = pt.y;
+            onScreen[i] = pt.x < -4 || pt.y < -4 || pt.x > W + 4 || pt.y > H + 4 ? 0 : 1;
+          }
+        }
         const t = now / 1000;
-        for (const s of stars) {
-          const q = project(s.lng, s.lat);
-          if (q.x < -4 || q.y < -4 || q.x > W + 4 || q.y > H + 4) continue;
+        let fill = '';
+        for (let i = 0; i < N; i++) {
+          if (!onScreen[i]) continue;
+          const s = stars[i];
           const tw = reduced ? 1 : 0.7 + 0.3 * Math.sin(t * (0.6 + s.hue) + s.tw);
           ctx.globalAlpha = s.a * tw * fade;
-          ctx.fillStyle = s.hue < 0.15 ? '#ffd9b0' : s.hue > 0.85 ? '#bcd4ff' : '#eef3ff';
+          const f = colorOf(s);
+          if (f !== fill) ctx.fillStyle = fill = f;
           ctx.beginPath();
-          ctx.arc(q.x, q.y, s.r * dpr, 0, Math.PI * 2);
+          ctx.arc(sx[i], sy[i], s.r * dpr, 0, Math.PI * 2);
           ctx.fill();
         }
       }
       ctx.globalAlpha = 1;
 
-      const sky = skyNow();
+      // The sun and moon move slowly: their places are worked out once a minute.
+      if (now - skyAt > 60_000) {
+        sky = skyNow();
+        skyAt = now;
+      }
       // The globe's radius on screen (MapLibre: a world 512·2^zoom pixels around).
       const globeR = ((512 * 2 ** zoom) / (2 * Math.PI)) * dpr;
       /**

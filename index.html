@@ -7,6 +7,8 @@
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <title>Earth Vision</title>
+    <!-- Needed before the first render (flags): fetched in parallel with the scripts. -->
+    <link rel="preload" href="./data/iso3to2.json" as="fetch" type="application/json" crossorigin="anonymous" />
   </head>
   <body>
     <div id="root"></div>

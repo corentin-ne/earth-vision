@@ -28,13 +28,30 @@ function pickWorker(id: number): Worker {
   return workers[id % workers.length];
 }
 
+/** Painted tiles are kept on the device: the clouds come back at once on the next visit. Bump on any change to the worker's drawing. */
+const DISK = 'ev-clouds-1';
+const disk: Promise<Cache | null> =
+  typeof caches !== 'undefined' ? caches.open(DISK).catch(() => null) : Promise.resolve(null);
+const diskUrl = (key: string) => new URL(`__clouds/${key}.png`, document.baseURI).href;
+
+function paint(z: number, x: number, y: number): Promise<ArrayBuffer | null> {
+  const id = nextId++;
+  const p = new Promise<ArrayBuffer | null>((res) => waiting.set(id, res));
+  pickWorker(id).postMessage({ id, z, x, y });
+  return p;
+}
+
 function tile(z: number, x: number, y: number): Promise<ArrayBuffer | null> {
   const key = `${z}/${x}/${y}`;
   let p = cache.get(key);
   if (!p) {
-    const id = nextId++;
-    p = new Promise((res) => waiting.set(id, res));
-    pickWorker(id).postMessage({ id, z, x, y });
+    p = disk.then(async (c) => {
+      const hit = await c?.match(diskUrl(key)).catch(() => undefined);
+      if (hit) return hit.arrayBuffer();
+      const buf = await paint(z, x, y);
+      if (buf && c) c.put(diskUrl(key), new Response(buf.slice(0), { headers: { 'content-type': 'image/png' } })).catch(() => {});
+      return buf;
+    });
     cache.set(key, p);
   }
   // Each caller gets its own copy: MapLibre takes the buffer over.
@@ -61,6 +78,8 @@ function register() {
 export class CloudDeck {
   private pending = new Map<string, number>();
   private boost = 0;
+  /** The boost the layer was last drawn with. */
+  private shown = 0;
   private raf = 0;
   private last = 0;
   private on = true;
@@ -141,7 +160,11 @@ export class CloudDeck {
     const target = slow ? 1 : 0;
     const prev = this.boost;
     this.boost = target > prev ? Math.min(1, prev + dt / 350) : Math.max(0, prev - dt / 900);
-    if (this.boost !== prev && this.map.getLayer(LAYER)) this.map.setPaintProperty(LAYER, 'raster-opacity', this.opacity());
+    // Each new opacity re-parses the expression and redraws: only for steps the eye can see.
+    if (this.boost !== prev && (Math.abs(this.boost - this.shown) > 0.02 || this.boost === 0 || this.boost === 1) && this.map.getLayer(LAYER)) {
+      this.shown = this.boost;
+      this.map.setPaintProperty(LAYER, 'raster-opacity', this.opacity());
+    }
     if (this.pending.size || this.boost > 0) this.raf = requestAnimationFrame(this.step);
   };
 }

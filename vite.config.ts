@@ -49,7 +49,13 @@ export default defineConfig({
           if (!id.includes('node_modules')) return;
           if (id.includes('maplibre-gl')) return 'maplibre';
           if (/[\\/](react|react-dom|scheduler|zustand)[\\/]/.test(id)) return 'react';
-          return 'vendor';
+          // One file per library: the home screen then loads only the few it uses, and the
+          // geometry libraries wait for the editor.
+          const m = /node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(id);
+          const pkg = m ? m[1].replace(/^@/, '').replace(/[\\/]/g, '-') : 'vendor';
+          if (/^(turf-|polyclip|polylabel|robust-predicates|splaytree|bignumber|topojson|point-in-polygon|rbush|quickselect|earcut)/.test(pkg)) return 'geo';
+          if (pkg.startsWith('capacitor-')) return 'capacitor';
+          return 'vendor-' + pkg;
         },
       },
     },

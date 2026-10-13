@@ -112,6 +112,8 @@ export class MapController {
       // Beyond 2× the extra pixels cost a lot of GPU time on phones for no visible gain.
       pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
       fadeDuration: 150,
+      // Every tile ships with the app or never changes: no expiry timers to keep per tile.
+      refreshExpiredTiles: false,
     });
     this.map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
     this.map.on('load', () => this.onLoad());
