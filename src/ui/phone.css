@@ -75,12 +75,67 @@
     background: var(--line);
     flex: none;
   }
+  /* "More": one sheet of big tiles above the bar, grouped like the desktop menus. */
   .phone-more {
-    top: auto;
-    bottom: calc(100% + 14px);
-    right: -6px;
-    width: 220px;
+    width: 100%;
+    max-width: 460px;
+    background: var(--glass-strong);
+    max-height: calc(100vh - var(--above-bar) - 80px);
+    overflow-y: auto;
+    padding: 12px 12px 14px;
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
     transform-origin: bottom right;
+    animation: pop 0.34s var(--spring);
+  }
+  .phone-more .menu-label {
+    padding: 0 4px 6px;
+  }
+  .more-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .more-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 68px;
+    padding: 8px 2px;
+    border-radius: 16px;
+    font-size: 11.5px;
+    font-weight: 550;
+    line-height: 1.2;
+    text-align: center;
+    color: var(--fg-2);
+    background: rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  }
+  .more-tile:active {
+    transform: scale(0.95);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .more-tile svg {
+    color: var(--accent-hi);
+  }
+  /* Touch screens have no keyboard shortcuts to show. */
+  .menu kbd {
+    display: none;
+  }
+  /* The Map panel on phones: tabs fit one row, pages scroll inside the sheet. */
+  .layer-tab {
+    padding: 7px 0 5px;
+    font-size: 11px;
+  }
+  .map-head small {
+    display: none;
+  }
+  .layer-tile {
+    min-height: 58px;
   }
 
   /* The active tool's options, above the bar. */

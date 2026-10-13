@@ -411,7 +411,7 @@ function TopBar({ onHome }: { onHome: () => void }) {
       </button>
       <div className="sep" />
       <Search />
-      <div className="menu-wrap" ref={toolsRef}>
+      <div className="menu-wrap hide-phone" ref={toolsRef}>
         <button className={'icon-btn' + (tools ? ' on' : '')} onClick={() => setTools(!tools)} title="World: statistics, flags, timeline, find & replace, repairs…">
           <Icon name="menu" />
         </button>
@@ -931,6 +931,35 @@ function DesktopToolDock() {
   );
 }
 
+/** Phones: everything not in the bottom bar, in one sheet of big tiles, grouped like the desktop menus. */
+const PHONE_MORE: [string, { id: string; label: string; icon: IconName; run: () => void }[]][] = [
+  [
+    'Explore this world',
+    [
+      { id: 'stats', label: 'Statistics', icon: 'chart', run: () => useWorld.setState({ statsOpen: true }) },
+      { id: 'flags', label: 'Flags', icon: 'flag', run: () => useWorld.setState({ galleryOpen: true }) },
+      { id: 'timeline', label: 'Timeline', icon: 'clock', run: toggleTimeline },
+      { id: 'random', label: 'Random country', icon: 'dice', run: () => surprise() },
+    ],
+  ],
+  [
+    'Tools',
+    [
+      { id: 'measure', label: 'Measure', icon: 'ruler', run: () => setTool('measure') },
+      { id: 'find', label: 'Find & replace', icon: 'replace', run: () => useWorld.setState({ findOpen: true }) },
+      { id: 'repair', label: 'Repair & automate', icon: 'heal', run: () => useWorld.setState({ advancedOpen: true }) },
+    ],
+  ],
+  [
+    'View',
+    [
+      { id: 'globe', label: 'Globe', icon: 'globe', run: () => useWorld.setState((s) => ({ globe: !s.globe })) },
+      { id: 'data', label: 'Real-world data', icon: 'database', run: () => openMapPanel('data') },
+      { id: 'zen', label: 'Hide the tools', icon: 'eyeOff', run: enterZen },
+    ],
+  ],
+];
+
 /**
  * Phones: one bar along the bottom (tools, world, layers, more) and the active tool's options
  * just above it, folded to a single row so the map keeps the screen.
@@ -952,7 +981,28 @@ function PhoneDock() {
   };
   return (
     <div className="phone-dock">
-      {!sheet && !snapping && (
+      {more && (
+        <div className="glass phone-more" role="menu" data-keep-open>
+          {PHONE_MORE.map(([group, items]) => (
+            <section key={group}>
+              <div className="menu-label">{group}</div>
+              <div className="more-grid">
+                {items.map((it) => {
+                  const label = it.id === 'globe' ? (globe ? 'Flat map' : 'Globe') : it.label;
+                  const icon = it.id === 'globe' ? (globe ? 'flat' : 'globe') : it.icon;
+                  return (
+                    <button key={it.id} role="menuitem" className="more-tile" onClick={pick(it.run)}>
+                      <Icon name={icon} size={20} />
+                      <span>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+      {!more && !sheet && !snapping && (
         <div className="phone-opts">
           {tool === 'paint' && <PhoneBrush />}
           {tool === 'select' && (
@@ -994,28 +1044,9 @@ function PhoneDock() {
           <Icon name="layers" />
         </button>
         <div className="menu-wrap" ref={moreRef}>
-          <button className={'icon-btn' + (more ? ' on' : '')} onClick={() => setMore(!more)} title="More" aria-label="More">
+          <button className={'icon-btn' + (more ? ' on' : '')} onClick={() => setMore(!more)} title="More: statistics, flags, timeline, tools…" aria-label="More">
             <Icon name="more" />
           </button>
-          {more && (
-            <div className="menu glass phone-more">
-              <button onClick={pick(() => setTool('measure'))}>
-                <Icon name="ruler" size={16} /> <span className="grow">Measure</span>
-              </button>
-              <button onClick={pick(() => useWorld.setState({ globe: !globe }))}>
-                <Icon name={globe ? 'flat' : 'globe'} size={16} /> <span className="grow">{globe ? 'Flat map' : 'Globe'}</span>
-              </button>
-              <button onClick={pick(toggleTimeline)}>
-                <Icon name="clock" size={16} /> <span className="grow">Timeline</span>
-              </button>
-              <button onClick={pick(() => useWorld.setState({ posterOpen: true }))}>
-                <Icon name="frame" size={16} /> <span className="grow">Poster</span>
-              </button>
-              <button onClick={pick(enterZen)}>
-                <Icon name="eyeOff" size={16} /> <span className="grow">Hide the tools</span>
-              </button>
-            </div>
-          )}
         </div>
       </nav>
     </div>
