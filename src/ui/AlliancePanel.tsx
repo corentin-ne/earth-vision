@@ -160,9 +160,10 @@ export function CountryAlliances({ cid }: { cid: string }) {
 /** Legend while the map is coloured by alliance. */
 export function AllianceLegend() {
   const view = useWorld((s) => s.allianceView);
-  const alliances = useWorld((s) => s.doc?.alliances ?? []);
-  const countries = useWorld((s) => s.doc?.countries ?? {});
+  const doc = useWorld((s) => s.doc);
   if (!view) return null;
+  const alliances = doc?.alliances ?? [];
+  const countries = doc?.countries ?? {};
   const shown = view === 'all' ? alliances : alliances.filter((a) => a.id === view);
   return (
     <div className="alliance-legend glass">

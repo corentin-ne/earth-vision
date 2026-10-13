@@ -3170,3 +3170,179 @@ input.num-field {
     transition: none;
   }
 }
+
+/* ── Space around the globe ─────────────────────────────────────────────── */
+.editor .space-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 50%, rgba(10, 18, 40, 0.35), rgba(3, 6, 16, 0.75) 70%, rgba(2, 4, 12, 0.9));
+  animation: fade-in 1.4s ease-out both;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ── Compass ─────────────────────────────────────────────────────────────── */
+.compass {
+  position: absolute;
+  left: 14px;
+  /* Just above the layer buttons (four buttons, their gaps and padding). */
+  bottom: calc(34px + 4 * var(--tool) + 12px + 12px + 10px);
+  z-index: 4;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--fg-2);
+  cursor: pointer;
+  perspective: 120px;
+  transition:
+    transform 0.35s var(--spring),
+    opacity 0.3s;
+  opacity: 0.8;
+}
+.compass:hover {
+  opacity: 1;
+  transform: scale(1.06);
+}
+.compass:active {
+  transform: scale(0.94);
+}
+.compass.turned {
+  opacity: 1;
+}
+.compass-needle {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  will-change: transform;
+}
+.compass-needle i {
+  position: absolute;
+  top: -7px;
+  font: 700 8.5px/1 var(--font, system-ui);
+  font-style: normal;
+  color: #ff4d5e;
+  letter-spacing: 0.04em;
+}
+.editor.ready .compass {
+  animation: slide-right 0.6s var(--ease-out, ease-out) 0.45s backwards;
+}
+.editor:not(.ready) .compass {
+  visibility: hidden;
+}
+
+/* ── Layer tabs & tiles ──────────────────────────────────────────────────── */
+.layer-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.layer-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 2px 5px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+.layer-tab small {
+  font-size: 9.5px;
+  font-weight: 500;
+  opacity: 0.7;
+}
+.layer-tab:hover {
+  color: var(--fg-2);
+}
+.layer-tab.on {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--fg, #fff);
+  box-shadow: 0 2px 8px -3px rgba(0, 0, 0, 0.5);
+}
+.layer-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  animation: fade-up 0.25s ease-out;
+}
+.layer-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 64px;
+  padding: 8px 4px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--fg-2);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition:
+    background 0.2s,
+    color 0.2s,
+    box-shadow 0.25s,
+    transform 0.3s var(--spring);
+}
+.layer-tile:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.08);
+}
+.layer-tile:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.layer-tile.on {
+  color: var(--accent-hi);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    0 4px 14px -6px rgba(62, 207, 178, 0.6);
+}
+.layer-tile:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .compass {
+    left: auto;
+    right: 10px;
+    bottom: auto;
+    top: 64px;
+    width: 40px;
+    height: 40px;
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.8);
+  }
+  .compass.turned {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .editor .space-backdrop,
+  .layer-tiles {
+    animation: none;
+  }
+}

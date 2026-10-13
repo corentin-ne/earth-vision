@@ -33,6 +33,7 @@ import { addLand, addMark, moveLabel, newMarkId, updateMark, mix, LINE_KINDS, LA
 import { countryCurve } from './curves';
 import { syncOverlays, setOverlayWanted, overlayLayerIds } from './overlays';
 import { drawPin } from './pins';
+import { LoadingClouds } from './clouds';
 import { loadIso2, iso2 } from '../world/flags';
 import { measureImage } from '../world/flagShape';
 import { loadBarriers, barriers, naturalOn } from '../geo/barriers';
@@ -62,6 +63,8 @@ export class MapController {
   /** Animated surf along the coasts. */
   readonly waves = new Waves(this);
   map: MLMap;
+  /** Clouds over the parts of the map still loading. */
+  private clouds: LoadingClouds | null = null;
   private loaded = false;
   private regionColor = new Map<number, string>();
   private gradient = new GradientState();
@@ -184,6 +187,12 @@ export class MapController {
     }
     this.unsubs.push(onFlagColors(() => this.recolorAll()));
     this.addOverlays();
+    try {
+      this.clouds = new LoadingClouds(this.map);
+      this.clouds.install('selection-halo');
+    } catch (e) {
+      console.warn('loading clouds unavailable', e);
+    }
     setOverlayWanted(() => get().doc?.overlays ?? []);
     this.loaded = true;
     this.applyLook();
@@ -253,6 +262,7 @@ export class MapController {
   destroy() {
     clearInterval(this.readyTimer);
     this.waves.stop();
+    this.clouds?.destroy();
     this.unsubs.forEach((u) => u());
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
@@ -322,6 +332,8 @@ export class MapController {
     paint('lakes', 'fill-color', L.lake);
     vis('rivers', layers.rivers);
     paint('rivers', 'line-color', L.river);
+    vis('rivers-on-borders', layers.rivers);
+    paint('rivers-on-borders', 'line-color', L.river);
     vis('region-borders', layers.regionBorders);
     paint('region-borders', 'line-color', L.regionBorder);
     paint('coast', 'line-color', L.coast);

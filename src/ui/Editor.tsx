@@ -40,6 +40,7 @@ import { stepChapter, viewChapter } from '../world/timeline';
 import { pathLength, ringArea } from '../geo/measure';
 import { CityEditor } from './CityEditor';
 import { openCity } from '../world/city';
+import { Compass, SpaceBackdrop } from './Sky';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
@@ -54,6 +55,7 @@ export function Editor({ onHome }: { onHome: () => void }) {
   }, []);
   return (
     <div className={'editor' + (details ? ' details-open' : '') + (ready ? ' ready' : '') + (zen ? ' zen' : '') + (past ? ' past' : '')}>
+      <SpaceBackdrop />
       <MapView onReady={() => setReady(true)} />
       <LoadingVeil ready={ready} />
       {zen ? (
@@ -64,6 +66,7 @@ export function Editor({ onHome }: { onHome: () => void }) {
           <ToolDock />
           <Inspector />
           <LayersPanel />
+          <Compass />
           <SelectionBubble />
           <DetailsDock />
           <AllianceLegend />
@@ -1442,47 +1445,60 @@ const STYLES: { id: MapStyleId; label: string; desc: string }[] = [
   { id: 'night', label: 'Night', desc: 'Dark, for screenshots' },
 ];
 
-const LAYER_GROUPS: [string, [keyof Layers, string][]][] = [
-  [
-    'Names',
-    [
-      ['countryLabels', 'Country names'],
-      ['flags', 'Flags'],
-      ['curvedLabels', 'Curved country names'],
-      ['regionLabels', 'Region names'],
-      ['cities', 'Cities'],
-      ['water', 'Seas & lakes names'],
+type LayerItem = { key: keyof Layers; label: string; icon: IconName; hint: string; needs?: keyof Layers };
+
+/** The map's layers in four short tabs of tiles, instead of one long list of switches. */
+const LAYER_TABS: { id: string; label: string; icon: IconName; items: LayerItem[] }[] = [
+  {
+    id: 'names',
+    label: 'Names',
+    icon: 'text',
+    items: [
+      { key: 'countryLabels', label: 'Countries', icon: 'text', hint: 'Country names' },
+      { key: 'flags', label: 'Flags', icon: 'flag', hint: 'Flags beside country names', needs: 'countryLabels' },
+      { key: 'curvedLabels', label: 'Curved', icon: 'route', hint: 'Country names bend along the country', needs: 'countryLabels' },
+      { key: 'regionLabels', label: 'Regions', icon: 'districts', hint: 'Region names' },
+      { key: 'cities', label: 'Cities', icon: 'city', hint: 'Cities and capitals' },
+      { key: 'water', label: 'Seas', icon: 'river', hint: 'Names of seas and lakes' },
     ],
-  ],
-  [
-    'Borders & drawings',
-    [
-      ['regionBorders', 'Region borders'],
-      ['stateBorders', 'State borders'],
-      ['occupation', 'Occupied land (stripes)'],
-      ['marks', 'Roads, routes, names & pins'],
+  },
+  {
+    id: 'borders',
+    label: 'Borders',
+    icon: 'stripes',
+    items: [
+      { key: 'regionBorders', label: 'Regions', icon: 'districts', hint: 'Lines between regions' },
+      { key: 'stateBorders', label: 'States', icon: 'crownSmall', hint: 'Dashed lines between the states of a country' },
+      { key: 'occupation', label: 'Occupied', icon: 'stripes', hint: 'Stripes over occupied land' },
+      { key: 'marks', label: 'Drawings', icon: 'pen', hint: 'Roads, routes, names & pins' },
     ],
-  ],
-  [
-    'Land',
-    [
-      ['heightTint', 'Height colours (white peaks)'],
-      ['flagColors', 'Flag colours for every country'],
-      ['shading', 'Hill shading'],
-      ['relief', 'Terrain relief (Atlas)'],
-      ['terrain', '3D mountains'],
+  },
+  {
+    id: 'land',
+    label: 'Land',
+    icon: 'mountain',
+    items: [
+      { key: 'heightTint', label: 'Heights', icon: 'mountain', hint: 'Height colours, peaks fading to white' },
+      { key: 'flagColors', label: 'Flag colours', icon: 'palette', hint: 'Every country takes the colours of its flag' },
+      { key: 'shading', label: 'Shading', icon: 'sparkle', hint: 'Light and shadow on the slopes' },
+      { key: 'relief', label: 'Relief', icon: 'image', hint: 'Terrain relief picture (Atlas look)' },
+      { key: 'terrain', label: '3D', icon: 'island', hint: 'Mountains in 3D (tilt the map)' },
+      { key: 'urban', label: 'Urban', icon: 'city', hint: 'Built-up areas' },
     ],
-  ],
-  [
-    'Water & extras',
-    [
-      ['waves', 'Animated water'],
-      ['rivers', 'Rivers'],
-      ['urban', 'Urban areas'],
-      ['graticule', 'Graticule'],
+  },
+  {
+    id: 'water',
+    label: 'Water',
+    icon: 'river',
+    items: [
+      { key: 'waves', label: 'Waves', icon: 'river', hint: 'Animated water and surf' },
+      { key: 'rivers', label: 'Rivers', icon: 'river', hint: 'Rivers, shown over borders too' },
+      { key: 'graticule', label: 'Grid', icon: 'globe', hint: 'Lines of latitude and longitude' },
     ],
-  ],
+  },
 ];
+
+const TAB_KEY = 'ev:layers-tab';
 
 function LayersPanel() {
   const open = useWorld((s) => s.layersOpen);
@@ -1493,6 +1509,22 @@ function LayersPanel() {
   const globe = useWorld((s) => s.globe);
   const layers = useWorld((s) => s.layers);
   const allianceView = useWorld((s) => s.allianceView);
+  const [tabId, setTabId] = useState(() => {
+    try {
+      return localStorage.getItem(TAB_KEY) ?? 'names';
+    } catch {
+      return 'names';
+    }
+  });
+  const tab = LAYER_TABS.find((t) => t.id === tabId) ?? LAYER_TABS[0];
+  const pickTab = (id: string) => {
+    setTabId(id);
+    try {
+      localStorage.setItem(TAB_KEY, id);
+    } catch {
+      /* private mode: the tab is just not remembered */
+    }
+  };
   return (
     <div className="layers" ref={ref}>
       <div className="layers-buttons glass">
@@ -1526,21 +1558,37 @@ function LayersPanel() {
           </div>
           <div className="menu-label">Colour the map by</div>
           <ThematicPicker />
-          <div className="layer-groups">
-            {LAYER_GROUPS.map(([title, items]) => (
-              <div key={title} className="layer-group">
-                <div className="menu-label">{title}</div>
-                <div className="toggles">
-                  {items.map(([k, label]) => (
-                    <label key={k} className="toggle">
-                      <input type="checkbox" checked={layers[k]} onChange={(e) => useWorld.setState({ layers: { ...layers, [k]: e.target.checked } })} />
-                      <span className="switch" />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
+          <div className="layer-tabs" role="tablist">
+            {LAYER_TABS.map((t) => {
+              const n = t.items.filter((i) => layers[i.key]).length;
+              return (
+                <button key={t.id} role="tab" aria-selected={tab.id === t.id} className={'layer-tab' + (tab.id === t.id ? ' on' : '')} onClick={() => pickTab(t.id)}>
+                  <Icon name={t.icon} size={15} />
+                  <span>{t.label}</span>
+                  <small>
+                    {n}/{t.items.length}
+                  </small>
+                </button>
+              );
+            })}
+          </div>
+          <div className="layer-tiles" key={tab.id}>
+            {tab.items.map((i) => {
+              const off = !!i.needs && !layers[i.needs];
+              return (
+                <button
+                  key={i.key}
+                  className={'layer-tile' + (layers[i.key] ? ' on' : '')}
+                  disabled={off}
+                  aria-pressed={layers[i.key]}
+                  title={i.hint}
+                  onClick={() => useWorld.setState({ layers: { ...layers, [i.key]: !layers[i.key] } })}
+                >
+                  <Icon name={i.icon} size={18} />
+                  <span>{i.label}</span>
+                </button>
+              );
+            })}
           </div>
           <button
             className="btn small layer-data"

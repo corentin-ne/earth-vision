@@ -394,7 +394,7 @@ export function baseStyle(): StyleSpecification {
         layout: { 'line-join': 'round', 'line-cap': 'round' },
       },
       { id: 'land-base', type: 'fill', source: 'regions', paint: { 'fill-color': '#e8e2d0', 'fill-antialias': false } },
-      { id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0 } },
+      { id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 300 } },
       {
         id: 'region-fill',
         type: 'fill',
@@ -549,6 +549,17 @@ export function baseStyle(): StyleSpecification {
         source: 'borders-country',
         paint: { 'line-color': '#2b2b3d', 'line-width': zoomWidth(1.1) },
         layout: { 'line-join': 'round', 'line-cap': 'round' },
+      },
+      {
+        // Rivers again, thinner, over the borders: a river that is a border (the Rhine, the
+        // Danube, the Rio Grande…) still shows as a blue thread down the middle of the line.
+        id: 'rivers-on-borders',
+        type: 'line',
+        source: 'rivers',
+        minzoom: 2,
+        filter: ['<=', ['get', 'scalerank'], ['step', ['zoom'], 4, 3, 6, 4.5, 8, 6, 12]],
+        paint: { 'line-color': '#6fa8d6', 'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.3, 6, 0.8, 9, 1.2], 'line-opacity': 0.95 },
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {
         id: 'selection-halo',

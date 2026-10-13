@@ -344,6 +344,9 @@ function FindReplaceBody() {
 
 // ── Data layers ──────────────────────────────────────────────────────────────
 
+// A stable empty list: a fresh `[]` in the selector would re-render forever (React #185).
+const NO_OVERLAYS: string[] = [];
+
 export function DataWindow() {
   const open = useWorld((s) => s.dataOpen);
   if (!open) return null;
@@ -352,7 +355,7 @@ export function DataWindow() {
 
 function DataBody() {
   const close = () => useWorld.setState({ dataOpen: false });
-  const on = useWorld((s) => s.doc?.overlays ?? []);
+  const on = useWorld((s) => s.doc?.overlays ?? NO_OVERLAYS);
   const [cached, setCached] = useState<Record<string, boolean>>({});
   useEffect(() => {
     let live = true;
