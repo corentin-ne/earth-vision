@@ -40,7 +40,10 @@ their code is kept under [`legacy/`](legacy/).
   rebuild it:
   - **Districts**: opening a city collects its *real* quarters, arrondissements and the towns
     right next to it from OpenStreetMap — just their shapes and names, once, then kept on the
-    device. Click the ones the city takes (add the suburbs to make it bigger), or
+    device. What is offered first is the city's main cut (the arrondissements of Paris, not
+    the quarters inside them) and the towns around; finer sizes are one tap away. Click the
+    ones the city takes: every town added brings its own neighbours within reach, and a click
+    on any spot further out adds the town there, so the city grows as far as you like. Or
     **draw** your own — a district drawn over others is cut out of them, with its share of their
     people. Rename them, **number** them ("7 · Bassins à flot"), colour them, merge them, write
     their lore. Set the city's population and share it among the districts.

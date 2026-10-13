@@ -25,7 +25,7 @@ import {
 } from '../src/world/city';
 import { back } from '../src/world/cityBack';
 import { useCityUi } from '../src/world/cityUi';
-import { joinRings, parseOverpass, relationGeom, simplify, townOf, townQuery } from '../src/io/osm';
+import { FINEST, MAIN, shownAreas, joinRings, parseOverpass, relationGeom, simplify, townOf, townQuery } from '../src/io/osm';
 import { exportAmap, importAmap } from '../src/io/amap';
 import { pointInGeom } from '../src/geo/engine';
 
@@ -311,6 +311,26 @@ describe('real districts from OpenStreetMap', () => {
     // A city-state like Berlin (level 4): its boroughs and localities, whatever their levels.
     expect(townQuery(townOf([rel(1, '2'), rel(62422, '4'), rel(9, '9')])!)).toContain('"^(5|6|7|8|9|10)$"');
     expect(townOf([rel(1, '2'), rel(9, '10')])).toBeNull();
+    // Growing past the first ring asks for a town's neighbours only, not its quarters again.
+    const more = townQuery(town, false);
+    expect(more).toContain('["admin_level"="8"]');
+    expect(more).not.toContain('map_to_area');
+  });
+
+  it('offers arrondissements and neighbouring towns before the quarters inside them', () => {
+    const area = (id: string, level: number, x: number, y: number, s: number) => ({ id, name: id, level, geom: sq(x, y, s), area: s * s });
+    const areas = [
+      area('Paris', 8, 0, 0, 4),
+      area('1er', 9, 0, 0, 2),
+      area('2e', 9, 2, 0, 2),
+      area('Halles', 10, 0, 0, 1),
+      area('Palais-Royal', 10, 1, 0, 1),
+      area('Montreuil', 8, 4, 0, 2),
+    ];
+    const ids = (level: number) => shownAreas(areas, level).map((a) => a.id).sort();
+    expect(ids(MAIN)).toEqual(['1er', '2e', 'Montreuil']);
+    expect(ids(FINEST)).toEqual(['2e', 'Halles', 'Montreuil', 'Palais-Royal']);
+    expect(ids(8)).toEqual(['Montreuil', 'Paris']);
   });
 
   it('keeps holes and drops what is too big to be a district', () => {

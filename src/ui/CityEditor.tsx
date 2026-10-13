@@ -29,7 +29,7 @@ import {
 } from '../world/city';
 import { FRESH, useCityUi, type Basemap } from '../world/cityUi';
 import { CityMap, cityMap, setCityMap } from '../map/cityMap';
-import { FINEST, areaLevels, fetchAreas, shownAreas, type Candidate } from '../io/osm';
+import { FINEST, MAIN, areaLevels, fetchAreas, shownAreas, type Candidate } from '../io/osm';
 import { areasAround } from '../io/areas';
 import { labelPoint } from '../geo/engine';
 import type { CityPlan, District, TransitLine, TransitMode } from '../types';
@@ -79,6 +79,7 @@ function CityView({ id }: { id: number }) {
     const ctl = new CityMap(mapRef.current!, id);
     ctl.onReady = () => setReady(true);
     setCityMap(ctl);
+    ((window as unknown as { cmaps?: Record<string, unknown> }).cmaps ??= {}).city = ctl;
     // Its quarters and the towns around are collected now, in the background; a city with no
     // district yet shows them at once, ready to be clicked.
     void collectAreas(id, false).then(() => {
@@ -221,7 +222,7 @@ function CityHint({ id }: { id: number }) {
     );
   } else if (ui.tab === 'districts' && ui.tool === 'real') {
     if (!ui.areas?.length) return null;
-    text = `${tap} the dashed areas to make them districts of the city.`;
+    text = ui.growing ? 'Collecting the towns around…' : `${tap} the dashed areas to add them · ${tap.toLowerCase()} anywhere further out to add the town there`;
     actions = (
       <button className="btn primary small" onClick={() => useCityUi.setState({ tool: 'pick' })}>
         Done
@@ -281,7 +282,7 @@ async function collectAreas(id: number, show: boolean) {
   const ui = useCityUi.getState();
   // A search of the view made meanwhile is what the user asked for last.
   if (ui.areas?.length) return useCityUi.setState({ loading: false });
-  useCityUi.setState({ areas, level: FINEST, loading: false });
+  useCityUi.setState({ areas, level: MAIN, loading: false });
   // Said only when the real districts were asked for, not for the quiet collecting on opening.
   const asked = show || ui.tool === 'real';
   if (asked && !areas) toast('Could not fetch the real districts (no connection?)', 'error');
@@ -301,7 +302,7 @@ async function findAreas(id: number) {
   try {
     const areas = await fetchAreas([w, s, e, n]);
     if (useWorld.getState().cityView !== id) return;
-    useCityUi.setState({ areas, level: FINEST, loading: false });
+    useCityUi.setState({ areas, level: MAIN, loading: false });
     if (!areas.length) toast('No districts known here: draw your own', 'error');
   } catch {
     if (useWorld.getState().cityView !== id) return;
@@ -355,13 +356,16 @@ function RealAreas({ id }: { id: number }) {
   return (
     <div className="callout">
       <p>
-        <strong>Click the dashed areas on the map</strong> to add them to the city — the neighbouring towns too, to make it bigger.
+        <strong>Click the dashed areas on the map</strong> to add them to the city. Each town you add brings its own neighbours within reach, so the city can grow as far as you like — or click any spot further out to add the town there.
       </p>
       {levels.length > 1 && (
         <>
           <small className="city-label">Size of the areas</small>
           <div className="city-levels">
-            <button className={'chip-btn' + (ui.level === FINEST ? ' accent' : '')} onClick={() => useCityUi.setState({ level: FINEST })} title="Quarters where a town has them, whole towns elsewhere">
+            <button className={'chip-btn' + (ui.level === MAIN ? ' accent' : '')} onClick={() => useCityUi.setState({ level: MAIN })} title="The arrondissements or boroughs of the city, and the towns around it">
+              Main districts
+            </button>
+            <button className={'chip-btn' + (ui.level === FINEST ? ' accent' : '')} onClick={() => useCityUi.setState({ level: FINEST })} title="The smallest quarters known everywhere">
               Most detailed
             </button>
             {levels.map((l) => (

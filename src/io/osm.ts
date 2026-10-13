@@ -143,15 +143,29 @@ export function parseOverpass(json: { elements?: OsmRelation[] }): Candidate[] {
 
 /** Shown as "the most detailed everywhere": see `shownAreas`. */
 export const FINEST = 0;
+/** Shown as "the main districts": see `shownAreas`. */
+export const MAIN = -1;
 
 /**
- * The areas of one size (`level`), or with FINEST the smallest known everywhere: a town's
- * quarters where it has some, the whole town where it has none.
+ * The areas of one size (`level`), or one of two mixes:
+ * - MAIN, what a city is usually cut into: the first cut of each town (the arrondissements of
+ *   Paris, not the quarters inside them) and, whole, the towns that have none;
+ * - FINEST, the smallest known everywhere.
  */
 export function shownAreas(areas: Candidate[], level: number | null): Candidate[] {
-  if (level !== FINEST) return areas.filter((a) => a.level === level);
+  if (level !== FINEST && level !== MAIN) return areas.filter((a) => a.level === level);
+  // Every area's parent: the smallest coarser area its centre lies in.
   const centres = areas.map((a) => labelPoint(a.geom));
-  return areas.filter((a) => !areas.some((b, i) => b.level > a.level && centres[i] && pointInGeom(centres[i]!, a.geom)));
+  const parent = areas.map((a, i) => {
+    let best = -1;
+    areas.forEach((b, k) => {
+      if (b.level < a.level && centres[i] && pointInGeom(centres[i]!, b.geom) && (best < 0 || b.area < areas[best].area)) best = k;
+    });
+    return best;
+  });
+  const hasChild = new Set(parent);
+  if (level === FINEST) return areas.filter((_, i) => !hasChild.has(i));
+  return areas.filter((_, i) => (parent[i] < 0 ? !hasChild.has(i) : parent[parent[i]] < 0));
 }
 
 /** The sizes on offer, each named after one of its areas (the nearest to `centre` not yet used as an example). */
@@ -261,9 +275,12 @@ export function townOf(elements: OsmRelation[]): { id: number; level: number } |
   return best;
 }
 
-/** The query for a town, its quarters (every finer level inside it) and the towns that touch it. */
-export function townQuery(town: { id: number; level: number }): string {
-  const finer = Array.from({ length: 10 - town.level }, (_, i) => town.level + 1 + i).join('|');
+/**
+ * The query for a town and the towns that touch it, with its quarters too (every finer level
+ * inside it) unless `quarters` is false.
+ */
+export function townQuery(town: { id: number; level: number }, quarters = true): string {
+  const finer = quarters ? Array.from({ length: 10 - town.level }, (_, i) => town.level + 1 + i).join('|') : '';
   return (
     `[out:json][timeout:40];rel(${town.id})->.t;way(r.t)->.w;` +
     // Sharing a stretch of outline with the town is what makes a neighbour.
@@ -284,4 +301,18 @@ export async function fetchTown(at: [number, number], signal?: AbortSignal): Pro
   // Nowhere known (open sea, an unmapped place): whatever lies within a few kilometres.
   if (!town) return fetchAreas([at[0] - 0.08, at[1] - 0.06, at[0] + 0.08, at[1] + 0.06], signal);
   return parseOverpass(await overpass(townQuery(town), signal));
+}
+
+/** The towns that touch a known area (and that area itself): how a city grows past its first ring. */
+export async function fetchNeighbours(area: Pick<Candidate, 'id' | 'level'>, signal?: AbortSignal): Promise<Candidate[]> {
+  return parseOverpass(await overpass(townQuery({ id: Number(area.id.slice(1)), level: area.level }, false), signal));
+}
+
+/** The town at a point and the towns that touch it; `town` is its id among them (null when the place is unknown). */
+export async function fetchTownAt(at: [number, number], signal?: AbortSignal): Promise<{ town: string | null; areas: Candidate[] }> {
+  const [lng, lat] = at.map((v) => v.toFixed(5));
+  const around = await overpass<{ elements?: OsmRelation[] }>(`[out:json][timeout:25];is_in(${lat},${lng});rel(pivot)${ADMIN};out tags;`, signal);
+  const town = townOf(around.elements ?? []);
+  if (!town) return { town: null, areas: [] };
+  return { town: `r${town.id}`, areas: parseOverpass(await overpass(townQuery(town, false), signal)) };
 }

@@ -8,9 +8,10 @@ import { asset } from './style';
 import { onWorldChange, regionsInBox, toast, useWorld } from '../world/store';
 import { addDistrict, addStop, districtAt, planOf, ringGeom, transitFeatures, updateStation } from '../world/city';
 import { useCityUi, type Basemap } from '../world/cityUi';
-import { bbox, labelPoint } from '../geo/engine';
+import { bbox, labelPoint, pointInGeom } from '../geo/engine';
 import { uid } from '../util';
-import { shownAreas } from '../io/osm';
+import { MAIN, shownAreas, type Candidate } from '../io/osm';
+import { growAt, growFrom } from '../io/areas';
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 const OFM: Record<Exclude<Basemap, 'blank'>, string> = { light: 'positron', streets: 'liberty', dark: 'dark' };
@@ -369,10 +370,24 @@ export class CityMap {
       if (ui.tool === 'real') {
         // Where sizes nest, the smallest area under the click.
         const f = this.hit(e, ['ev-area-fill']).sort((a, b) => Number(a.properties.area) - Number(b.properties.area))[0];
-        const area = f && ui.areas?.find((a) => a.id === f.properties.id);
+        const taken = new Set(Object.values(planOf(this.cityId).districts).map((d) => d.src));
+        // What is drawn under the click, or failing that what is known there (the map may not have drawn it yet).
+        const area =
+          (f && ui.areas?.find((a) => a.id === f.properties.id)) ||
+          (this.hit(e, ['ev-dist-fill']).length
+            ? undefined
+            : shownAreas(ui.areas ?? [], ui.level)
+                .filter((a) => !taken.has(a.id) && pointInGeom(at, a.geom))
+                .sort((a, b) => a.area - b.area)[0]);
         if (area) {
           // Not selected: the next click is most likely the area beside it.
           addDistrict(this.cityId, area.geom, { name: area.name, pop: area.pop, src: area.id });
+          void this.grow(() => growFrom(this.city(), area).then((areas) => (areas ? { areas, town: null } : null)));
+          return;
+        }
+        // Beyond what is known: the town at that spot joins the city, and its neighbours come within reach.
+        if (!this.hit(e, ['ev-dist-fill']).length) {
+          void this.grow(() => growAt(this.city(), at), true);
           return;
         }
       }
@@ -400,6 +415,33 @@ export class CityMap {
     const on = seg.find((f) => f.properties.line === line.id);
     const id = addStop(this.cityId, line.id, at, { index: on ? Number(on.properties.after) + 1 : undefined, name: this.nameAt(e.point, at) });
     if (id) useCityUi.setState({ station: id });
+  }
+
+  private city() {
+    return useWorld.getState().doc!.cities[this.cityId];
+  }
+
+  private growing = 0;
+  /** Collects more towns in the background and puts them on offer; `add` also makes the town found a district. */
+  private async grow(find: () => Promise<{ areas: Candidate[]; town: Candidate | null } | null>, add = false) {
+    this.growing++;
+    useCityUi.setState({ growing: true });
+    try {
+      const found = await find();
+      if (this.dead || !found) return;
+      useCityUi.setState({ areas: found.areas, level: useCityUi.getState().level ?? MAIN });
+      const t = found.town;
+      if (!add) return;
+      if (!t) toast('No town known at this spot: draw it yourself', 'error');
+      else if (!Object.values(planOf(this.cityId).districts).some((d) => d.src === t.id)) {
+        addDistrict(this.cityId, t.geom, { name: t.name, pop: t.pop, src: t.id });
+        toast(`${t.name} joins the city`, 'ok');
+      }
+    } catch {
+      if (add && !this.dead) toast('Could not fetch the town here (no connection?)', 'error');
+    } finally {
+      if (!--this.growing && !this.dead) useCityUi.setState({ growing: false });
+    }
   }
 
   /** A name for a station placed here: the nearest street, else the neighbourhood or the district. */

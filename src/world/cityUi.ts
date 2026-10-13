@@ -16,6 +16,8 @@ export interface CityUi {
   areas: Candidate[] | null;
   level: number | null;
   loading: boolean;
+  /** More towns are being collected around one just added or tapped. */
+  growing: boolean;
   basemap: Basemap;
   /** Points of the district being drawn. */
   draft: number;
@@ -32,7 +34,7 @@ function savedBasemap(): Basemap {
   return 'light';
 }
 
-export const FRESH: Omit<CityUi, 'basemap'> = { tab: 'districts', tool: 'pick', district: null, line: null, station: null, areas: null, level: null, loading: false, draft: 0 };
+export const FRESH: Omit<CityUi, 'basemap'> = { tab: 'districts', tool: 'pick', district: null, line: null, station: null, areas: null, level: null, loading: false, growing: false, draft: 0 };
 
 export const useCityUi = create<CityUi>(() => ({ ...FRESH, basemap: savedBasemap() }));
 
