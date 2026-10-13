@@ -120,7 +120,8 @@ export class CloudDeck {
   /** Thick over the whole globe, gone by street level; `boost` gathers them while loading. */
   private opacity(): maplibregl.ExpressionSpecification {
     const b = this.boost, k = this.base;
-    return ['interpolate', ['linear'], ['zoom'], 0, k * (0.72 + 0.25 * b), 2.5, k * (0.55 + 0.35 * b), 4.5, k * (0.18 + 0.45 * b), 6, k * (0.04 + 0.4 * b), 9, k * 0.25 * b, 11, 0];
+    // Never thicker than a veil: the countries always show through, even at the heart of a storm.
+    return ['interpolate', ['linear'], ['zoom'], 0, k * (0.42 + 0.12 * b), 2.5, k * (0.32 + 0.14 * b), 4.5, k * (0.12 + 0.16 * b), 6, k * (0.03 + 0.14 * b), 9, k * 0.1 * b, 11, 0];
   }
 
   private key(e: MapSourceDataEvent) {
