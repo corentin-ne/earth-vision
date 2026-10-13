@@ -20,6 +20,13 @@ import {
   sortedDistricts,
   transitFeatures,
   importLines,
+  addDistricts,
+  clearDistricts,
+  clearLines,
+  densityColors,
+  lineMinutes,
+  transitIn,
+  updateLine,
   updateDistrict,
   updateStation,
   openCity,
@@ -139,6 +146,30 @@ describe('city districts', () => {
     expect(sortedDistricts(plan()).map((d) => `${d.num} ${d.name}`)).toEqual(['1 Centre', '2 Near', '3 Far']);
   });
 
+  it('adds many districts, or removes them all, in one undo step', () => {
+    const n = addDistricts(CITY, [0, 1, 2].map((i) => ({ geom: sq(X + i * 0.02, Y), props: { name: `D${i}`, pop: 1000 * (i + 1) } })));
+    expect(n).toBe(3);
+    expect(names()).toEqual(['D0', 'D1', 'D2']);
+    clearDistricts(CITY);
+    expect(names()).toEqual([]);
+    undo();
+    expect(names()).toEqual(['D0', 'D1', 'D2']);
+    undo();
+    expect(names()).toEqual([]);
+  });
+
+  it('colours districts by density, leaving out those without people', () => {
+    const a = addDistrict(CITY, sq(X, Y), { name: 'Dense', pop: 90_000 })!;
+    const b = addDistrict(CITY, sq(X + 0.02, Y), { name: 'Sparse', pop: 1_000 })!;
+    const c = addDistrict(CITY, sq(X + 0.04, Y), { name: 'Empty' })!;
+    const d = densityColors(plan())!;
+    expect(d.colors[a]).not.toBe(d.colors[b]);
+    expect(d.colors[c]).toBeUndefined();
+    expect(d.max / d.min).toBeCloseTo(90, 0);
+    clearDistricts(CITY);
+    expect(densityColors(plan())).toBeNull();
+  });
+
   it('forgets the plan with the city, and brings it back on undo', () => {
     const a = addDistrict(CITY, sq(X, Y), { name: 'A' })!;
     deleteDistrict(CITY, a);
@@ -212,6 +243,38 @@ describe('city transit', () => {
     expect(shared).toHaveLength(2);
     expect(shared.map((x) => x.properties!.offset).sort()).toEqual([-0.5, 0.5]);
     expect(f.filter((x) => x.properties!.line === m1 && x.properties!.offset === 0)).toHaveLength(1);
+  });
+
+  it('closes a circle line, and tells how long the ride is', () => {
+    const l = addLine(CITY);
+    const a = addStop(CITY, l, [X, Y])!;
+    addStop(CITY, l, [X + 0.02, Y]);
+    const c = addStop(CITY, l, [X + 0.02, Y + 0.02])!;
+    const open = lineKm(plan(), plan().lines[l]);
+    expect(transitFeatures(plan()).lines.features).toHaveLength(2);
+    expect(transitFeatures(plan()).ends.features.map((f) => f.properties!.id).sort()).toEqual([`${l}:${a}`, `${l}:${c}`].sort());
+    // A metro at 38 km/h, half a minute at the one stop on the way.
+    expect(lineMinutes(plan(), plan().lines[l])).toBeCloseTo((open / 38) * 60 + 0.5, 5);
+    updateLine(CITY, l, { loop: true });
+    expect(transitFeatures(plan()).lines.features).toHaveLength(3);
+    expect(transitFeatures(plan()).ends.features).toHaveLength(1);
+    expect(lineKm(plan(), plan().lines[l])).toBeGreaterThan(open * 1.5);
+    // Which district it serves.
+    const d = addDistrict(CITY, sq(X - 0.005, Y - 0.005, 0.01), { name: 'Centre' })!;
+    expect(transitIn(plan(), plan().districts[d])).toMatchObject({ stations: 1, lines: [{ id: l }] });
+    const far = addDistrict(CITY, sq(X + 0.1, Y, 0.01), { name: 'Far' })!;
+    expect(transitIn(plan(), plan().districts[far])).toEqual({ lines: [], stations: 0 });
+  });
+
+  it('removes the whole network at once', () => {
+    const l = addLine(CITY);
+    addStop(CITY, l, [X, Y]);
+    addStop(CITY, l, [X + 0.02, Y]);
+    clearLines(CITY);
+    expect(plan().lines).toEqual({});
+    expect(plan().stations).toEqual({});
+    undo();
+    expect(plan().lines[l].stops).toHaveLength(2);
   });
 
   it('moves a station in one undo step', () => {

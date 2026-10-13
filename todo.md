@@ -59,11 +59,12 @@
 
 ## Done (2.20 – 2.21)
 - [x] Timeline of chapters to look back at, replay and return to; measure tool
+- [x] Cities: density colours, picture export, list of built cities, redraw only what changed
 - [x] Cities: real rail network import (metro, tram, RER), a city grows ring after ring, phone layout
 - [x] Cities up close: real or hand-drawn districts (numbered, populated, merged), metro / tram / train / bus lines with stations and interchanges, on a street map
 
 ## Next
-- [ ] Cities: show districts and lines on the world map when zoomed in; picture export of a city
+- [ ] Cities: show districts and lines on the world map when zoomed in
 - [ ] Wars & events: front lines and battles tied to dates on the timeline
 - [ ] Relief at zoom 6 (would need a finer source than Natural Earth)
 - [ ] Native desktop wrapper (Tauri) once a Rust toolchain is installed — the PWA covers offline use meanwhile

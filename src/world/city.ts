@@ -132,6 +132,51 @@ export function addDistrict(cityId: number, shape: RegionGeom, props: Partial<Di
   return id;
 }
 
+/** Adds several districts (the real areas on offer, all at once) as one undo step. Returns how many. */
+export function addDistricts(cityId: number, list: { geom: RegionGeom; props: Partial<District> }[]): number {
+  let plan = planOf(cityId);
+  let n = 0;
+  for (const { geom, props } of list) {
+    if (geomArea(geom) <= 0) continue;
+    plan = withDistrict(plan, geom, props).plan;
+    n++;
+  }
+  if (n) put(cityId, `Add ${n} district${n > 1 ? 's' : ''}`, plan);
+  return n;
+}
+
+export function clearDistricts(cityId: number) {
+  const plan = planOf(cityId);
+  if (Object.keys(plan.districts).length) put(cityId, 'Remove every district', { ...plan, districts: {} });
+}
+
+export function clearLines(cityId: number) {
+  const plan = planOf(cityId);
+  if (Object.keys(plan.lines).length) put(cityId, 'Remove every line', { ...plan, lines: {}, stations: {} });
+}
+
+/** Pale to deep, for people per km². */
+const DENSITY = ['#FFF3C4', '#FED98E', '#FDAE61', '#F46D43', '#D7301F', '#8E0B1C'];
+
+/**
+ * A colour per district for how densely it is lived in (those without a figure are left out),
+ * on a scale stretched between the emptiest and the fullest, with the legend's two ends.
+ */
+export function densityColors(plan: CityPlan): { colors: Record<string, string>; min: number; max: number } | null {
+  const ds = Object.values(plan.districts).filter((d) => d.pop && d.area > 0);
+  if (!ds.length) return null;
+  const dens = ds.map((d) => d.pop! / d.area);
+  const min = Math.min(...dens);
+  const max = Math.max(...dens);
+  const colors: Record<string, string> = {};
+  // On square roots: a centre ten times denser than the suburbs does not flatten them all to one colour.
+  const lo = Math.sqrt(min);
+  const span = Math.sqrt(max) - lo || 1;
+  ds.forEach((d, i) => (colors[d.id] = DENSITY[Math.min(DENSITY.length - 1, Math.floor(((Math.sqrt(dens[i]) - lo) / span) * DENSITY.length))]));
+  return { colors, min, max };
+}
+export const DENSITY_COLORS = DENSITY;
+
 export function updateDistrict(cityId: number, id: string, changes: Partial<District>, label = 'Edit district') {
   const plan = planOf(cityId);
   const d = plan.districts[id];
@@ -395,14 +440,37 @@ export function cityBox(cityId: number): [number, number, number, number] | null
 
 export const linesAt = (plan: CityPlan, sid: string): TransitLine[] => Object.values(plan.lines).filter((l) => l.stops.includes(sid));
 
+/** The stretches of a line as pairs of stop indexes, with the one closing a loop. */
+function stretches(line: TransitLine): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 1; i < line.stops.length; i++) out.push([i - 1, i]);
+  if (line.loop && line.stops.length > 2) out.push([line.stops.length - 1, 0]);
+  return out;
+}
+
 export function lineKm(plan: CityPlan, line: TransitLine): number {
   let km = 0;
-  for (let i = 1; i < line.stops.length; i++) {
-    const a = plan.stations[line.stops[i - 1]];
-    const b = plan.stations[line.stops[i]];
+  for (const [i, j] of stretches(line)) {
+    const a = plan.stations[line.stops[i]];
+    const b = plan.stations[line.stops[j]];
     if (a && b) km += distanceKm([a.lng, a.lat], [b.lng, b.lat]);
   }
   return km;
+}
+
+/** Usual speeds between stops, km/h. */
+const SPEED: Record<TransitMode, number> = { metro: 38, tram: 24, train: 60, bus: 20 };
+
+/** Minutes from one end of a line to the other (once round for a loop): the run, and half a minute at each stop on the way. */
+export function lineMinutes(plan: CityPlan, line: TransitLine): number {
+  const calls = Math.max(0, line.stops.length - (line.loop ? 0 : 2));
+  return (lineKm(plan, line) / SPEED[line.mode]) * 60 + calls * 0.5;
+}
+
+/** The lines with a station in a district, and how many stations it has. */
+export function transitIn(plan: CityPlan, d: District): { lines: TransitLine[]; stations: number } {
+  const inside = new Set(Object.values(plan.stations).filter((s) => pointInGeom([s.lng, s.lat], d.geom)).map((s) => s.id));
+  return { lines: Object.values(plan.lines).filter((l) => l.stops.some((s) => inside.has(s))), stations: inside.size };
 }
 
 export function networkStats(plan: CityPlan) {
@@ -422,20 +490,20 @@ const WIDTH: Record<TransitMode, number> = { metro: 5, train: 5, tram: 3.5, bus:
  * lines run between the same two stations they are drawn side by side (`offset`, in line widths)
  * instead of on top of one another.
  */
-export function transitFeatures(plan: CityPlan): { lines: FeatureCollection<LineString>; stations: FeatureCollection<Point> } {
+export function transitFeatures(plan: CityPlan): { lines: FeatureCollection<LineString>; stations: FeatureCollection<Point>; ends: FeatureCollection<Point> } {
   const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
   const shared = new Map<string, string[]>();
   for (const l of Object.values(plan.lines))
-    for (let i = 1; i < l.stops.length; i++) {
-      const k = key(l.stops[i - 1], l.stops[i]);
+    for (const [i, j] of stretches(l)) {
+      const k = key(l.stops[i], l.stops[j]);
       const on = shared.get(k) ?? [];
       if (!on.includes(l.id)) on.push(l.id);
       shared.set(k, on);
     }
   const lines: Feature<LineString>[] = [];
   for (const l of Object.values(plan.lines))
-    for (let i = 1; i < l.stops.length; i++) {
-      const [x, y] = [l.stops[i - 1], l.stops[i]];
+    for (const [i, j] of stretches(l)) {
+      const [x, y] = [l.stops[i], l.stops[j]];
       // Always drawn the same way round, so "left of the line" means the same for every line on it.
       const [a, b] = x < y ? [plan.stations[x], plan.stations[y]] : [plan.stations[y], plan.stations[x]];
       if (!a || !b) continue;
@@ -443,16 +511,33 @@ export function transitFeatures(plan: CityPlan): { lines: FeatureCollection<Line
       lines.push({
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: [[a.lng, a.lat], [b.lng, b.lat]] },
-        properties: { line: l.id, color: l.color, width: WIDTH[l.mode], dashed: l.mode === 'bus', offset: on.indexOf(l.id) - (on.length - 1) / 2, after: i - 1 },
+        properties: { line: l.id, color: l.color, width: WIDTH[l.mode], dashed: l.mode === 'bus', offset: on.indexOf(l.id) - (on.length - 1) / 2, after: i },
       });
     }
+  // Which lines call where, found once rather than by going through every line for every station.
+  const calls = new Map<string, TransitLine[]>();
+  for (const l of Object.values(plan.lines))
+    for (const sid of new Set(l.stops)) {
+      const on = calls.get(sid);
+      if (on) on.push(l);
+      else calls.set(sid, [l]);
+    }
   const stations: Feature<Point>[] = Object.values(plan.stations).map((s) => {
-    const on = linesAt(plan, s.id);
+    const on = calls.get(s.id) ?? [];
     return {
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
       properties: { id: s.id, name: s.name, hub: on.length > 1, color: on[0]?.color ?? '#333333', end: on.some((l) => l.stops[0] === s.id || l.stops[l.stops.length - 1] === s.id) },
     };
   });
-  return { lines: { type: 'FeatureCollection', features: lines }, stations: { type: 'FeatureCollection', features: stations } };
+  // The name of each line at its ends (once, at its first stop, for a loop), as on a network map.
+  const ends: Feature<Point>[] = [];
+  for (const l of Object.values(plan.lines)) {
+    const at = l.loop || l.stops.length < 2 ? l.stops.slice(0, 1) : [l.stops[0], l.stops[l.stops.length - 1]];
+    for (const sid of new Set(at)) {
+      const s = plan.stations[sid];
+      if (s) ends.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lng, s.lat] }, properties: { id: `${l.id}:${sid}`, name: l.name, color: l.color, line: l.id } });
+    }
+  }
+  return { lines: { type: 'FeatureCollection', features: lines }, stations: { type: 'FeatureCollection', features: stations }, ends: { type: 'FeatureCollection', features: ends } };
 }

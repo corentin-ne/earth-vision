@@ -54,6 +54,14 @@ their code is kept under [`legacy/`](legacy/).
     stations one after the other (they take the name of the street or neighbourhood). Click a
     line to add a stop on it, click a station of another line to make an interchange, drag
     stations to move them. Lines sharing a stretch run side by side.
+  - A line can be a **circle line**; each one tells its length and the time it takes end to
+    end, and wears its name at its ends on the map. A district lists the lines that serve it;
+    the list of districts sorts by people, density or area; a search box finds any district,
+    station or line of a big city.
+  - **Colour by density** shades the districts by people per km²; *Picture of this view*
+    (background menu) saves the city as a PNG; `Delete` removes the selected district or
+    station; a real district tapped again leaves the city. The cities you built are listed
+    in the world panel.
   - Four backgrounds: pale streets, full streets, dark, or blank (invented cities, offline).
     The street map and the real districts need a connection; everything you make is saved with
     the world, undone with `Ctrl+Z` and travels in the `.map` file.

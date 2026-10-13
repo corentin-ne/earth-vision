@@ -19,6 +19,8 @@ export interface CityUi {
   /** More towns are being collected around one just added or tapped. */
   growing: boolean;
   basemap: Basemap;
+  /** Districts are coloured by how densely they are lived in. */
+  density: boolean;
   /** Points of the district being drawn. */
   draft: number;
 }
@@ -34,7 +36,7 @@ function savedBasemap(): Basemap {
   return 'light';
 }
 
-export const FRESH: Omit<CityUi, 'basemap'> = { tab: 'districts', tool: 'pick', district: null, line: null, station: null, areas: null, level: null, loading: false, growing: false, draft: 0 };
+export const FRESH: Omit<CityUi, 'basemap'> = { tab: 'districts', tool: 'pick', district: null, line: null, station: null, areas: null, level: null, loading: false, growing: false, density: false, draft: 0 };
 
 export const useCityUi = create<CityUi>(() => ({ ...FRESH, basemap: savedBasemap() }));
 

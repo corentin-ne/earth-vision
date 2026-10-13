@@ -3,10 +3,10 @@
 import * as maplibregl from 'maplibre-gl';
 import type { ExpressionSpecification, GeoJSONSource, Map as MLMap, MapMouseEvent, MapTouchEvent, StyleSpecification } from 'maplibre-gl';
 import type { Feature, FeatureCollection } from 'geojson';
-import type { LngLat } from '../types';
+import type { District, LngLat } from '../types';
 import { asset } from './style';
 import { onWorldChange, regionsInBox, toast, useWorld } from '../world/store';
-import { addDistrict, addStop, districtAt, planOf, ringGeom, transitFeatures, updateStation } from '../world/city';
+import { addDistrict, addStop, deleteDistrict, densityColors, districtAt, planOf, ringGeom, transitFeatures, updateStation } from '../world/city';
 import { useCityUi, type Basemap } from '../world/cityUi';
 import { bbox, labelPoint, pointInGeom } from '../geo/engine';
 import { uid } from '../util';
@@ -85,6 +85,7 @@ export class CityMap {
   }
 
   destroy() {
+    cancelAnimationFrame(this.dragFrame);
     this.dead = true;
     this.off.forEach((f) => f());
     this.map.remove();
@@ -161,9 +162,10 @@ export class CityMap {
   private install() {
     const m = this.map;
     if (m.getSource('ev-dist')) return;
+    this.drawn = {};
     const ink = this.dark ? '#f2f5fa' : '#1c2333';
     const halo = this.dark ? 'rgba(10,14,24,0.85)' : 'rgba(255,255,255,0.9)';
-    for (const id of ['ev-land', 'ev-dist', 'ev-dist-pts', 'ev-area', 'ev-net', 'ev-st', 'ev-draft', 'ev-centre']) m.addSource(id, { type: 'geojson', data: EMPTY, promoteId: 'id' });
+    for (const id of ['ev-land', 'ev-dist', 'ev-dist-pts', 'ev-area', 'ev-net', 'ev-st', 'ev-ends', 'ev-draft', 'ev-centre']) m.addSource(id, { type: 'geojson', data: EMPTY, promoteId: 'id' });
 
     m.addLayer({ id: 'ev-land', type: 'fill', source: 'ev-land', paint: { 'fill-color': '#f1eee6' } });
     m.addLayer({ id: 'ev-land-line', type: 'line', source: 'ev-land', paint: { 'line-color': '#b9c4cf', 'line-width': 1 } });
@@ -242,6 +244,22 @@ export class CityMap {
       },
       paint: { 'text-color': ink, 'text-halo-color': halo, 'text-halo-width': 1.6 },
     });
+    // Above the station names, so a line's name at its end wins the place when both cannot fit.
+    m.addLayer({
+      id: 'ev-end-label',
+      type: 'symbol',
+      source: 'ev-ends',
+      minzoom: 9.5,
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': this.font,
+        'text-size': byZoom(11, 15),
+        'text-variable-anchor': ['bottom', 'top', 'left', 'right'],
+        'text-radial-offset': 0.9,
+        'text-padding': 1,
+      },
+      paint: { 'text-color': ['get', 'color'], 'text-halo-color': halo, 'text-halo-width': 2.2 },
+    });
     this.refresh();
   }
 
@@ -249,7 +267,23 @@ export class CityMap {
     return this.map.getSource(id) as GeoJSONSource | undefined;
   }
 
-  /** Redraws everything from the world and the view's state. */
+  /** What each source was last drawn from: only what changed is sent to the map again. */
+  private drawn: Record<string, unknown[]> = {};
+  private changed(key: string, deps: unknown[]): boolean {
+    const was = this.drawn[key];
+    if (was && was.length === deps.length && was.every((v, i) => v === deps[i])) return false;
+    this.drawn[key] = deps;
+    return true;
+  }
+  /** Label anchors cost a search of the shape: kept per shape. */
+  private anchors = new WeakMap<object, LngLat | null>();
+  private anchor(geom: District['geom']): LngLat | null {
+    let p = this.anchors.get(geom);
+    if (p === undefined) this.anchors.set(geom, (p = labelPoint(geom)));
+    return p;
+  }
+
+  /** Redraws what changed in the world or in the view's state. */
   refresh() {
     if (this.dead || !this.src('ev-dist')) return;
     const m = this.map;
@@ -259,48 +293,74 @@ export class CityMap {
     if (!doc || !city) return;
     const plan = planOf(this.cityId);
     const districts = ui.tab === 'districts';
+    const ds = Object.values(plan.districts);
 
     // Without streets, the land of the world around the city gives the lie of the coast.
-    const land: Feature[] = [];
-    if (!this.streets) {
-      const geoms = useWorld.getState().geoms;
-      for (const id of regionsInBox([city.lng - 2, city.lat - 1.5, city.lng + 2, city.lat + 1.5])) if (geoms[id]) land.push({ type: 'Feature', geometry: geoms[id], properties: { id } });
+    const geoms = useWorld.getState().geoms;
+    if (this.changed('land', [this.streets, geoms, city.lng, city.lat])) {
+      const land: Feature[] = [];
+      if (!this.streets) for (const id of regionsInBox([city.lng - 2, city.lat - 1.5, city.lng + 2, city.lat + 1.5])) if (geoms[id]) land.push({ type: 'Feature', geometry: geoms[id], properties: { id } });
+      this.src('ev-land')!.setData({ type: 'FeatureCollection', features: land });
     }
-    this.src('ev-land')!.setData({ type: 'FeatureCollection', features: land });
 
-    const ds = Object.values(plan.districts);
-    this.src('ev-dist')!.setData({ type: 'FeatureCollection', features: ds.map((d) => ({ type: 'Feature', geometry: d.geom, properties: { id: d.id, color: d.color } })) });
-    this.src('ev-dist-pts')!.setData({
-      type: 'FeatureCollection',
-      features: ds.flatMap((d) => {
-        const p = labelPoint(d.geom);
-        return p ? [{ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: p }, properties: { id: d.id, name: d.name, num: d.num != null ? String(d.num) : '' } }] : [];
-      }),
-    });
-    m.setFilter('ev-dist-sel', ['==', ['get', 'id'], (districts && ui.district) || '']);
-    m.setPaintProperty('ev-dist-fill', 'fill-opacity', districts ? 0.42 : 0.16);
-    m.setPaintProperty('ev-dist-line', 'line-opacity', districts ? 0.8 : 0.35);
+    const density = districts && ui.density ? densityColors(plan) : null;
+    if (this.changed('dist', [plan.districts, !!density])) {
+      this.src('ev-dist')!.setData({
+        type: 'FeatureCollection',
+        features: ds.map((d) => ({ type: 'Feature', geometry: d.geom, properties: { id: d.id, color: density ? density.colors[d.id] ?? '#c9ced8' : d.color } })),
+      });
+      this.src('ev-dist-pts')!.setData({
+        type: 'FeatureCollection',
+        features: ds.flatMap((d) => {
+          const p = this.anchor(d.geom);
+          return p ? [{ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: p }, properties: { id: d.id, name: d.name, num: d.num != null ? String(d.num) : '' } }] : [];
+        }),
+      });
+    }
 
     // Real areas on offer: the chosen size, minus those already made into districts.
-    const used = new Set(ds.map((d) => d.src));
-    const areas = districts && ui.tool === 'real' ? shownAreas(ui.areas ?? [], ui.level).filter((a) => !used.has(a.id)) : [];
-    this.src('ev-area')!.setData({ type: 'FeatureCollection', features: areas.map((a) => ({ type: 'Feature', geometry: a.geom, properties: { id: a.id, name: a.name, area: a.area } })) });
+    const offer = districts && ui.tool === 'real';
+    if (this.changed('area', [offer, offer && ui.areas, offer && ui.level, offer && plan.districts])) {
+      const used = new Set(ds.map((d) => d.src));
+      const areas = offer ? shownAreas(ui.areas ?? [], ui.level).filter((a) => !used.has(a.id)) : [];
+      this.hoverArea = null;
+      this.src('ev-area')!.setData({ type: 'FeatureCollection', features: areas.map((a) => ({ type: 'Feature', geometry: a.geom, properties: { id: a.id, name: a.name, area: a.area } })) });
+    }
 
-    const net = transitFeatures(plan);
-    this.src('ev-net')!.setData(net.lines);
-    this.src('ev-st')!.setData(net.stations);
+    if (this.changed('net', [plan.stations, plan.lines])) {
+      const net = transitFeatures(plan);
+      this.src('ev-net')!.setData(net.lines);
+      this.src('ev-st')!.setData(net.stations);
+      this.src('ev-ends')!.setData(net.ends);
+    }
+    const empty = !ds.length && !Object.keys(plan.stations).length;
+    if (this.changed('centre', [empty, city.lng, city.lat]))
+      this.src('ev-centre')!.setData({ type: 'FeatureCollection', features: empty ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [city.lng, city.lat] }, properties: { id: 'c' } }] : [] });
+
     const active = !districts && ui.line && plan.lines[ui.line] ? ui.line : null;
-    const fade: ExpressionSpecification | number = districts ? 0.45 : active ? ['case', ['==', ['get', 'line'], active], 1, 0.4] : 1;
-    for (const id of ['ev-net', 'ev-net-bus']) m.setPaintProperty(id, 'line-opacity', fade);
-    m.setPaintProperty('ev-net-case', 'line-opacity', districts ? 0.3 : 0.9);
-    // While districts are worked on, the network steps back: faint stations, no names.
-    m.setPaintProperty('ev-st', 'circle-opacity', districts ? 0.35 : 1);
-    m.setPaintProperty('ev-st', 'circle-stroke-opacity', districts ? 0.35 : 1);
-    m.setLayoutProperty('ev-st-label', 'visibility', districts ? 'none' : 'visible');
-    m.setFilter('ev-st-sel', ['==', ['get', 'id'], (!districts && ui.station) || '']);
-    this.src('ev-centre')!.setData({ type: 'FeatureCollection', features: ds.length || net.stations.features.length ? [] : [{ type: 'Feature', geometry: { type: 'Point', coordinates: [city.lng, city.lat] }, properties: { id: 'c' } }] });
-    this.drawDraft();
-    m.doubleClickZoom[districts && ui.tool === 'draw' ? 'disable' : 'enable']();
+    if (this.changed('look', [districts, active, ui.district, ui.station, ui.tool, !!density])) {
+      m.setFilter('ev-dist-sel', ['==', ['get', 'id'], (districts && ui.district) || '']);
+      m.setPaintProperty('ev-dist-fill', 'fill-opacity', density ? 0.62 : districts ? 0.42 : 0.16);
+      m.setPaintProperty('ev-dist-line', 'line-opacity', districts ? 0.8 : 0.35);
+      const fade: ExpressionSpecification | number = districts ? 0.45 : active ? ['case', ['==', ['get', 'line'], active], 1, 0.4] : 1;
+      for (const id of ['ev-net', 'ev-net-bus']) m.setPaintProperty(id, 'line-opacity', fade);
+      m.setPaintProperty('ev-net-case', 'line-opacity', districts ? 0.3 : 0.9);
+      // While districts are worked on, the network steps back: faint stations, no names.
+      m.setPaintProperty('ev-st', 'circle-opacity', districts ? 0.35 : 1);
+      m.setPaintProperty('ev-st', 'circle-stroke-opacity', districts ? 0.35 : 1);
+      for (const id of ['ev-st-label', 'ev-end-label']) m.setLayoutProperty(id, 'visibility', districts ? 'none' : 'visible');
+      m.setFilter('ev-st-sel', ['==', ['get', 'id'], (!districts && ui.station) || '']);
+      m.doubleClickZoom[districts && ui.tool === 'draw' ? 'disable' : 'enable']();
+      this.drawDraft();
+    }
+  }
+
+  /** A picture of the map as it is shown (read inside a render, so no costly preserved buffer is needed). */
+  snapshot(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      this.map.once('render', () => this.map.getCanvas().toBlob((b) => resolve(b), 'image/png'));
+      this.map.triggerRepaint();
+    });
   }
 
   // ── Drawing a district ─────────────────────────────────────────────────────
@@ -389,8 +449,15 @@ export class CityMap {
           void this.grow(() => growFrom(this.city(), area).then((areas) => (areas ? { areas, town: null } : null)));
           return;
         }
+        // A real area tapped again leaves the city (a slip of the finger is one tap to mend).
+        const mine = this.hit(e, ['ev-dist-fill'])[0];
+        const d = mine && planOf(this.cityId).districts[String(mine.properties.id)];
+        if (d?.src) {
+          deleteDistrict(this.cityId, d.id);
+          return;
+        }
         // Beyond what is known: the town at that spot joins the city, and its neighbours come within reach.
-        if (!this.hit(e, ['ev-dist-fill']).length) {
+        if (!mine) {
           void this.grow(() => growAt(this.city(), at), true);
           return;
         }
@@ -500,7 +567,9 @@ export class CityMap {
     if (this.drag) {
       if (!this.drag.moved && Math.hypot(e.point.x - this.drag.x, e.point.y - this.drag.y) < 4) return;
       this.drag.moved = true;
-      updateStation(this.cityId, this.drag.id, { lng: +e.lngLat.lng.toFixed(6), lat: +e.lngLat.lat.toFixed(6) }, 'Move station', this.drag.group);
+      // At most one move a frame: each one redraws the network and is written to the world.
+      this.dragTo = [+e.lngLat.lng.toFixed(6), +e.lngLat.lat.toFixed(6)];
+      this.dragFrame ||= requestAnimationFrame(() => this.flushDrag());
       return;
     }
     if (ui.tab === 'districts' && ui.tool === 'draw') {
@@ -524,8 +593,19 @@ export class CityMap {
     this.map.getCanvas().style.cursor = cursor;
   }
 
+  private dragTo: LngLat | null = null;
+  private dragFrame = 0;
+  private flushDrag() {
+    cancelAnimationFrame(this.dragFrame);
+    this.dragFrame = 0;
+    const to = this.dragTo;
+    this.dragTo = null;
+    if (to && this.drag && !this.dead) updateStation(this.cityId, this.drag.id, { lng: to[0], lat: to[1] }, 'Move station', this.drag.group);
+  }
+
   private onUp() {
     if (!this.drag) return;
+    this.flushDrag();
     // The click that ends a drag neither selects nor adds anything.
     if (this.drag.moved) {
       this.skipClick = true;

@@ -4,7 +4,11 @@ import {
   DISTRICT_COLORS,
   LINE_COLORS,
   MODES,
-  addDistrict,
+  addDistricts,
+  clearDistricts,
+  clearLines,
+  densityColors,
+  DENSITY_COLORS,
   addLine,
   cityBox,
   importLines,
@@ -15,6 +19,8 @@ import {
   districtsPop,
   districtTitle,
   lineKm,
+  lineMinutes,
+  transitIn,
   linesAt,
   mergeDistricts,
   networkStats,
@@ -38,7 +44,8 @@ import type { CityPlan, District, TransitLine, TransitMode } from '../types';
 import { NumberField, Stat, TextField } from './common';
 import { Icon } from './icons';
 import { useMobile, useOutside } from './Editor';
-import { fmtCompact, fmtInt } from '../util';
+import { download, fmtCompact, fmtInt } from '../util';
+import { mapCtl } from '../map/controller';
 import { back } from '../world/cityBack';
 import './city.css';
 
@@ -91,6 +98,8 @@ function CityView({ id }: { id: number }) {
     const ctl = new CityMap(mapRef.current!, id);
     ctl.onReady = () => setReady(true);
     setCityMap(ctl);
+    // The world map underneath has nothing to animate for.
+    mapCtl?.waves.hold(true);
     ((window as unknown as { cmaps?: Record<string, unknown> }).cmaps ??= {}).city = ctl;
     // Its quarters and the towns around are collected now, in the background; a city with no
     // district yet shows them at once, ready to be clicked.
@@ -101,6 +110,7 @@ function CityView({ id }: { id: number }) {
     return () => {
       setCityMap(null);
       ctl.destroy();
+      mapCtl?.waves.hold(false);
     };
   }, [id]);
 
@@ -130,11 +140,18 @@ function CityView({ id }: { id: number }) {
         e.preventDefault();
         cityMap?.finishDraft();
       } else if (e.key === 'Backspace' && drawing) cityMap?.undoDraftPoint();
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && ui.tab === 'transit' && ui.station) {
+        deleteStation(id, ui.station);
+        useCityUi.setState({ station: null });
+      } else if (e.key === 'Delete' && ui.tab === 'districts' && ui.tool === 'pick' && ui.district) {
+        deleteDistrict(id, ui.district);
+        useCityUi.setState({ district: null });
+      }
       else if (e.key === 'Escape') back();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [id]);
 
   return (
     <div className={'city-view' + (ready ? ' ready' : '')}>
@@ -174,6 +191,18 @@ function CityView({ id }: { id: number }) {
                   <Icon name={basemap === b ? 'check' : 'flat'} size={15} /> <span className="grow">{label}</span>
                 </button>
               ))}
+              <div className="menu-label">Share</div>
+              <button
+                onClick={async () => {
+                  setMenu(false);
+                  const blob = await cityMap?.snapshot();
+                  if (!blob) return toast('Could not take the picture', 'error');
+                  await download(blob, `${city.name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'city'}.png`, 'image/png');
+                  toast('Picture saved', 'ok');
+                }}
+              >
+                <Icon name="camera" size={15} /> <span className="grow">Picture of this view (.png)</span>
+              </button>
             </div>
           )}
         </div>
@@ -198,7 +227,10 @@ function CityView({ id }: { id: number }) {
             </button>
           </div>
         </div>
-        <div className="city-scroll">{tab === 'districts' ? <DistrictsTab id={id} /> : <TransitTab id={id} />}</div>
+        <div className="city-scroll">
+          <CityFind id={id} />
+          {tab === 'districts' ? <DistrictsTab id={id} /> : <TransitTab id={id} />}
+        </div>
       </aside>
       {!mobile && <CityHint id={id} />}
     </div>
@@ -262,6 +294,93 @@ function CityHint({ id, inline }: { id: number; inline?: boolean }) {
   );
 }
 
+/** A line's figures in a few words: "12 stops · 8.4 km · about 14 min". */
+function lineFacts(plan: CityPlan, l: TransitLine): string {
+  const km = lineKm(plan, l);
+  const min = Math.round(lineMinutes(plan, l));
+  return [`${l.stops.length} stop${l.stops.length === 1 ? '' : 's'}`, `${km.toFixed(1)} km`, l.stops.length > 1 ? `about ${min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}` : `${min} min`}${l.loop ? ' round' : ''}` : null].filter(Boolean).join(' · ');
+}
+
+const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+/** Finds a district, a station or a line of the city by name and goes to it. */
+function CityFind({ id }: { id: number }) {
+  const plan = usePlan(id);
+  const [q, setQ] = useState('');
+  const count = Object.keys(plan.districts).length + Object.keys(plan.stations).length + Object.keys(plan.lines).length;
+  if (count < 9) return null;
+  const k = fold(q.trim());
+  const hits = !k
+    ? []
+    : [
+        ...Object.values(plan.lines).filter((l) => fold(l.name).includes(k)).map((l) => ({ key: 'l' + l.id, name: l.name, sub: MODES[l.mode].label + ' line', color: l.color, go: () => useCityUi.setState({ tab: 'transit', tool: 'pick', line: l.id, station: null }) })),
+        ...sortedDistricts(plan)
+          .filter((d) => fold(d.name).includes(k) || String(d.num ?? '') === k)
+          .map((d) => ({
+            key: 'd' + d.id,
+            name: districtTitle(d),
+            sub: plan.unit ?? 'District',
+            color: d.color,
+            go: () => {
+              useCityUi.setState({ tab: 'districts', tool: 'pick', district: d.id });
+              const p = labelPoint(d.geom);
+              if (p) cityMap?.flyTo(p);
+            },
+          })),
+        ...Object.values(plan.stations)
+          .filter((s) => fold(s.name).includes(k))
+          .map((s) => ({
+            key: 's' + s.id,
+            name: s.name,
+            sub: 'Station · ' + linesAt(plan, s.id).map((l) => l.name).join(', '),
+            color: linesAt(plan, s.id)[0]?.color ?? '#888',
+            go: () => {
+              useCityUi.setState({ tab: 'transit', tool: 'pick', station: s.id });
+              cityMap?.flyTo([s.lng, s.lat]);
+            },
+          })),
+      ]
+        .sort((a, b) => Number(!fold(a.name).startsWith(k)) - Number(!fold(b.name).startsWith(k)))
+        .slice(0, 8);
+  return (
+    <div className="city-find">
+      <div className="search-mini">
+        <Icon name="search" size={14} />
+        <input
+          placeholder="Find a district, station or line"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter' && hits[0]) (hits[0].go(), setQ(''));
+            if (e.key === 'Escape') (setQ(''), (e.target as HTMLInputElement).blur());
+          }}
+        />
+        {q && (
+          <button className="icon-btn" onClick={() => setQ('')} title="Clear">
+            <Icon name="x" size={13} />
+          </button>
+        )}
+      </div>
+      {k && (
+        <div className="city-list">
+          {hits.length ? (
+            hits.map((h) => (
+              <button key={h.key} onClick={() => (h.go(), setQ(''))}>
+                <span className="city-bullet" style={{ background: h.color }} />
+                <span className="grow name">{h.name}</span>
+                <small>{h.sub}</small>
+              </button>
+            ))
+          ) : (
+            <p className="hint">Nothing by that name in this city.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Swatches({ colors, value, onChange }: { colors: string[]; value: string; onChange: (c: string) => void }) {
   return (
     <div className="color-field city-swatches">
@@ -272,6 +391,50 @@ function Swatches({ colors, value, onChange }: { colors: string[]; value: string
         <input type="color" value={/^#[0-9a-f]{6}$/i.test(value) ? value : '#cccccc'} onChange={(e) => onChange(e.target.value.toUpperCase())} />
         <Icon name="plus" size={14} />
       </label>
+    </div>
+  );
+}
+
+/** A destructive button that asks once more before it acts (and forgets the question after a few seconds). */
+function ConfirmButton({ label, onConfirm }: { label: string; onConfirm: () => void }) {
+  const [asking, setAsking] = useState(false);
+  useEffect(() => {
+    if (!asking) return;
+    const t = setTimeout(() => setAsking(false), 4000);
+    return () => clearTimeout(t);
+  }, [asking]);
+  return (
+    <button
+      className={'btn small ghost danger' + (asking ? ' asking' : '')}
+      onClick={() => {
+        if (!asking) return setAsking(true);
+        setAsking(false);
+        onConfirm();
+      }}
+    >
+      <Icon name="trash" size={14} /> {asking ? 'Sure? Tap again (it can be undone)' : label}
+    </button>
+  );
+}
+
+/** Colours the districts by people per km², with the scale it uses. */
+function DensityToggle({ plan }: { plan: CityPlan }) {
+  const on = useCityUi((s) => s.density);
+  const scale = on ? densityColors(plan) : null;
+  return (
+    <div className="city-density">
+      <label className="toggle">
+        <input type="checkbox" checked={on} onChange={(e) => useCityUi.setState({ density: e.target.checked })} />
+        <span className="switch" />
+        <Icon name="people" size={15} /> Colour by density
+      </label>
+      {scale && (
+        <div className="density-scale" title="People per km²">
+          <small>{fmtCompact(scale.min)}</small>
+          <span style={{ background: `linear-gradient(90deg, ${DENSITY_COLORS.join(',')})` }} />
+          <small>{fmtCompact(scale.max)} /km²</small>
+        </div>
+      )}
     </div>
   );
 }
@@ -364,13 +527,13 @@ function RealAreas({ id }: { id: number }) {
   const used = new Set(Object.values(plan.districts).map((d) => d.src));
   const left = shownAreas(areas, ui.level).filter((a) => !used.has(a.id));
   const addAll = () => {
-    for (const a of left) addDistrict(id, a.geom, { name: a.name, pop: a.pop, src: a.id });
-    toast(`${left.length} districts added`, 'ok');
+    const n = addDistricts(id, left.map((a) => ({ geom: a.geom, props: { name: a.name, pop: a.pop, src: a.id } })));
+    toast(`${n} districts added`, 'ok');
   };
   return (
     <div className="callout">
       <p>
-        <strong>Pick the dashed areas on the map</strong> to add them to the city. Each town added brings its own neighbours within reach, so the city can grow as far as you like.
+        <strong>Pick the dashed areas on the map</strong> to add them to the city; pick one again to take it back out. Each town added brings its own neighbours within reach, so the city can grow as far as you like.
       </p>
       {levels.length > 1 && (
         <>
@@ -410,6 +573,7 @@ function RealAreas({ id }: { id: number }) {
 
 function DistrictCard({ id, d, plan }: { id: number; d: District; plan: CityPlan }) {
   const others = sortedDistricts(plan).filter((o) => o.id !== d.id);
+  const served = transitIn(plan, d);
   return (
     <div className="city-card" style={{ '--c': d.color } as CSSProperties}>
       <div className="city-card-head">
@@ -442,6 +606,18 @@ function DistrictCard({ id, d, plan }: { id: number; d: District; plan: CityPlan
         <Stat label="Area">{d.area >= 10 ? fmtInt(d.area) : d.area.toFixed(2)} km²</Stat>
         {d.pop ? <Stat label="Density">{fmtInt(d.pop / d.area)} /km²</Stat> : null}
       </div>
+      {served.stations > 0 && (
+        <div className="city-on" title="The lines with a station in this district">
+          {served.lines.map((l) => (
+            <button key={l.id} className="city-chip" style={{ background: l.color }} onClick={() => useCityUi.setState({ tab: 'transit', tool: 'pick', line: l.id, station: null })}>
+              {l.name}
+            </button>
+          ))}
+          <small>
+            {served.stations} station{served.stations > 1 ? 's' : ''}
+          </small>
+        </div>
+      )}
       <Swatches colors={DISTRICT_COLORS} value={d.color} onChange={(color) => updateDistrict(id, d.id, { color }, 'Colour the district')} />
       <TextField multiline className="city-notes" value={d.notes ?? ''} placeholder="What is it like? Landmarks, people, history…" onCommit={(notes) => updateDistrict(id, d.id, { notes: notes.trim() || undefined }, 'Edit lore')} />
       <div className="actions">
@@ -480,7 +656,9 @@ function DistrictsTab({ id }: { id: number }) {
   const city = useWorld((s) => s.doc!.cities[id]);
   const plan = usePlan(id);
   const ui = useCityUi();
-  const list = sortedDistricts(plan);
+  const [sort, setSort] = useState<'num' | 'pop' | 'density' | 'area'>('num');
+  const rank = (d: District) => (sort === 'pop' ? d.pop ?? 0 : sort === 'area' ? d.area : (d.pop ?? 0) / d.area);
+  const list = sort === 'num' ? sortedDistricts(plan) : sortedDistricts(plan).sort((a, b) => rank(b) - rank(a));
   const sel = ui.district ? plan.districts[ui.district] : undefined;
   const area = districtsArea(plan);
   const sum = districtsPop(plan);
@@ -520,6 +698,8 @@ function DistrictsTab({ id }: { id: number }) {
 
       {sel && <DistrictCard id={id} d={sel} plan={plan} />}
 
+      {sum > 0 && <DensityToggle plan={plan} />}
+
       <div className="city-actions">
         <button className={'city-action' + (ui.tool === 'real' ? ' on' : '')} onClick={() => (ui.tool === 'real' ? useCityUi.setState({ tool: 'pick' }) : showAreas(id))}>
           <Icon name="globe" size={20} />
@@ -536,6 +716,22 @@ function DistrictsTab({ id }: { id: number }) {
 
       {list.length > 0 ? (
         <>
+          {list.length > 3 && (
+            <div className="segmented city-sort" title="Order of the list">
+              {(
+                [
+                  ['num', 'Number'],
+                  ['pop', 'People'],
+                  ['density', 'Density'],
+                  ['area', 'Area'],
+                ] as const
+              ).map(([k, label]) => (
+                <button key={k} className={sort === k ? 'on' : ''} onClick={() => setSort(k)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="city-list">
             {list.map((d) => (
               <button
@@ -551,7 +747,7 @@ function DistrictsTab({ id }: { id: number }) {
                   {d.num ?? ''}
                 </span>
                 <span className="grow name">{d.name}</span>
-                {d.pop ? <small>{fmtCompact(d.pop)}</small> : null}
+                <small>{sort === 'area' ? `${d.area >= 10 ? fmtInt(d.area) : d.area.toFixed(1)} km²` : sort === 'density' ? (d.pop ? `${fmtCompact(d.pop / d.area)} /km²` : '') : d.pop ? fmtCompact(d.pop) : ''}</small>
               </button>
             ))}
           </div>
@@ -563,6 +759,7 @@ function DistrictsTab({ id }: { id: number }) {
             <button className="btn small" onClick={() => numberDistricts(id)} title="1 at the centre, then outwards">
               <Icon name="list" size={14} /> Number them from the centre
             </button>
+            <ConfirmButton label="Remove every district" onConfirm={() => (clearDistricts(id), useCityUi.setState({ district: null }))} />
           </div>
         </>
       ) : (
@@ -595,6 +792,14 @@ function LineCard({ id, line, plan }: { id: number; line: TransitLine; plan: Cit
         ))}
       </div>
       <Swatches colors={LINE_COLORS} value={line.color} onChange={(color) => updateLine(id, line.id, { color }, 'Colour the line')} />
+      <small className="city-facts">{lineFacts(plan, line)}</small>
+      {line.stops.length > 2 && (
+        <label className="toggle" title="After its last stop the line runs on to the first">
+          <input type="checkbox" checked={!!line.loop} onChange={(e) => updateLine(id, line.id, { loop: e.target.checked || undefined }, e.target.checked ? 'Close the loop' : 'Open the loop')} />
+          <span className="switch" />
+          Circle line: the last stop runs on to the first
+        </label>
+      )}
       {line.stops.length ? (
         <ol className="city-stops">
           {line.stops.map((sid, i) => {
@@ -836,14 +1041,13 @@ function TransitTab({ id }: { id: number }) {
                 {l.name}
               </span>
               <span className="grow name">{MODES[l.mode].label}</span>
-              <small>
-                {l.stops.length} stop{l.stops.length === 1 ? '' : 's'} · {lineKm(plan, l).toFixed(1)} km
-              </small>
+              <small>{lineFacts(plan, l)}</small>
             </button>
           ))}
         </div>
       )}
 
+      {lines.length > 1 && <ConfirmButton label="Remove every line" onConfirm={() => (clearLines(id), useCityUi.setState({ line: null, station: null }))} />}
       {!lines.length && !real && <p className="hint city-empty">Start from the real network, or create a line and {mobile ? 'tap' : 'click'} the map to place its stations one after the other. A station of another line becomes an interchange.</p>}
     </div>
   );

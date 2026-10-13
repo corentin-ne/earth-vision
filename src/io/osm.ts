@@ -153,6 +153,16 @@ export const MAIN = -1;
  * - FINEST, the smallest known everywhere.
  */
 export function shownAreas(areas: Candidate[], level: number | null): Candidate[] {
+  // Asked again at every redraw of the map and of the panel: worked out once per list and size.
+  let known = shownCache.get(areas);
+  if (!known) shownCache.set(areas, (known = new Map()));
+  let out = known.get(level);
+  if (!out) known.set(level, (out = pickAreas(areas, level)));
+  return out;
+}
+const shownCache = new WeakMap<Candidate[], Map<number | null, Candidate[]>>();
+
+function pickAreas(areas: Candidate[], level: number | null): Candidate[] {
   if (level !== FINEST && level !== MAIN) return areas.filter((a) => a.level === level);
   // Every area's parent: the smallest coarser area its centre lies in.
   const centres = areas.map((a) => labelPoint(a.geom));
@@ -380,6 +390,17 @@ export function parseRoutes(json: { elements?: OsmElement[] }): RealLine[] {
  * (RER, S-Bahn, commuter lines) — not long-distance trains, not buses.
  */
 export async function fetchRail(box: [number, number, number, number], signal?: AbortSignal): Promise<RealLine[]> {
+  // Asked twice in a row for the same place (the panel closed and opened again): answered from memory.
+  const key = box.map((v) => v.toFixed(2)).join(',');
+  const known = railCache.get(key);
+  if (known) return known;
+  const lines = await askRail(box, signal);
+  railCache.set(key, lines);
+  return lines;
+}
+const railCache = new Map<string, RealLine[]>();
+
+async function askRail(box: [number, number, number, number], signal?: AbortSignal): Promise<RealLine[]> {
   const [w, s, e, n] = box.map((v) => v.toFixed(5));
   const b = `(${s},${w},${n},${e})`;
   const route = 'relation["type"="route"]';

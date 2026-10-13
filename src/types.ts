@@ -103,6 +103,8 @@ export interface TransitLine {
   color: string;
   mode: TransitMode;
   stops: string[];
+  /** A circle line: after its last stop it runs on to the first. */
+  loop?: boolean;
 }
 
 /** A city seen up close: its districts and its transit network. */

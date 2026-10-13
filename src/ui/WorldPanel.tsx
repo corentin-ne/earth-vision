@@ -6,8 +6,35 @@ import { Icon } from './icons';
 import { fmtArea, fmtCompact, fmtInt } from '../util';
 import { countryName } from '../world/names';
 import { AllianceSection } from './AlliancePanel';
+import { openCity } from '../world/city';
 
 type SortKey = 'area' | 'pop' | 'name' | 'regions';
+
+/** The cities that have districts or a network: one tap to go back into them. */
+function BuiltCities() {
+  const plans = useWorld((s) => s.doc?.plans);
+  const cities = useWorld((s) => s.doc?.cities);
+  const built = Object.entries(plans ?? {})
+    .map(([id, p]) => ({ city: cities?.[Number(id)], d: Object.keys(p.districts).length, l: Object.keys(p.lines).length }))
+    .filter((b) => b.city && (b.d || b.l))
+    .sort((a, b) => a.city!.name.localeCompare(b.city!.name));
+  if (!built.length) return null;
+  return (
+    <>
+      <h3 className="list-title">Cities you built</h3>
+      <div className="built-cities">
+        {built.map(({ city, d, l }) => (
+          <button key={city!.id} onClick={() => openCity(city!.id)} title="Open the city">
+            <Icon name="districts" size={16} />
+            <strong className="grow">{city!.name}</strong>
+            <small>{[d ? `${d} district${d > 1 ? 's' : ''}` : null, l ? `${l} line${l > 1 ? 's' : ''}` : null].filter(Boolean).join(' · ')}</small>
+            <Icon name="chevron" size={14} />
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
 
 export function WorldPanel() {
   const doc = useWorld((s) => s.doc)!;
@@ -86,6 +113,8 @@ export function WorldPanel() {
           </button>
         </div>
       )}
+
+      <BuiltCities />
 
       <h3 className="list-title">Countries</h3>
       <div className="list-tools">

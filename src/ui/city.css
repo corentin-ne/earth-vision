@@ -411,6 +411,103 @@
   min-width: 0;
 }
 
+.city-find {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px 0;
+}
+.city-find .search-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 11px;
+  border-radius: 12px;
+  background: var(--fill-1);
+  border: 1px solid var(--stroke);
+  color: var(--muted);
+}
+.city-find input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 8px 0;
+  font-size: 13.5px;
+}
+.city-find .hint {
+  margin: 2px 4px;
+}
+.city-sort {
+  margin: 0;
+}
+.city-facts {
+  color: var(--fg-2);
+  font-size: 12.5px;
+}
+.city-list small {
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.city-density {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.density-scale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.density-scale span {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+}
+.density-scale small {
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.btn.asking {
+  background: rgba(255, 107, 127, 0.16);
+}
+.built-cities {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.built-cities button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  text-align: left;
+}
+.built-cities button:hover {
+  background: var(--fill-1);
+}
+.built-cities svg:first-child {
+  color: var(--accent);
+  flex: none;
+}
+.built-cities strong {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.built-cities small {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* A way into the city from the world map. */
 .sel-bubble-open {
   display: inline-flex;
