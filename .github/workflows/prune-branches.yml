@@ -1,0 +1,45 @@
+name: Prune branches
+
+# Deletes every branch except main. By default only branches already merged into main are
+# removed, so no work is lost; run it by hand with "all" ticked to remove unmerged ones too.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      all:
+        description: 'Also delete branches NOT merged into main'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prune-branches
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete branches
+        env:
+          ALL: ${{ inputs.all || 'false' }}
+        run: |
+          git fetch origin --prune
+          for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+            b="${ref#origin/}"
+            case "$b" in main|HEAD|origin) continue ;; esac
+            if [ "$ALL" = "true" ] || git merge-base --is-ancestor "origin/$b" origin/main; then
+              echo "Deleting $b"
+              git push origin --delete "$b"
+            else
+              echo "Keeping $b (not merged into main)"
+            fi
+          done
