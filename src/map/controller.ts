@@ -251,7 +251,8 @@ export class MapController {
       done = true;
       clearInterval(this.readyTimer);
       this.onReady?.();
-      if (!reduced) m.easeTo({ ...target, duration: 1700, easing: (t) => 1 - (1 - t) ** 3, essential: true });
+      // The loading screen's globe first grows into this one (BootGlobe), then the glide starts.
+      if (!reduced) setTimeout(() => !m.isMoving() && m.easeTo({ ...target, duration: 1700, easing: (t) => 1 - (1 - t) ** 3, essential: true }), 750);
     };
     // Polling instead of the 'idle' event: the animated water keeps the map from ever being idle.
     this.readyTimer = window.setInterval(() => {

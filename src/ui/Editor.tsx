@@ -41,6 +41,7 @@ import { pathLength, ringArea } from '../geo/measure';
 import { CityEditor } from './CityEditor';
 import { openCity } from '../world/city';
 import { Compass, SpaceBackdrop } from './Sky';
+import { BootGlobe, HANDOFF_MS } from './BootGlobe';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
@@ -122,7 +123,7 @@ function LoadingVeil({ ready }: { ready: boolean }) {
   const [gone, setGone] = useState(false);
   useEffect(() => {
     if (ready) {
-      const t = setTimeout(() => setGone(true), 700);
+      const t = setTimeout(() => setGone(true), HANDOFF_MS + 400);
       return () => clearTimeout(t);
     }
     const t = setInterval(() => setStep((s) => Math.min(LOADING_STEPS.length - 1, s + 1)), 650);
@@ -131,11 +132,16 @@ function LoadingVeil({ ready }: { ready: boolean }) {
   if (gone) return null;
   return (
     <div className={'loading-veil' + (ready ? ' out' : '')} aria-busy={!ready}>
-      <div className="boot-globe" />
-      <strong>{title}</strong>
-      <span className="loading-step" key={step}>
-        {LOADING_STEPS[step]}…
-      </span>
+      <BootGlobe ready={ready} />
+      <div className="loading-text">
+        <strong>{title}</strong>
+        <span className="loading-step" key={step}>
+          {LOADING_STEPS[step]}…
+        </span>
+        <span className="loading-bar">
+          <i style={{ width: `${((step + 1) / LOADING_STEPS.length) * 100}%` }} />
+        </span>
+      </div>
     </div>
   );
 }

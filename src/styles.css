@@ -3095,13 +3095,86 @@ input.num-field {
   }
 }
 .loading-veil.out {
-  opacity: 0;
-  visibility: hidden;
   pointer-events: none;
+}
+/* The words go first; the globe then grows into the map's own (BootGlobe). */
+.loading-veil.out .loading-text {
+  opacity: 0;
+  transform: translateY(14px) scale(0.97);
+  filter: blur(4px);
+}
+.loading-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 30px + min(110px, 20vmin) + 30px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transition:
+    opacity 0.45s ease,
+    transform 0.5s var(--ease-out, ease-out),
+    filter 0.45s ease;
+}
+.loading-bar {
+  width: 120px;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.loading-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hi));
+  box-shadow: 0 0 10px var(--accent);
+  transition: width 0.6s var(--ease-out, ease-out);
+}
+.boot-sphere {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  will-change: transform, width, height, opacity;
+  --glow: 30px;
+  /* The atmosphere: a thin bright rim and a soft blue halo. */
+  box-shadow:
+    0 0 0 1px rgba(170, 215, 255, 0.25),
+    0 0 calc(var(--glow) * 0.5) rgba(140, 200, 255, 0.45),
+    0 0 calc(var(--glow) * 1.6) rgba(62, 160, 230, 0.28);
+  animation: sphere-in 1.1s var(--ease-out, ease-out) backwards;
+}
+.boot-sphere::after {
+  /* Night falling over the far side, and the haze of the air at the edge. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.18), transparent 42%),
+    radial-gradient(circle at 50% 50%, transparent 62%, rgba(150, 205, 255, 0.28) 96%, rgba(190, 225, 255, 0.5));
+  pointer-events: none;
+}
+.boot-sphere canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: block;
+}
+@keyframes sphere-in {
+  from {
+    opacity: 0;
+    filter: blur(8px) brightness(1.6);
+    scale: 0.55;
+  }
 }
 /* The map fades in under the lifting veil. */
 .editor .maplibregl-canvas {
-  transition: opacity 0.9s ease;
+  transition: opacity 0.55s ease 0.4s;
 }
 .editor:not(.ready) .maplibregl-canvas {
   opacity: 0;
@@ -3164,6 +3237,7 @@ input.num-field {
 }
 @media (prefers-reduced-motion: reduce) {
   .loading-veil,
+  .loading-text,
   .editor .maplibregl-canvas,
   .hero-map img,
   .world-thumb img {
