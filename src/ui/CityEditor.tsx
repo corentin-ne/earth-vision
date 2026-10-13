@@ -29,7 +29,8 @@ import {
 } from '../world/city';
 import { FRESH, useCityUi, type Basemap } from '../world/cityUi';
 import { CityMap, cityMap, setCityMap } from '../map/cityMap';
-import { FINEST, areaLevels, fetchAreas, shownAreas } from '../io/osm';
+import { FINEST, areaLevels, fetchAreas, shownAreas, type Candidate } from '../io/osm';
+import { areasAround } from '../io/areas';
 import { labelPoint } from '../geo/engine';
 import type { CityPlan, District, TransitLine, TransitMode } from '../types';
 import { NumberField, Stat, TextField } from './common';
@@ -78,6 +79,12 @@ function CityView({ id }: { id: number }) {
     const ctl = new CityMap(mapRef.current!, id);
     ctl.onReady = () => setReady(true);
     setCityMap(ctl);
+    // Its quarters and the towns around are collected now, in the background; a city with no
+    // district yet shows them at once, ready to be clicked.
+    void collectAreas(id, false).then(() => {
+      const ui = useCityUi.getState();
+      if (useWorld.getState().cityView === id && ui.areas?.length && ui.tab === 'districts' && ui.tool === 'pick' && !Object.keys(planOf(id).districts).length) useCityUi.setState({ tool: 'real' });
+    });
     return () => {
       setCityMap(null);
       ctl.destroy();
@@ -256,10 +263,34 @@ function Swatches({ colors, value, onChange }: { colors: string[]; value: string
 
 // ── Districts ────────────────────────────────────────────────────────────────
 
-/** Looks for the real areas around what the map shows. */
-async function findAreas(id: number) {
+/**
+ * Collects the quarters of the city and the towns around it, once: the first time the city is
+ * opened (kept on the device afterwards). `show` turns them on as soon as they are there.
+ */
+async function collectAreas(id: number, show: boolean) {
   const city = useWorld.getState().doc?.cities[id];
-  if (!city || !cityMap) return;
+  if (!city) return;
+  useCityUi.setState(show ? { tool: 'real', loading: true, district: null } : { loading: true });
+  let areas: Candidate[] | null = null;
+  try {
+    areas = await areasAround(city);
+  } catch {
+    /* told below, when it was asked for */
+  }
+  if (useWorld.getState().cityView !== id) return;
+  const ui = useCityUi.getState();
+  // A search of the view made meanwhile is what the user asked for last.
+  if (ui.areas?.length) return useCityUi.setState({ loading: false });
+  useCityUi.setState({ areas, level: FINEST, loading: false });
+  // Said only when the real districts were asked for, not for the quiet collecting on opening.
+  const asked = show || ui.tool === 'real';
+  if (asked && !areas) toast('Could not fetch the real districts (no connection?)', 'error');
+  else if (asked && areas && !areas.length) toast('No districts known here: draw your own', 'error');
+}
+
+/** Looks again, around what the map shows now (after moving far from the city). */
+async function findAreas(id: number) {
+  if (!cityMap) return;
   // At most ~60 km across, around the middle of the view: more would be slow and not a city.
   let [w, s, e, n] = cityMap.viewBox();
   const cx = (w + e) / 2;
@@ -270,7 +301,6 @@ async function findAreas(id: number) {
   try {
     const areas = await fetchAreas([w, s, e, n]);
     if (useWorld.getState().cityView !== id) return;
-    // To start with, the most detailed everywhere: quarters where a town has them, whole towns elsewhere.
     useCityUi.setState({ areas, level: FINEST, loading: false });
     if (!areas.length) toast('No districts known here: draw your own', 'error');
   } catch {
@@ -278,6 +308,14 @@ async function findAreas(id: number) {
     useCityUi.setState({ areas: [], loading: false });
     toast('Could not fetch the real districts (no connection?)', 'error');
   }
+}
+
+/** The Real districts button: what was collected when the city opened, or a first try now. */
+function showAreas(id: number) {
+  const ui = useCityUi.getState();
+  if (ui.areas?.length) useCityUi.setState({ tool: 'real', district: null });
+  else if (ui.loading) useCityUi.setState({ tool: 'real', district: null });
+  else void collectAreas(id, true);
 }
 
 function RealAreas({ id }: { id: number }) {
@@ -299,7 +337,7 @@ function RealAreas({ id }: { id: number }) {
         <p>Nothing found here. Move the map over the city and try again, or draw the districts yourself.</p>
         <div className="actions">
           <button className="btn small" onClick={() => findAreas(id)}>
-            Try again
+            Search this view
           </button>
           <button className="btn small" onClick={() => useCityUi.setState({ tool: 'pick' })}>
             Close
@@ -465,10 +503,10 @@ function DistrictsTab({ id }: { id: number }) {
       {sel && <DistrictCard id={id} d={sel} plan={plan} />}
 
       <div className="city-actions">
-        <button className={'city-action' + (ui.tool === 'real' ? ' on' : '')} onClick={() => (ui.tool === 'real' ? useCityUi.setState({ tool: 'pick' }) : findAreas(id))}>
+        <button className={'city-action' + (ui.tool === 'real' ? ' on' : '')} onClick={() => (ui.tool === 'real' ? useCityUi.setState({ tool: 'pick' }) : showAreas(id))}>
           <Icon name="globe" size={20} />
           <strong>Real districts</strong>
-          <small>Fetch the quarters and towns around here</small>
+          <small>{ui.areas?.length ? `${ui.areas.length} quarters and towns around, ready` : ui.loading ? 'Collecting the quarters and towns around…' : 'The quarters and the towns around'}</small>
         </button>
         <button className={'city-action' + (ui.tool === 'draw' ? ' on' : '')} onClick={() => useCityUi.setState({ tool: ui.tool === 'draw' ? 'pick' : 'draw', district: null })}>
           <Icon name="pen" size={20} />

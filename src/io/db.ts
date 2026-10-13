@@ -1,6 +1,7 @@
 // Local, offline storage of worlds in IndexedDB. Geometry and flags are stored
 // apart from the (small, frequently saved) world document.
 import Dexie, { type Table } from 'dexie';
+import type { Candidate } from './osm';
 import type { RegionGeom, WorldBundle, WorldDoc, WorldMeta } from '../types';
 import { renderThumb } from './thumb';
 import { uid } from '../util';
@@ -18,6 +19,7 @@ class CMapsDB extends Dexie {
   flags!: Table<FlagRow, [string, string]>;
   extras!: Table<ExtraRow, string>;
   thumbs!: Table<ThumbRow, string>;
+  areas!: Table<{ id: string; areas: Candidate[]; at: number }, string>;
 
   constructor() {
     super('cmaps');
@@ -29,10 +31,20 @@ class CMapsDB extends Dexie {
       extras: '&id',
     });
     this.version(2).stores({ thumbs: '&id' });
+    // Real districts and towns collected around the cities that were opened (see io/areas).
+    this.version(3).stores({ areas: '&id' });
   }
 }
 
 const db = new CMapsDB();
+
+export async function loadAreas(id: string): Promise<Candidate[] | undefined> {
+  return (await db.areas.get(id))?.areas;
+}
+
+export async function saveAreas(id: string, areas: Candidate[]) {
+  await db.areas.put({ id, areas, at: Date.now() });
+}
 
 export async function listWorlds(): Promise<WorldMeta[]> {
   return db.worlds.orderBy('modified').reverse().toArray();

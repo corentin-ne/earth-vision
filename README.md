@@ -38,8 +38,9 @@ their code is kept under [`legacy/`](legacy/).
 - **Cities** (`C`): add, drag, rename, hide, set as capital.
 - **Open a city** (its bubble on the map, or its page) to see it up close on a street map and
   rebuild it:
-  - **Districts**: fetch the *real* quarters, arrondissements and neighbouring towns from
-    OpenStreetMap and click the ones the city takes (add the suburbs to make it bigger), or
+  - **Districts**: opening a city collects its *real* quarters, arrondissements and the towns
+    right next to it from OpenStreetMap — just their shapes and names, once, then kept on the
+    device. Click the ones the city takes (add the suburbs to make it bigger), or
     **draw** your own — a district drawn over others is cut out of them, with its share of their
     people. Rename them, **number** them ("7 · Bassins à flot"), colour them, merge them, write
     their lore. Set the city's population and share it among the districts.

@@ -25,7 +25,7 @@ import {
 } from '../src/world/city';
 import { back } from '../src/world/cityBack';
 import { useCityUi } from '../src/world/cityUi';
-import { joinRings, parseOverpass, relationGeom, simplify } from '../src/io/osm';
+import { joinRings, parseOverpass, relationGeom, simplify, townOf, townQuery } from '../src/io/osm';
 import { exportAmap, importAmap } from '../src/io/amap';
 import { pointInGeom } from '../src/geo/engine';
 
@@ -297,6 +297,20 @@ describe('real districts from OpenStreetMap', () => {
     const l = addDistrict(CITY, found[0].geom, { name: 'Left', src: found[0].id })!;
     addDistrict(CITY, found[1].geom, { name: 'Right', src: found[1].id });
     expect(plan().districts[l].geom).toEqual(found[0].geom);
+  });
+
+  it('asks only for the town, its quarters and its neighbours', () => {
+    const rel = (id: number, level: string) => ({ type: 'relation', id, tags: { admin_level: level } });
+    // Around a point in Paris: the country down to a quarter. The town is the commune, not its arrondissement.
+    const town = townOf([rel(1, '2'), rel(2, '4'), rel(3, '6'), rel(7444, '8'), rel(5, '9'), rel(6, '10')])!;
+    expect(town).toEqual({ id: 7444, level: 8 });
+    const q = townQuery(town);
+    expect(q).toContain('rel(7444)->.t;');
+    expect(q).toContain('["admin_level"="8"]');
+    expect(q).toContain('"^(9|10)$"');
+    // A city-state like Berlin (level 4): its boroughs and localities, whatever their levels.
+    expect(townQuery(townOf([rel(1, '2'), rel(62422, '4'), rel(9, '9')])!)).toContain('"^(5|6|7|8|9|10)$"');
+    expect(townOf([rel(1, '2'), rel(9, '10')])).toBeNull();
   });
 
   it('keeps holes and drops what is too big to be a district', () => {

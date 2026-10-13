@@ -28,7 +28,14 @@ interface OsmRelation {
   members?: OsmWay[];
 }
 
-const SERVERS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+/** Whole-planet servers only: a regional one would answer "nothing here" for the rest of the world. */
+const SERVERS = [
+  'https://overpass.openstreetmap.fr/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
 
 /** Bigger than any city district: counties and departments that merely overlap the view. */
 const MAX_KM2 = 2600;
@@ -169,29 +176,112 @@ export function areaLevels(areas: Candidate[], centre: [number, number]): { leve
   return out;
 }
 
+/** The server that answered last is asked first next time. */
+let preferred = 0;
+
+/**
+ * Runs an Overpass query. The public servers are often busy or silent: the first one is asked,
+ * and each time 4 seconds pass without an answer (or one fails) the next joins in. The first
+ * proper answer wins and the others are dropped.
+ */
+function overpass<T extends { elements?: unknown[]; remark?: string }>(query: string, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const running: AbortController[] = [];
+    let started = 0;
+    let failed = 0;
+    let done = false;
+    let next: ReturnType<typeof setTimeout> | undefined;
+    const end = () => {
+      done = true;
+      clearTimeout(next);
+      running.forEach((c) => c.abort());
+      signal?.removeEventListener('abort', cancel);
+    };
+    const cancel = () => {
+      if (done) return;
+      end();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const start = () => {
+      clearTimeout(next);
+      if (done || started >= SERVERS.length) return;
+      const at = (preferred + started++) % SERVERS.length;
+      const c = new AbortController();
+      running.push(c);
+      const kill = setTimeout(() => c.abort(), 45_000);
+      fetch(SERVERS[at], { method: 'POST', body: new URLSearchParams({ data: query }), signal: c.signal })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`${res.status}`);
+          const json = (await res.json()) as T;
+          // A query cut short by the server still answers, with what it had and a remark.
+          if (!Array.isArray(json.elements) || /error|timed out/i.test(json.remark ?? '')) throw new Error(json.remark || 'Bad answer');
+          if (done) return;
+          preferred = at;
+          end();
+          resolve(json);
+        })
+        .catch((err) => {
+          failed++;
+          if (done) return;
+          if (failed === SERVERS.length) {
+            end();
+            reject(err);
+          } else if (failed === started) start();
+        })
+        .finally(() => clearTimeout(kill));
+      next = setTimeout(start, 4000);
+    };
+    if (signal?.aborted) return cancel();
+    signal?.addEventListener('abort', cancel);
+    start();
+  });
+}
+
+const ADMIN = '["boundary"="administrative"]';
+/** Outlines longer than 300 km are counties and departments: their heavy shapes are not even sent. */
+const SMALL = '(if:length()<300000)';
+
 /** The administrative areas (levels 6–10) touching the box [west, south, east, north]. */
 export async function fetchAreas(box: [number, number, number, number], signal?: AbortSignal): Promise<Candidate[]> {
   const [w, s, e, n] = box.map((v) => v.toFixed(5));
-  // Outlines longer than 300 km are counties and departments: their heavy shapes are not even sent.
-  const query = `[out:json][timeout:40];relation["boundary"="administrative"]["admin_level"~"^(6|7|8|9|10)$"](${s},${w},${n},${e})(if:length()<300000);out geom;`;
-  let last: unknown = new Error('No answer');
-  for (const [i, url] of SERVERS.entries()) {
-    // A busy server is not waited for long while another may answer at once.
-    const slow = new AbortController();
-    const timer = setTimeout(() => slow.abort(), i < SERVERS.length - 1 ? 12_000 : 45_000);
-    const stop = () => slow.abort();
-    signal?.addEventListener('abort', stop);
-    try {
-      const res = await fetch(url, { method: 'POST', body: new URLSearchParams({ data: query }), signal: slow.signal });
-      if (!res.ok) throw new Error(`${res.status}`);
-      return parseOverpass(await res.json());
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      last = err;
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', stop);
-    }
+  return parseOverpass(await overpass(`[out:json][timeout:40];relation${ADMIN}["admin_level"~"^(6|7|8|9|10)$"](${s},${w},${n},${e})${SMALL};out geom;`, signal));
+}
+
+/**
+ * The town a point lies in, among the areas that contain it: the smallest one that is a town or
+ * bigger (level 8 at most), so not one of its own quarters.
+ */
+export function townOf(elements: OsmRelation[]): { id: number; level: number } | null {
+  let best: { id: number; level: number } | null = null;
+  for (const e of elements) {
+    const level = Number(e.tags?.admin_level);
+    if (e.type !== 'relation' || !(level >= 4 && level <= 8)) continue;
+    if (!best || level > best.level) best = { id: e.id, level };
   }
-  throw last;
+  return best;
+}
+
+/** The query for a town, its quarters (every finer level inside it) and the towns that touch it. */
+export function townQuery(town: { id: number; level: number }): string {
+  const finer = Array.from({ length: 10 - town.level }, (_, i) => town.level + 1 + i).join('|');
+  return (
+    `[out:json][timeout:40];rel(${town.id})->.t;way(r.t)->.w;` +
+    // Sharing a stretch of outline with the town is what makes a neighbour.
+    `rel(bw.w)${ADMIN}["admin_level"="${town.level}"]${SMALL}->.nb;` +
+    (finer ? `.t map_to_area->.a;rel(area.a)${ADMIN}["admin_level"~"^(${finer})$"]->.q;(.nb;.q;);` : '.nb;') +
+    'out geom;'
+  );
+}
+
+/**
+ * Just what a city is made of and what it can grow into: the town at [lng, lat], its quarters
+ * and the towns right next to it. Two light requests instead of everything in a box.
+ */
+export async function fetchTown(at: [number, number], signal?: AbortSignal): Promise<Candidate[]> {
+  const [lng, lat] = at.map((v) => v.toFixed(5));
+  const around = await overpass<{ elements?: OsmRelation[] }>(`[out:json][timeout:25];is_in(${lat},${lng});rel(pivot)${ADMIN};out tags;`, signal);
+  const town = townOf(around.elements ?? []);
+  // Nowhere known (open sea, an unmapped place): whatever lies within a few kilometres.
+  if (!town) return fetchAreas([at[0] - 0.08, at[1] - 0.06, at[0] + 0.08, at[1] + 0.06], signal);
+  return parseOverpass(await overpass(townQuery(town), signal));
 }
