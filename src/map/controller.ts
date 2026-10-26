@@ -1474,9 +1474,10 @@ export class MapController {
     if (!doc) return;
     if (pts.length < 4) return toast('Draw a loop around the land to take');
     if (brushCid && !doc.countries[brushCid]) return toast('Pick a country to paint with first', 'error');
-    // With natural borders on, the loop clings to the rivers and crests it runs along (~10 px).
+    // With natural borders on, the loop clings to the rivers and crests it runs along (~16 px,
+    // a finger's wobble); without, it takes exactly the drawn shape.
     const a = this.map.unproject([0, 0]);
-    const b = this.map.unproject([0, 10]);
+    const b = this.map.unproject([0, 16]);
     const loop = activeNatural() ? magnetize(pts, Math.abs(a.lat - b.lat)) : pts;
     const n = paintLasso(loop, brushCid, lassoClaim, lassoSea);
     const who = doc.countries[brushCid]?.name ?? 'Unclaimed land';

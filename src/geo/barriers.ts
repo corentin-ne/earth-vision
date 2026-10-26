@@ -120,8 +120,16 @@ export class Barriers {
 
   /** The nearest point on an active line within `reach` degrees of `p` (null when none is). */
   nearest(p: LngLat, o: NaturalOpts, reach: number): LngLat | null {
+    return this.nearestAt(p, o, reach)?.q ?? null;
+  }
+
+  /**
+   * Like `nearest`, with where on its line the point lies: the line, the segment and how far
+   * along it (0–1).
+   */
+  nearestAt(p: LngLat, o: NaturalOpts, reach: number): { q: LngLat; line: number; seg: number; t: number } | null {
     if (!naturalOn(o)) return null;
-    let best: LngLat | null = null;
+    let best: { q: LngLat; line: number; seg: number; t: number } | null = null;
     let bestD = reach;
     this.segments(p[0] - reach, p[1] - reach, p[0] + reach, p[1] + reach, o, (s) => {
       const l = this.lines[this.segLine[s]].pts;
@@ -134,10 +142,18 @@ export class Barriers {
       const d = Math.hypot(p[0] - q[0], p[1] - q[1]);
       if (d <= bestD) {
         bestD = d;
-        best = q;
+        best = { q, line: this.segLine[s], seg: this.segIdx[s], t };
       }
     });
     return best;
+  }
+
+  /** The vertices of line `line` strictly between two points on it (as `nearestAt` gives them), in order. */
+  between(line: number, a: { seg: number; t: number }, b: { seg: number; t: number }): LngLat[] {
+    const pts = this.lines[line]?.pts;
+    if (!pts) return [];
+    if (a.seg + a.t <= b.seg + b.t) return pts.slice(a.seg + 1, b.seg + 1);
+    return pts.slice(b.seg + 1, a.seg + 1).reverse();
   }
 
   /** The active lines passing through a box, as runs of consecutive points. */

@@ -74,7 +74,8 @@ export function takeShape(shape: Geom, cid: string, opts: { cut: boolean; label?
     const share = shares.reduce((t, sh, i) => t + sh * areas[i], 0) / total;
     const inPart = shares.map((sh) => sh >= 0.995);
     const partial = shares.some((sh) => sh > 0.005 && sh < 0.995);
-    if (share >= WHOLE || (!opts.cut && !inPart.some(Boolean) && (share > 0.5 || (share > 0.2 && inside([r.cx, r.cy]))))) whole.push(id);
+    // Cutting, only a region all inside goes whole: the shape's edge (a river followed) is exact.
+    if (share >= (opts.cut ? 0.995 : WHOLE) || (!opts.cut && !inPart.some(Boolean) && (share > 0.5 || (share > 0.2 && inside([r.cx, r.cy]))))) whole.push(id);
     else if (!partial && inPart.some(Boolean)) {
       // Some parts wholly inside, the rest wholly outside: an island circled.
       islands.set(id, inPart);
@@ -135,7 +136,7 @@ export function takeShape(shape: Geom, cid: string, opts: { cut: boolean; label?
  */
 export function separateLasso(loop: LngLat[]): number[] {
   if (loop.length < 3) return [];
-  return takeShape([[closed(loop)]] as Geom, '', { cut: true, separate: true });
+  return takeShape(loopShape(loop), '', { cut: true, separate: true });
 }
 
 export type LassoClaim = 'exact' | 'regions' | 'countries';
@@ -153,7 +154,7 @@ export function paintLasso(loop: LngLat[], cid: string, claim: LassoClaim | bool
   const mode: LassoClaim = claim === true ? 'exact' : claim === false ? 'regions' : claim;
   const group = `lasso:${Date.now()}`;
   const label = `${get().doc?.countries[cid]?.name ?? 'Unclaimed land'} claims the drawn land`;
-  let n = takeShape([[closed(loop)]] as Geom, cid, { cut: mode === 'exact', countries: mode === 'countries', group, label }).length;
+  let n = takeShape(loopShape(loop), cid, { cut: mode === 'exact', countries: mode === 'countries', group, label }).length;
   if (sea && addLand(loop, cid, { group, quiet: true, label }) != null) n++;
   endGroup();
   return n;
@@ -214,10 +215,36 @@ export function magnetize(loop: LngLat[], reach: number): LngLat[] {
   const o = get().natural;
   if (!b || !naturalOn(o)) return loop;
   const out: LngLat[] = [];
-  for (const p of loop) {
-    const q = b.nearest(p, o, reach) ?? p;
+  const push = (q: LngLat) => {
     const last = out[out.length - 1];
     if (!last || last[0] !== q[0] || last[1] !== q[1]) out.push(q);
+  };
+  const hits = loop.map((p) => b.nearestAt(p, o, reach));
+  for (let i = 0; i < loop.length; i++) {
+    const h = hits[i];
+    const prev = hits[i - 1];
+    // Two points in a row on the same line: follow it between them, every bend, rather than
+    // cutting straight across (the loop was drawn along it, so its vertices are few and far).
+    if (h && prev && prev.line === h.line) for (const v of b.between(h.line, prev, h)) push(v);
+    push(h?.q ?? loop[i]);
   }
+  const first = hits[0];
+  const last = hits[loop.length - 1];
+  if (first && last && first.line === last.line) for (const v of b.between(first.line, last, first)) push(v);
   return out.length >= 3 ? out : loop;
+}
+
+/**
+ * A freehand loop as clean polygons: where it crosses itself it is untangled, and anything it
+ * encloses counts as inside (no holes where strokes overlap).
+ */
+export function loopShape(loop: LngLat[]): Geom {
+  const raw = [[closed(loop)]] as Geom;
+  try {
+    const u = union(raw) as Position[][][];
+    const outer = u.filter((p) => p.length && p[0].length >= 4).map((p) => [p[0]]);
+    return outer.length ? (outer as Geom) : raw;
+  } catch {
+    return raw;
+  }
 }

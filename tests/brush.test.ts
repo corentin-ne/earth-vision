@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Polygon } from 'geojson';
 import type { LngLat, WorldBundle } from '../src/types';
 import { useWorld, loadWorld, undo, engine, countryAggregates } from '../src/world/store';
-import { paintLasso, paintStroke, separateLasso, strokeShape } from '../src/world/brush';
+import { loopShape, paintLasso, paintStroke, separateLasso, strokeShape } from '../src/world/brush';
 import { Coastline, snapCoasts } from '../src/geo/coast';
 import { geomIssues } from '../src/geo/repair';
 import { geomArea } from '../src/geo/engine';
@@ -73,6 +73,24 @@ describe('lasso', () => {
     const island = Object.values(doc().regions).find((r) => r.cid === 'AAA' && r.id > 1)!;
     expect(geomArea(geoms()[island.id]) / geomArea(sq(0, 0))).toBeCloseTo(0.16, 2);
     for (const g of Object.values(geoms())) expect(geomIssues(g)).toEqual([]);
+  });
+});
+
+describe('freehand loops', () => {
+  it('untangles a loop that crosses itself and keeps all it encloses', () => {
+    // A figure eight, then a loop wound twice over the same square.
+    const eight = loopShape([[0, 0], [2, 2], [2, 0], [0, 2]]) as unknown as number[][][][];
+    expect(eight.length).toBe(2);
+    const twice = loopShape([[0, 0], [1, 0], [1, 1], [0, 1], [0, 0], [1, 0], [1, 1], [0, 1]]) as unknown as number[][][][];
+    expect(twice.every((p) => p.length === 1)).toBe(true);
+  });
+
+  it('cuts a region the exact lasso covers almost whole, not taking the rest', () => {
+    loadWorld(world());
+    paintLasso([[0.99, -0.1], [2.1, -0.1], [2.1, 0.98], [0.99, 0.98]], 'AAA', 'exact');
+    const left = Object.values(doc().regions).filter((r) => r.cid === 'BBB');
+    expect(left.length).toBeGreaterThan(0);
+    expect(left.some((r) => r.cy < 1)).toBe(true);
   });
 });
 
