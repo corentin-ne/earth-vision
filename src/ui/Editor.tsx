@@ -823,7 +823,6 @@ const CLAIMS = [
 /** Draw to claim: what the lasso takes, shown as three picture cards. */
 function LassoClaim() {
   const claim = useWorld((s) => s.lassoClaim);
-  const sea = useWorld((s) => s.lassoSea);
   const color = useWorld((s) => s.doc?.countries[s.brushCid]?.color ?? '#9aa4b6');
   const current = CLAIMS.find(([v]) => v === claim)!;
   return (
@@ -839,12 +838,75 @@ function LassoClaim() {
           </button>
         ))}
       </div>
-      <p className="hint">{current[2]} An island circled comes off whole.</p>
-      <label className="toggle" title="The part of the loop over the sea becomes new land of the country">
-        <input type="checkbox" checked={sea} onChange={(e) => useWorld.setState({ lassoSea: e.target.checked })} />
-        <span className="switch" />
-        <Icon name="island" size={15} /> Sea too: raise new land where the loop is over water
-      </label>
+      <p className="hint">{current[2]}</p>
+    </div>
+  );
+}
+
+const SMART_OPTS = [
+  ['islands', 'island', 'Whole islands', 'An island you circle or tap comes whole, not just the part covered'],
+  ['pockets', 'river', 'Whole pockets', 'Land closed off by rivers, crests and coast goes whole when mostly inside the loop, or when tapped'],
+  ['follow', 'lasso', 'Cling to rivers', 'A loop drawn near a river or crest follows it exactly'],
+] as const;
+
+/** The smart parts of claiming, each ticked on at first. */
+function SmartOptions() {
+  const smart = useWorld((s) => s.smart);
+  const mode = useWorld((s) => s.brushMode);
+  const sea = useWorld((s) => s.lassoSea);
+  const natural = useWorld((s) => naturalOn(s.natural));
+  const lasso = mode === 'lasso';
+  return (
+    <section className="brush-section">
+      <small className="brush-label">Smart capture</small>
+      <div className="smart-list">
+        {SMART_OPTS.filter(([k]) => lasso || k !== 'follow').map(([k, icon, label, title]) => {
+          const needsNature = k !== 'islands' && !natural;
+          return (
+            <label key={k} className={'smart-row' + (needsNature ? ' idle' : '')} title={title}>
+              <input type="checkbox" checked={smart[k]} onChange={(e) => useWorld.setState({ smart: { ...smart, [k]: e.target.checked } })} />
+              <span className="tick" />
+              <Icon name={icon} size={15} />
+              <span className="grow">
+                {label}
+                <em>{needsNature ? 'with natural borders on' : title}</em>
+              </span>
+            </label>
+          );
+        })}
+        {lasso && (
+          <label className="smart-row" title="The part of the loop over the sea becomes new land of the country">
+            <input type="checkbox" checked={sea} onChange={(e) => useWorld.setState({ lassoSea: e.target.checked })} />
+            <span className="tick" />
+            <Icon name="island" size={15} />
+            <span className="grow">
+              Sea too
+              <em>Raise new land where the loop is over water</em>
+            </span>
+          </label>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Size, what to take, smart capture and natural borders: one list that scrolls when it outgrows the screen. */
+function BrushOptions() {
+  const brushMode = useWorld((s) => s.brushMode);
+  const brushSize = useWorld((s) => s.brushSize);
+  if (brushMode === 'pick') return <NaturalBorders />;
+  return (
+    <div className="brush-scroll">
+      {brushMode === 'paint' && (
+        <label className="brush-size">
+          <span>Brush</span>
+          <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
+          <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
+        </label>
+      )}
+      {brushMode === 'lasso' ? <LassoClaim /> : brushMode === 'paint' && <CutToggle />}
+      {brushMode !== 'whole' && <SmartOptions />}
+      <NaturalBorders />
     </div>
   );
 }
@@ -869,7 +931,6 @@ function CutToggle() {
 function DesktopToolDock() {
   const tool = useWorld((s) => s.tool);
   const brushCid = useWorld((s) => s.brushCid);
-  const brushSize = useWorld((s) => s.brushSize);
   const country = useWorld((s) => s.doc?.countries[brushCid]);
   const brushMode = useWorld((s) => s.brushMode);
   const multi = useWorld((s) => s.multiSelect);
@@ -889,15 +950,7 @@ function DesktopToolDock() {
               </button>
             ))}
           </div>
-          {brushMode !== 'lasso' && (
-            <label className="brush-size">
-              <span>Brush</span>
-              <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
-              <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
-            </label>
-          )}
-          {brushMode === 'lasso' ? <LassoClaim /> : <CutToggle />}
-          <NaturalBorders />
+          <BrushOptions />
           <p className="hint">
             {brushMode === 'lasso' ? 'Draw a loop around the land to take' : 'Drag to paint'} · <kbd>Alt</kbd>+click picks a country · <kbd>Ctrl</kbd>+click takes a whole country · hold <kbd>Space</kbd> to pan
           </p>
@@ -1087,24 +1140,12 @@ function PhoneBrush() {
             </button>
           ))}
         </div>
-        <button className={'icon-btn fold' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title={open ? 'Fewer options' : 'Brush size & natural borders'} aria-expanded={open}>
+        <button className={'icon-btn fold' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title={open ? 'Fewer options' : 'Brush options'} aria-expanded={open}>
           <Icon name="tune" size={18} />
           {!open && (brushSize > 0 || natural) && <span className="fold-dot" />}
         </button>
       </div>
-      {open && (
-        <>
-          {brushMode !== 'lasso' && (
-            <label className="brush-size">
-              <span>Brush</span>
-              <input type="range" min={0} max={60} value={brushSize} onChange={(e) => useWorld.setState({ brushSize: +e.target.value })} />
-              <small>{brushSize === 0 ? 'One region' : `${brushSize}px`}</small>
-            </label>
-          )}
-          {brushMode === 'lasso' ? <LassoClaim /> : <CutToggle />}
-          <NaturalBorders />
-        </>
-      )}
+      {open && <BrushOptions />}
     </div>
   );
 }

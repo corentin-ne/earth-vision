@@ -6,6 +6,7 @@ import { insertCutVertices, splitGeom } from '../geo/split';
 import { healGeoms } from '../geo/heal';
 import { cleanGeom, geomIssues, repairGeom, unionGeoms } from '../geo/repair';
 import type { NaturalOpts } from '../geo/barriers';
+import type { Smart } from './brush';
 import { rescale } from './stats';
 import { uid } from '../util';
 
@@ -133,6 +134,8 @@ export interface State {
   lassoSea: boolean;
   /** Brush and lasso take only the land they cover, cutting the regions on their edge. */
   brushCut: boolean;
+  /** Smart claiming: whole islands, pockets of land closed off by rivers and coast, lassos that cling to rivers. */
+  smart: Smart;
   /** Touch-friendly stand-in for Shift+click: clicks add regions to the selection. */
   multiSelect: boolean;
   advancedOpen: boolean;
@@ -202,6 +205,7 @@ const DEFAULT_LAYERS: Layers = {
 };
 
 const PREFS = 'cmaps:prefs';
+const SMART: Smart = { islands: true, pockets: true, follow: true };
 function loadPrefs(): Partial<State> {
   try {
     const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}');
@@ -212,6 +216,7 @@ function loadPrefs(): Partial<State> {
       brushSize: p.brushSize,
       natural: p.natural?.rivers ? p.natural : undefined,
       brushCut: !!p.brushCut,
+      smart: p.smart ? { ...SMART, ...p.smart } : undefined,
     };
   } catch {
     return {};
@@ -244,6 +249,7 @@ export const useWorld = create<State>(() => ({
   lassoClaim: 'exact',
   lassoSea: false,
   brushCut: prefs.brushCut ?? false,
+  smart: prefs.smart ?? SMART,
   multiSelect: false,
   advancedOpen: false,
   detailsOpen: false,
@@ -270,9 +276,9 @@ export const useWorld = create<State>(() => ({
 }));
 
 useWorld.subscribe((s, prev) => {
-  if (s.mapStyle !== prev.mapStyle || s.globe !== prev.globe || s.layers !== prev.layers || s.brushSize !== prev.brushSize || s.natural !== prev.natural || s.brushCut !== prev.brushCut) {
+  if (s.mapStyle !== prev.mapStyle || s.globe !== prev.globe || s.layers !== prev.layers || s.brushSize !== prev.brushSize || s.natural !== prev.natural || s.brushCut !== prev.brushCut || s.smart !== prev.smart) {
     try {
-      localStorage.setItem(PREFS, JSON.stringify({ mapStyle: s.mapStyle, globe: s.globe, layers: s.layers, brushSize: s.brushSize, natural: s.natural, brushCut: s.brushCut }));
+      localStorage.setItem(PREFS, JSON.stringify({ mapStyle: s.mapStyle, globe: s.globe, layers: s.layers, brushSize: s.brushSize, natural: s.natural, brushCut: s.brushCut, smart: s.smart }));
     } catch {
       /* ignore */
     }

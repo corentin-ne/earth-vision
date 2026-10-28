@@ -183,6 +183,13 @@ export class Barriers {
     return out;
   }
 
+  /** The whole of every active line passing through a box. */
+  linesThrough(box: [number, number, number, number], o: NaturalOpts): LngLat[][] {
+    const ids = new Set<number>();
+    this.segments(box[0], box[1], box[2], box[3], o, (s) => void ids.add(this.segLine[s]));
+    return [...ids].map((li) => this.lines[li].pts);
+  }
+
   /** The active lines, to draw them on the map. */
   geojson(o: NaturalOpts): FeatureCollection {
     return {

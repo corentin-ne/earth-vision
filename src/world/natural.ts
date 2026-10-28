@@ -26,10 +26,11 @@ export function activeNatural(): { b: Barriers; o: NaturalOpts } | null {
 }
 
 /**
- * Cuts the given regions along every active river and crest that crosses them. Returns the
- * region ids afterwards: pieces in place of the regions that were cut.
+ * Cuts the given regions along every active river and crest that crosses them (with `near`,
+ * only along those passing through that box, followed whole). Returns the region ids
+ * afterwards: pieces in place of the regions that were cut.
  */
-export function cutAlongNature(ids: number[], opts: { group?: string; o?: NaturalOpts } = {}): number[] {
+export function cutAlongNature(ids: number[], opts: { group?: string; o?: NaturalOpts; near?: [number, number, number, number] } = {}): number[] {
   const b = barriers();
   const o = opts.o ?? get().natural;
   if (!b || !naturalOn(o)) return ids;
@@ -37,12 +38,15 @@ export function cutAlongNature(ids: number[], opts: { group?: string; o?: Natura
   const geoms = get().geoms;
   const todo = ids.filter((id) => geoms[id] && clean.get(geoms[id]) !== key);
   if (!todo.length) return ids;
+  const near = opts.near && b.linesThrough(opts.near, o);
   const cut = cutRegions(
     todo,
     (g) => {
-      const lines = b.linesIn(bbox(g), o);
+      const box = bbox(g);
+      const lines = near ? near.filter((l) => l.some(([x, y]) => x >= box[0] && x <= box[2] && y >= box[1] && y <= box[3])) : b.linesIn(box, o);
       const pieces = lines.length ? cutGeom(g, lines, MIN_PIECE) : null;
-      if (!pieces) clean.set(g, key);
+      // Clean only means something when every line was tried.
+      if (!pieces && !near) clean.set(g, key);
       return pieces;
     },
     { label: 'Cut along rivers & crests', group: opts.group, names: 'compass' },

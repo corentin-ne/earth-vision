@@ -766,3 +766,97 @@ button.natural-head {
 .lasso-claim .hint {
   margin: 0;
 }
+
+/* The brush's options: one list that scrolls when it outgrows the screen. */
+.brush-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: -6px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+}
+.brush-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.brush-label {
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 2px;
+}
+.smart-list {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.smart-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+  user-select: none;
+}
+.smart-row + .smart-row {
+  border-top: 1px solid var(--line);
+}
+.smart-row input {
+  display: none;
+}
+.smart-row > svg {
+  flex: none;
+  color: var(--fg-2);
+}
+.smart-row .grow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.smart-row em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.smart-row.idle .grow {
+  opacity: 0.6;
+}
+.tick {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.35);
+  display: grid;
+  place-items: center;
+  transition:
+    background 0.2s,
+    box-shadow 0.2s;
+}
+.tick::after {
+  content: '';
+  width: 9px;
+  height: 5px;
+  border: solid #0b1f1a;
+  border-width: 0 0 2px 2px;
+  transform: translateY(-1px) rotate(-45deg) scale(0);
+  transition: transform 0.3s var(--spring);
+}
+.smart-row input:checked + .tick {
+  background: var(--accent);
+  box-shadow: 0 0 10px -2px rgba(62, 207, 178, 0.6);
+}
+.smart-row input:checked + .tick::after {
+  transform: translateY(-1px) rotate(-45deg) scale(1);
+}

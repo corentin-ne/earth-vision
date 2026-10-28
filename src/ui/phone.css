@@ -216,6 +216,12 @@
   .phone-brush .natural {
     margin: 0 4px;
   }
+  /* The options scroll above the bar, leaving the map most of the screen. */
+  .phone-brush .brush-scroll {
+    max-height: min(46vh, calc(100dvh - 330px));
+    padding: 0 4px 2px;
+    margin: 0;
+  }
   /* No keyboard on a phone, and the dashed lines speak for themselves. */
   .phone-brush kbd,
   .phone-brush .natural .hint {

@@ -38,7 +38,7 @@ import { loadIso2, iso2 } from '../world/flags';
 import { measureImage } from '../world/flagShape';
 import { loadBarriers, barriers, naturalOn } from '../geo/barriers';
 import { activeNatural, blocked, claimUpToNature, cutAlongNature, reachable, finishSnapLasso, snapLines } from '../world/natural';
-import { magnetize, paintLasso, paintStroke, separateLasso } from '../world/brush';
+import { islandsUnder, magnetize, paintLasso, paintStroke, separateLasso } from '../world/brush';
 
 maplibregl.setWorkerUrl(workerUrl);
 
@@ -1349,7 +1349,7 @@ export class MapController {
       const at = this.map.project(pts[pts.length - 1]);
       const edge = this.map.unproject([at.x, at.y + r]);
       const radius = Math.abs(edge.lat - pts[pts.length - 1][1]);
-      const n = paintStroke(pts, radius, get().brushCid);
+      const n = paintStroke(pts, radius, get().brushCid, get().smart, this.viewBox());
       if (!n) toast('Nothing to take there');
       return;
     }
@@ -1420,11 +1420,23 @@ export class MapController {
       // Regions a river or crest runs through are cut along it first, then only this side is taken.
       const pieces = cutAlongNature([...ids], { group: this.stroke.group }).filter((id) => get().doc!.regions[id]?.cid !== brushCid);
       // The outer ring of samples outlines the dab, for pieces too thin to hold a sample.
-      const take = reachable(p, samples, pieces, r > 0 ? samples.slice(8) : undefined);
+      let take = reachable(p, samples, pieces, r > 0 ? samples.slice(8) : undefined);
+      // A dab on an island of a region takes the island, not the mainland with it.
+      if (get().smart.islands) take = islandsUnder(take, [p, ...samples], { group: this.stroke.group, label: opts.label, view: this.viewBox() });
       if (take.length) transferRegions(take, brushCid, opts);
       return;
     }
-    if (ids.size) transferRegions([...ids], brushCid, opts);
+    if (!ids.size) return;
+    let take = [...ids];
+    if (get().smart.islands) {
+      const pts: LngLat[] = [];
+      for (const k of r > 0 ? [0, 0.5, 1] : [0]) for (let i = 0; i < (k ? 8 : 1); i++) {
+        const s = this.map.unproject([x + Math.cos((i / 8) * Math.PI * 2) * r * k, y + Math.sin((i / 8) * Math.PI * 2) * r * k]);
+        pts.push([s.lng, s.lat]);
+      }
+      take = islandsUnder(take, pts, { group: this.stroke.group, label: opts.label, view: this.viewBox() });
+    }
+    transferRegions(take, brushCid, opts);
   }
 
   private extendLasso(e: MapMouseEvent) {
@@ -1468,6 +1480,12 @@ export class MapController {
     toast(made ? `Separated into ${ids.length} region${ids.length > 1 ? 's' : ''} — now selected` : `${ids.length} region${ids.length > 1 ? 's' : ''} selected (already separate)`, 'ok');
   }
 
+  /** The map on screen, as a box in degrees: islands and pockets taken whole must fit in it. */
+  private viewBox(): [number, number, number, number] {
+    const b = this.map.getBounds();
+    return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+  }
+
   /** A loop drawn with the lasso: its land goes to the brush's country. */
   private finishPaintLasso(pts: LngLat[]) {
     const { doc, brushCid, lassoClaim, lassoSea } = get();
@@ -1478,8 +1496,9 @@ export class MapController {
     // a finger's wobble); without, it takes exactly the drawn shape.
     const a = this.map.unproject([0, 0]);
     const b = this.map.unproject([0, 16]);
-    const loop = activeNatural() ? magnetize(pts, Math.abs(a.lat - b.lat)) : pts;
-    const n = paintLasso(loop, brushCid, lassoClaim, lassoSea);
+    const { smart } = get();
+    const loop = activeNatural() && smart.follow ? magnetize(pts, Math.abs(a.lat - b.lat)) : pts;
+    const n = paintLasso(loop, brushCid, lassoClaim, lassoSea, smart, this.viewBox());
     const who = doc.countries[brushCid]?.name ?? 'Unclaimed land';
     if (n) toast(`${who} takes ${n} ${lassoClaim === 'exact' ? 'piece' : 'region'}${n > 1 ? 's' : ''} of land · Ctrl+Z to undo`, 'ok');
     if (!n) toast(lassoClaim === 'exact' ? 'Nothing to take in that loop' : 'No region lies mostly in that loop — choose “Exact shape” to take parts');

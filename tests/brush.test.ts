@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Polygon } from 'geojson';
 import type { LngLat, WorldBundle } from '../src/types';
 import { useWorld, loadWorld, undo, engine, countryAggregates } from '../src/world/store';
-import { loopShape, paintLasso, paintStroke, separateLasso, strokeShape } from '../src/world/brush';
+import { islandParts, islandsUnder, loopShape, paintLasso, paintStroke, separateLasso, strokeShape } from '../src/world/brush';
+import { Barriers, setBarriers } from '../src/geo/barriers';
+import type { FeatureCollection } from 'geojson';
 import { Coastline, snapCoasts } from '../src/geo/coast';
 import { geomIssues } from '../src/geo/repair';
 import { geomArea } from '../src/geo/engine';
@@ -207,6 +209,121 @@ describe('draw to claim', () => {
     for (const g of Object.values(geoms())) expect(geomIssues(g)).toEqual([]);
     undo();
     expect(Object.keys(doc().regions).length).toBe(4);
+    expect(doc().regions[2].cid).toBe('BBB');
+  });
+});
+
+/** World with one huge region (BBB, 20×20°) next to a small one, plus a small island of BBB out at sea. */
+function bigWorld(): WorldBundle {
+  const b = world();
+  // The big square has a vertex at (0, 1) too: neighbours share their border point for point.
+  const big = [[[0, 0], [20, 0], [20, 20], [0, 20], [0, 1], [0, 0]]];
+  b.geoms = { 0: sq(-1, 0), 2: { type: 'MultiPolygon', coordinates: [big, sq(30, 5, 0.5).coordinates] } as never };
+  b.doc.regions = {
+    0: { ...b.doc.regions[0], cx: -0.5, cy: 0.5 },
+    2: { ...b.doc.regions[2], area: 4.9e6, cx: 10, cy: 10 },
+  };
+  return b;
+}
+
+describe('claiming in huge regions and islands', () => {
+  beforeEach(() => {
+    setBarriers(null);
+    useWorld.setState({ natural: { rivers: 'off', crests: false } });
+    loadWorld(bigWorld());
+  });
+
+  it('a small loop in a huge region still takes what it circles', () => {
+    // Under 1% of the region: it used to count as barely touched and take nothing.
+    const n = paintLasso([[5, 5], [6.5, 5], [6.5, 6.2], [5, 6.2]], 'AAA', 'exact');
+    expect(n).toBe(1);
+    const taken = Object.values(doc().regions).filter((r) => r.cid === 'AAA' && r.id !== 0);
+    expect(taken.length).toBe(1);
+    expect(geomArea(geoms()[taken[0].id]) / geomArea(sq(5, 5, 1))).toBeCloseTo(1.8, 1);
+  });
+
+  it('a small brush stroke in a huge region takes the stroke', () => {
+    expect(paintStroke([[5, 5], [7, 5]], 0.2, 'AAA')).toBe(1);
+  });
+
+  it('knows islands from parts that meet a neighbour', () => {
+    expect(islandParts(2)).toEqual([false, true]);
+  });
+
+  it('a loop over part of an island takes the whole island, exactly', () => {
+    expect(paintLasso([[30.1, 5.1], [30.45, 5.1], [30.45, 5.4], [30.1, 5.4]], 'AAA', 'exact')).toBe(1);
+    const isl = Object.values(doc().regions).find((r) => r.cid === 'AAA' && r.id !== 0)!;
+    expect(geoms()[isl.id]).toEqual(sq(30, 5, 0.5));
+    expect(doc().regions[2].cid).toBe('BBB');
+    // Switched off: just the part circled.
+    undo();
+    paintLasso([[30.1, 5.1], [30.45, 5.1], [30.45, 5.4], [30.1, 5.4]], 'AAA', 'exact', false, { islands: false });
+    const part = Object.values(doc().regions).find((r) => r.cid === 'AAA' && r.id !== 0)!;
+    expect(geomArea(geoms()[part.id])).toBeLessThan(geomArea(sq(30, 5, 0.5)) * 0.5);
+  });
+
+  it('an island too big for the screen is cut, not taken whole', () => {
+    paintLasso([[30.1, 5.1], [30.45, 5.1], [30.45, 5.4], [30.1, 5.4]], 'AAA', 'exact', false, undefined, [30.05, 5.05, 30.47, 5.45]);
+    const part = Object.values(doc().regions).find((r) => r.cid === 'AAA' && r.id !== 0)!;
+    expect(geomArea(geoms()[part.id])).toBeLessThan(geomArea(sq(30, 5, 0.5)) * 0.5);
+  });
+
+  it('a brush tap on an island takes all of it', () => {
+    expect(paintStroke([[30.25, 5.25]], 0.02, 'AAA')).toBe(1);
+    const isl = Object.values(doc().regions).find((r) => r.cid === 'AAA' && r.id !== 0)!;
+    expect(geoms()[isl.id]).toEqual(sq(30, 5, 0.5));
+  });
+
+  it('a plain brush dab on an island takes the island, not the mainland with it', () => {
+    const ids = islandsUnder([2], [[30.2, 5.2]]);
+    expect(ids.length).toBe(1);
+    expect(ids[0]).not.toBe(2);
+    expect(geoms()[ids[0]]).toEqual(sq(30, 5, 0.5));
+    // On the mainland: the region, as it was.
+    expect(islandsUnder([2], [[5, 5]])).toEqual([2]);
+  });
+});
+
+describe('pockets closed off by rivers', () => {
+  // A river crossing BBB's huge region from west to east at y ≈ 2, wiggling.
+  const river = [[-0.5, 2], [6, 2.2], [12, 1.8], [20.5, 2]];
+  const fc = (lines: number[][][]): FeatureCollection => ({
+    type: 'FeatureCollection',
+    features: lines.map((coordinates) => ({ type: 'Feature', properties: { scalerank: 1 }, geometry: { type: 'LineString', coordinates } })),
+  });
+  beforeEach(() => {
+    loadWorld(bigWorld());
+    setBarriers(new Barriers(fc([river]), fc([])));
+    useWorld.setState({ natural: { rivers: 'all', crests: false } });
+  });
+
+  it('a loose loop around most of a pocket takes all of it, up to the river and no further', () => {
+    // Most of the strip south of the river, spilling a little across it.
+    const n = paintLasso([[2, -0.5], [20.5, -0.5], [20.5, 2.4], [2, 2.4]], 'AAA', 'exact');
+    expect(n).toBeGreaterThanOrEqual(1);
+    const taken = Object.values(doc().regions).filter((r) => r.cid === 'AAA' && r.id !== 0);
+    const area = taken.reduce((t, r) => t + geomArea(geoms()[r.id]), 0);
+    // The whole strip south of the river: about 20 × 2 degrees, the western end included.
+    expect(area / geomArea(sq(0, 0, 1))).toBeGreaterThan(38);
+    expect(area / geomArea(sq(0, 0, 1))).toBeLessThan(42);
+    for (const r of taken) expect(r.cy).toBeLessThan(2);
+    for (const g of Object.values(geoms())) expect(geomIssues(g)).toEqual([]);
+  });
+
+  it('without pockets the loop takes just what it circles', () => {
+    paintLasso([[2, -0.5], [20.5, -0.5], [20.5, 2.4], [2, 2.4]], 'AAA', 'exact', false, { pockets: false });
+    const taken = Object.values(doc().regions).filter((r) => r.cid === 'AAA' && r.id !== 0);
+    const area = taken.reduce((t, r) => t + geomArea(geoms()[r.id]), 0);
+    // Exactly the loop's 18 × 2.4 degrees, across the river too.
+    expect(area / geomArea(sq(0, 0, 1))).toBeGreaterThan(42);
+    expect(area / geomArea(sq(0, 0, 1))).toBeLessThan(44.5);
+  });
+
+  it('a brush tap takes the pocket under it', () => {
+    paintStroke([[10, 1]], 0.1, 'AAA');
+    const taken = Object.values(doc().regions).filter((r) => r.cid === 'AAA' && r.id !== 0);
+    const area = taken.reduce((t, r) => t + geomArea(geoms()[r.id]), 0);
+    expect(area / geomArea(sq(0, 0, 1))).toBeGreaterThan(38);
     expect(doc().regions[2].cid).toBe('BBB');
   });
 });
