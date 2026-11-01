@@ -10,7 +10,10 @@ import {
   select,
   countryBounds,
   setTool,
+  toast,
 } from '../world/store';
+import { cityOwners } from '../world/advanced';
+import { cityList, copyText, isEarthWorld, realList, regionList } from '../world/lists';
 import { mapCtl } from '../map/controller';
 import { CountryPicker, Flag, NumberField, Section, Stat, TextField } from './common';
 import { CountryAlliances } from './AlliancePanel';
@@ -151,6 +154,10 @@ export function CountryPanel({ cid }: { cid: string }) {
               </div>
             )}
           </Section>
+
+          <Section title="Copy as text">
+            <CopyLists cid={cid} />
+          </Section>
         </>
       )}
 
@@ -248,6 +255,37 @@ export function CountryPanel({ cid }: { cid: string }) {
           <Backlinks name={c.name} />
         </Section>
       )}
+    </div>
+  );
+}
+
+/** Copies readable lists of the country to paste elsewhere: regions, cities, real-world places. */
+function CopyLists({ cid }: { cid: string }) {
+  const doc = useWorld((s) => s.doc)!;
+  const earth = isEarthWorld(doc);
+  const copy = async (what: string, text: () => string) => {
+    const ok = await copyText(text());
+    toast(ok ? `${what} copied` : 'Could not copy', ok ? 'ok' : 'error');
+  };
+  const lists: [string, IconName, string, () => string][] = [
+    ['Regions', 'list', 'Every region by name (grouped by state)', () => regionList(doc, cid)],
+    ['Cities', 'city', 'Every city in its borders, biggest first', () => cityList(doc, cid, cityOwners())],
+  ];
+  if (earth) lists.push(['Real world', 'globe', 'The real places each region was made from, e.g. "Haut-Rhin + Palatinate (west)"', () => realList(doc, cid)]);
+  return (
+    <div className="actions">
+      {lists.map(([label, icon, hint, text]) => (
+        <button key={label} className="btn" title={hint} onClick={() => copy(label, text)}>
+          <Icon name={icon} size={15} /> {label}
+        </button>
+      ))}
+      <button
+        className="btn ghost"
+        title="All the lists at once"
+        onClick={() => copy('All lists', () => lists.map(([, , , t]) => t()).join('\n\n────────\n\n'))}
+      >
+        <Icon name="copy" size={15} /> All
+      </button>
     </div>
   );
 }

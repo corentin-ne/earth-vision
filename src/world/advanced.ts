@@ -157,7 +157,7 @@ export function assignCapitals(): number {
 }
 
 /** Country of each city, from where it stands. */
-function cityOwners(): Record<number, string> {
+export function cityOwners(): Record<number, string> {
   const { doc, geoms } = get();
   const out: Record<number, string> = {};
   if (!doc) return out;

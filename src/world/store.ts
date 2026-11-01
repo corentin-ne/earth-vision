@@ -9,6 +9,7 @@ import type { NaturalOpts } from '../geo/barriers';
 import type { Smart } from './brush';
 import { rescale } from './stats';
 import { uid } from '../util';
+import { mergeReal, pieceReal, renamed } from './lists';
 
 export type Tool = 'select' | 'paint' | 'split' | 'city' | 'draw' | 'measure';
 /** What the Draw tool makes: new land, a kind of line, a name or a pin. */
@@ -960,7 +961,8 @@ export function setStat(cid: string, key: string, value: number) {
 export function updateRegion(id: number, changes: Partial<Region>, label = 'Edit region') {
   const r = get().doc?.regions[id];
   if (!r) return;
-  commit(label, { regions: { [id]: { ...r, ...changes } } }, { group: `region:${id}:${Object.keys(changes).join(',')}` });
+  const next = changes.name != null && changes.name !== r.name ? { ...renamed(r, changes.name), ...changes } : { ...r, ...changes };
+  commit(label, { regions: { [id]: next } }, { group: `region:${id}:${Object.keys(changes).join(',')}` });
 }
 
 export function nextRegionId(): number {
@@ -1020,15 +1022,17 @@ export function cutRegions(
     const lps = pieces.map((p) => labelPoint(p) ?? ([r.cx, r.cy] as LngLat));
     // Compass names from the middle of the pieces: "(west)", "(east)"; numbers if two agree.
     let names = pieces.map((_, i) => (i ? `${r.name} (${i + 1})` : r.name));
+    let dirs: (string | undefined)[] = pieces.map(() => undefined);
     if (opts.names === 'compass') {
       const mx = lps.reduce((t, p) => t + p[0], 0) / lps.length;
       const my = lps.reduce((t, p) => t + p[1], 0) / lps.length;
       const angle = ([x, y]: LngLat) => (Math.atan2(y - my, (x - mx) * Math.cos((my * Math.PI) / 180)) * 180) / Math.PI + 360;
       // Four directions when they tell the pieces apart, else eight.
       for (const n of [4, 8]) {
-        const dirs = lps.map((p) => COMPASS[((Math.round(angle(p) / (360 / n)) % n) * 8) / n]);
-        if (new Set(dirs).size === dirs.length) {
-          names = dirs.map((d) => `${r.name} (${d})`);
+        const ds = lps.map((p) => COMPASS[((Math.round(angle(p) / (360 / n)) % n) * 8) / n]);
+        if (new Set(ds).size === ds.length) {
+          names = ds.map((d) => `${r.name} (${d})`);
+          dirs = ds;
           break;
         }
       }
@@ -1038,7 +1042,7 @@ export function cutRegions(
       patch.geoms[pids[i]] = p;
       work[pids[i]] = p;
       // Areas are shares of the stored area so totals never drift.
-      patch.regions[pids[i]] = { ...r, id: pids[i], name: names[i], area: (r.area * areas[i]) / total, cx: lps[i][0], cy: lps[i][1], vals: share(areas[i] / total) };
+      patch.regions[pids[i]] = { ...r, id: pids[i], name: names[i], real: pieceReal(r, dirs[i]), area: (r.area * areas[i]) / total, cx: lps[i][0], cy: lps[i][1], vals: share(areas[i] / total) };
     });
     out[id] = pids;
     // Neighbours (and the pieces of neighbours cut just before) get the new border vertices.
@@ -1077,7 +1081,7 @@ export function mergeRegions(ids: number[]): number | null {
     patch.geoms![r.id] = null;
   }
   patch.geoms![keep.id] = geom;
-  patch.regions![keep.id] = { ...keep, area: rs.reduce((t, r) => t + r.area, 0), cx: lp[0], cy: lp[1], vals: Object.keys(vals).length ? vals : undefined };
+  patch.regions![keep.id] = { ...keep, real: mergeReal(rs), area: rs.reduce((t, r) => t + r.area, 0), cx: lp[0], cy: lp[1], vals: Object.keys(vals).length ? vals : undefined };
   commit(`Merge ${rs.length} regions`, patch);
   select({ cid: keep.cid || null, regions: [keep.id] });
   return keep.id;

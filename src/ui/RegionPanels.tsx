@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { isEarthWorld, realLine } from '../world/lists';
+import { useMemo, useState } from 'react';
 import type { Region } from '../types';
 import {
   useWorld,
@@ -86,6 +87,8 @@ function NewCountryForm({ ids, onDone }: { ids: number[]; onDone: () => void }) 
 export function RegionCard({ region: r }: { region: Region }) {
   const allStats = useWorld((s) => s.doc!.settings.stats);
   const stats = allStats.filter((x) => x.scale);
+  const doc = useWorld((s) => s.doc!);
+  const earth = useMemo(() => isEarthWorld(doc), [doc]);
   const [creating, setCreating] = useState(false);
   return (
     <div className="region-card">
@@ -104,6 +107,11 @@ export function RegionCard({ region: r }: { region: Region }) {
           </Stat>
         ))}
       </div>
+      {earth && realLine(r) !== r.name && (
+        <div className="hint" title="The real-world areas this region was made from">
+          <Icon name="globe" size={12} /> Real world: {realLine(r)}
+        </div>
+      )}
       <label className="field-row">
         <span>Belongs to</span>
         <CountryPicker

@@ -5,6 +5,7 @@ import { useWorld, commit, select, nextRegionId, toast, regionsOf } from './stor
 import { carveLand } from '../geo/split';
 import { geomArea, labelPoint } from '../geo/engine';
 import { uid } from '../util';
+import { renamed } from './lists';
 
 const get = useWorld.getState;
 
@@ -220,7 +221,7 @@ export function addLand(outline: LngLat[], cid: string, opts: { group?: string; 
   const owner = cid && doc.countries[cid] ? cid : '';
   const patch: Patch = {
     geoms: { ...carved.neighbours, [id]: carved.geom },
-    regions: { [id]: { id, name: newLandName(), cid: owner, area: geomArea(carved.geom), cx: lp[0], cy: lp[1] } },
+    regions: { [id]: { id, name: newLandName(), real: [], cid: owner, area: geomArea(carved.geom), cx: lp[0], cy: lp[1] } },
   };
   commit(opts.label ?? `Raise new land${owner ? ` for ${doc.countries[owner].name}` : ''}`, patch, { group: opts.group });
   if (!opts.quiet) select({ cid: owner || null, regions: [id] });
@@ -346,7 +347,7 @@ export function findReplace(find: string, repl: string, scope: FindScope, opts: 
     if (scope.regions) {
       const n = sub(r.name);
       if (n != null) {
-        next = { ...r, name: n };
+        next = renamed(r, n);
         hit('Region', r.name, n);
       }
     }

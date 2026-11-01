@@ -22,6 +22,11 @@ export interface Region {
   occ?: string;
   /** Key into the owner's `states` (a subdivision of the country). */
   state?: string;
+  /**
+   * The real-world areas it was made from ("Haut-Rhin", "Palatinate (west)"), kept when it is
+   * renamed, split or merged; absent means its name. Empty for land raised from the sea.
+   */
+  real?: string[];
 }
 
 /** A first-level subdivision of a country (a state, province, duchy…), grouping regions. */
