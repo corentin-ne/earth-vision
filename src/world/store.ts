@@ -21,7 +21,7 @@ export type Thematic =
   | { kind: 'field'; key: string }
   | { kind: 'realm' }
   | { kind: 'states' };
-export type MapStyleId = 'political' | 'atlas' | 'plain' | 'night';
+export type MapStyleId = 'political' | 'atlas' | 'plain' | 'night' | 'antique';
 export type MapTab = 'style' | 'names' | 'borders' | 'land' | 'sky' | 'data';
 
 export interface Layers {
@@ -56,6 +56,18 @@ export interface Layers {
   flagColors: boolean;
   /** A deck of clouds over the globe. */
   clouds: boolean;
+  /** Lit contour lines (Tanaka): terraces of light and shadow on the relief. */
+  tanaka: boolean;
+  /** A glowing halo of atmosphere around the globe. */
+  atmosphere: boolean;
+  /** City lights seen from space. */
+  lights: boolean;
+  /** Prevailing winds, animated. */
+  winds: boolean;
+  /** The great ocean currents, animated. */
+  currents: boolean;
+  /** Climate zones (Köppen). */
+  climate: boolean;
 }
 
 export interface Selection {
@@ -179,6 +191,12 @@ export interface State {
   present: WorldDoc | null;
   /** City opened up close (its districts and transit network), over the world map. */
   cityView: number | null;
+  /** Sea level shown on the map, in metres from today's (a view only, until made permanent). */
+  seaLevel: number;
+  /** The culture-based name generator window. */
+  namesOpen: boolean;
+  /** While a poster of one country or a few regions is made: everything else fades to grey. */
+  posterFocus: { cid?: string; regions?: number[] } | null;
 }
 
 const DEFAULT_LAYERS: Layers = {
@@ -203,6 +221,12 @@ const DEFAULT_LAYERS: Layers = {
   curvedLabels: false,
   flagColors: false,
   clouds: true,
+  tanaka: false,
+  atmosphere: false,
+  lights: false,
+  winds: false,
+  currents: false,
+  climate: false,
 };
 
 const PREFS = 'cmaps:prefs';
@@ -274,6 +298,9 @@ export const useWorld = create<State>(() => ({
   era: null,
   present: null,
   cityView: null,
+  seaLevel: 0,
+  posterFocus: null,
+  namesOpen: false,
 }));
 
 useWorld.subscribe((s, prev) => {
@@ -666,6 +693,9 @@ export function loadWorld(b: WorldBundle) {
     era: null,
     present: null,
     cityView: null,
+    seaLevel: 0,
+    posterFocus: null,
+    namesOpen: false,
   });
   pendingLabels.clear();
   if (repaired.fixed) {

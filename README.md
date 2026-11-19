@@ -13,8 +13,10 @@ their code is kept under [`legacy/`](legacy/).
   population/GDP, leader/language fields, cities & capitals, water labels and alliances are all read.
   **Export back to `.map`** at any time, so both apps stay in sync.
 - Start from **Real Earth** (today's ~250 countries over ~4,600 admin-1 regions), a **Fantasy Earth**
-  (invented nations with names, flags and capitals grown over real land) or a **Blank Earth** where every
-  region is unclaimed.
+  (invented nations with names, flags and capitals grown over real land), a **Blank Earth** where every
+  region is unclaimed, or a **Historical Earth**: the states of a year from 323 BC to 1994 (Rome, the
+  Mongols, 1815, the eve of 1914…), colonies as vassals of their metropole, from the open
+  historical-basemaps dataset (downloaded once, then kept offline).
 - A home dashboard with your **main map** on top (picture, stats, largest nations) and your other worlds
   below; pin any world as the main one, rename, duplicate, export or delete it.
 - **Paint** regions into a country by dragging (`B`): adjustable brush, `Alt`+click to pick a country,
@@ -99,18 +101,14 @@ their code is kept under [`legacy/`](legacy/).
   overlord; *Realms* colours vassals in their overlord's colours.
 - **Colour the map by** (layers panel): any figure in classes (population, density, GDP per person,
   area…), any text field as categories (language, government…), realms or states — with a legend.
-- **Timeline** (`T`): *Keep this moment* stores the world as it is — who owns and occupies what,
-  the countries' names, colours and flags — as a **chapter** with a date, a name and its story.
-  Carry on editing, keep the next one. Click a chapter to see the map as it was (read-only, `,` and
-  `.` step through them), **play** the history, read who gained and lost land since the chapter
-  before, or **return the world** to a chapter in one undo step. Regions cut later stay with whoever
-  held them then; chapters travel in the `.map` file.
 - **Measure** (`M`): click along a path for its length in km; three points or more also give the
   area they enclose.
 - **Statistics** (`S`): rank every country by any figure, or compare several side by side. The home
   screen sums up the world (land, claimed share, people, cities, alliances…).
-- **Poster** (Export menu): the view in 2–4× resolution, framed like an atlas page, with a title
-  cartouche, a legend, a compass rose and a scale bar.
+- **Poster** (Export menu): the view in 2–4× resolution — or just one country or the selected regions,
+  everything else faded — as an atlas page (title cartouche, legend, compass rose, scale bar), a
+  **country sheet** (a big title top left with the flag, coat of arms and key facts) or a minimal
+  full-bleed print, in classic, modern or antique (aged paper) style.
 - **Drag a country's name** to place it by hand; **curved names** (layers panel) bend the names of
   long countries along their shape, atlas style.
 - **Find & replace** (`Ctrl+H`) across country, state, region and city names, details, lore and map
@@ -119,12 +117,33 @@ their code is kept under [`legacy/`](legacy/).
   split, cities, draw, measure); the **Map panel** (`L`) everything about how it looks (style,
   what the countries are coloured by — figures, realms or alliances —, names, borders, land,
   sky & sea, real-world data); the **World menu** what concerns the whole world (statistics,
-  flags, timeline, find & replace, repair & automate); **Save & share** the .map file, pictures
+  flags, name generator, find & replace, repair & automate); **Save & share** the .map file, pictures
   and posters.
 - **Data layers** (Map panel › Data, `O`) from free, open sources: coral reefs, glaciers, ice shelves, mountain ranges
   and deserts, peaks, tectonic plates, time zones, ports, airports, live earthquakes (USGS) and
   natural events (NASA EONET). Each downloads once, then works offline.
 - Sharper relief: zoom 5 tiles from Natural Earth's 1:10m shaded relief.
+- **Sea level** (Map panel › Sky): a slider from −130 m to +100 m. Lower it and the shelves come up
+  (Doggerland, Beringia, Sundaland at the ice-age −120 m); raise it and the land floods — but only
+  once the sea spills over the hills around it, so the Dead Sea or the Caspian shores stay dry while
+  the polders go under at once (spill heights precomputed by `scripts/build-sealevel.py`). *Make it
+  permanent* turns the new coasts into the world: new land goes to the country whose coast it
+  touches, drowned land is cut off and sunk, as one undo step.
+- **Antique** look: aged paper, washed colours, engraved water lines along the coasts.
+- **Contours** (Tanaka's lit contour lines), **atmosphere halo** around the globe, **night lights**
+  (NASA Black Marble), **climate zones** (Köppen–Geiger, Beck et al. 2018, with a legend),
+  **winds** (NCEP/NCAR 1991–2020 mean) and the great **ocean currents** (warm in red, cold in blue)
+  animated as drifting trails — all options in the Map panel.
+- **Rivers at their real width**: each river widens downstream as tributaries join (from the length of
+  the network upstream, `scripts/build-river-flow.py`).
+- **Coats of arms** (country page › Look): shield, division, ordinary, charges, tinctures that follow
+  the rule of tincture, crown and motto, with the blazon written out — or *Surprise me*.
+- **Name generator** (World menu): names of countries, cities, regions, rivers, mountains and people
+  in 18 cultures (Latin, Norse, Slavic, Arabic, Japanese, Nahuatl, Elvish…), preset to the culture
+  of the place you are looking at.
+- **Cities through history** (Repair & automate): the populations of ~1,700 cities from 3700 BC to
+  AD 2000 (Reba et al. 2016): update your cities' figures for a year, add the cities of that time
+  you lack, or both.
 - **Height colours**: every country's land is a smooth gradient that follows the terrain, from
   its lowest ground through the hills to the peaks, on a logarithmic scale (20 m against 40 m
   shows as clearly as 2,000 m against 4,000 m), from elevation data down to zoom 6. On a

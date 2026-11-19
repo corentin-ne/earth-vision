@@ -73,6 +73,12 @@ export interface Look {
   waterLabel: string;
   sky: { sky: string; horizon: string; fog: string };
   selection: string;
+  /** How far the country colours fade into the paper (0 = as picked), for washed, hand-coloured looks. */
+  wash?: number;
+  /** Fine lines repeating the coast out at sea, as engravers drew them; absent for none. */
+  waterLines?: string;
+  /** Paper grain and a darker rim laid over the whole map. */
+  paper?: boolean;
 }
 
 export const LOOKS: Record<MapStyleId, Look> = {
@@ -212,7 +218,56 @@ export const LOOKS: Record<MapStyleId, Look> = {
     sky: { sky: '#050913', horizon: '#1a2c4d', fog: '#0a1220' },
     selection: '#ffcc00',
   },
+  antique: {
+    ocean: '#cdbd93',
+    depth: [[0, '#e6dbb8'], [-60, '#ddd0aa'], [-400, '#d6c7a0'], [-3000, '#cfbf96'], [-8000, '#c6b58b']],
+    water: { light: '#fffbe8', shade: '#6b5634', strength: 0.12 },
+    landBase: '#efe3c1',
+    unclaimed: '#efe3c1',
+    fillOpacity: 1,
+    seam: true,
+    reliefBrightness: 1,
+    hillshade: true,
+    shade: { main: 0.8, deep: 0.5, shadow: 'rgba(70,48,22,0.5)', highlight: 'rgba(255,248,225,0.25)', contrast: 0.1 },
+    tint: { strength: 0.4, low: '96,72,40', peak: '252,246,228' },
+    vivid: 0,
+    wash: 0.42,
+    veil: 0,
+    graticule: 'rgba(96,68,36,0.22)',
+    countryBorder: '#6b4524',
+    countryBorderOpacity: 0.85,
+    countryBorderWidth: 1.25,
+    regionBorder: 'rgba(107,69,36,0.25)',
+    coast: 'rgba(84,58,28,0.85)',
+    coastGlow: 'rgba(250,244,225,0.5)',
+    coastShadow: 'rgba(84,58,28,0.18)',
+    lake: '#ddd0aa',
+    river: '#71859a',
+    urban: 'rgba(140,90,50,0.16)',
+    label: '#4a3020',
+    labelHalo: 'rgba(244,236,212,0.85)',
+    labelUpper: true,
+    regionLabel: 'rgba(74,48,32,0.62)',
+    cityLabel: '#3b2a1a',
+    waterLabel: '#6d5a3a',
+    sky: { sky: '#e6dcc0', horizon: '#f4ecd6', fog: '#f4ecd6' },
+    selection: '#b3261e',
+    waterLines: 'rgba(92,70,40,0.42)',
+    paper: true,
+  },
 };
+
+/** Colour-relief ramps for the sea-level slider (see controller): what is land / water at `level` metres. */
+export function seaRamps(level: number, land: string, water: string): { emerged: ExpressionSpecification; flooded: ExpressionSpecification } {
+  const T = 'rgba(0,0,0,0)';
+  // Below the sea now: the sea floor higher than the new level shows as land.
+  const lo = Math.min(-0.5, level);
+  const emerged = ['interpolate', ['linear'], ['elevation'], -12000, T, lo - 0.01, T, lo, land, 1, land] as unknown as ExpressionSpecification;
+  // Spill heights (flood tiles): land the sea reaches at this level turns to water; the sea itself (-100) stays clear.
+  const hi = Math.max(0.5, level);
+  const flooded = ['interpolate', ['linear'], ['elevation'], -100, T, -1, T, -0.5, water, hi, water, hi + 0.01, T, 200, T] as unknown as ExpressionSpecification;
+  return { emerged, flooded };
+}
 
 const vividCache = new Map<string, string>();
 /**
@@ -294,6 +349,8 @@ export function depthRamp(stops: [number, string][]): ExpressionSpecification {
   const sorted = [...stops].sort((a, b) => a[0] - b[0]);
   return ['interpolate', ['linear'], ['elevation'], ...sorted.flat()] as unknown as ExpressionSpecification;
 }
+/** Gaps (px at zoom 5, before scaling) of the engraved water lines along the coasts. */
+export const WATER_LINES = [3, 7, 12, 18];
 const zoomWidth = (base: number): ExpressionSpecification => ['interpolate', ['exponential', 1.6], ['zoom'], 1, base * 0.6, 4, base * 1.2, 8, base * 2.6];
 
 /** Static skeleton of the style: every source and layer exists from the start; looks are applied afterwards. */
@@ -341,10 +398,39 @@ export function baseStyle(): StyleSpecification {
         maxzoom: 3,
         encoding: 'terrarium',
       },
+      // Sea level: the sea floor once more (what emerges), and the height the sea must reach to flood each spot.
+      'bathy-sea': {
+        type: 'raster-dem',
+        tiles: [asset('tiles/bathy/{z}/{x}/{y}.png')],
+        tileSize: 256,
+        maxzoom: 3,
+        encoding: 'terrarium',
+      },
+      flood: {
+        type: 'raster-dem',
+        tiles: [asset('tiles/flood/{z}/{x}/{y}.webp')],
+        tileSize: 256,
+        maxzoom: 5,
+        encoding: 'terrarium',
+      },
+      lights: {
+        type: 'raster',
+        tiles: [asset('tiles/lights/{z}/{x}/{y}.webp')],
+        tileSize: 256,
+        maxzoom: 5,
+        attribution: 'Night lights: NASA Black Marble',
+      },
+      climate: {
+        type: 'raster',
+        tiles: [asset('tiles/climate/{z}/{x}/{y}.png')],
+        tileSize: 256,
+        maxzoom: 4,
+        attribution: 'Climates: Köppen–Geiger',
+      },
       graticule: { type: 'geojson', data: graticule() },
       veil: { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]]] } } },
       lakes: { type: 'geojson', data: asset('data/lakes.json') },
-      rivers: { type: 'geojson', data: asset('data/rivers.json') },
+      rivers: { type: 'geojson', data: asset('data/rivers-flow.json') },
       urban: { type: 'geojson', data: asset('data/urban.json') },
       marine: { type: 'geojson', data: asset('data/marine.json') },
       regions: { type: 'geojson', data: EMPTY, tolerance: 0.3 },
@@ -367,6 +453,8 @@ export function baseStyle(): StyleSpecification {
       { id: 'ocean', type: 'background', paint: { 'background-color': '#c4def0' } },
       // Water coloured by real sea-floor depth.
       { id: 'water-depth', type: 'color-relief', source: 'bathy', paint: { 'color-relief-color': depthRamp(LOOKS.political.depth) } },
+      // Land the sea uncovers when its level drops (sea-level slider); under the coasts, so the real coast keeps its line.
+      { id: 'sea-emerged', type: 'color-relief', source: 'bathy-sea', layout: { visibility: 'none' }, paint: { 'color-relief-color': seaRamps(-1, '#e8e2d0', '#c4def0').emerged } },
       // The animated water surface (a custom WebGL layer, see water.ts) is inserted here, before the graticule.
       { id: 'graticule', type: 'line', source: 'graticule', paint: { 'line-color': 'rgba(0,0,0,0.06)', 'line-width': ['case', ['get', 'eq'], 1.4, 0.8] } },
       // Under the land, so only their sea side shows: a light shoreline glow, and the land's shadow.
@@ -393,6 +481,19 @@ export function baseStyle(): StyleSpecification {
         },
         layout: { 'line-join': 'round', 'line-cap': 'round' },
       },
+      // Engraved water lines: the coast repeated out at sea (its land side is hidden under the land).
+      ...WATER_LINES.map((gap, i) => ({
+        id: `water-line-${i}`,
+        type: 'line' as const,
+        source: 'coast',
+        layout: { visibility: 'none' as const, 'line-join': 'round' as const },
+        paint: {
+          'line-color': 'rgba(92,70,40,0.4)',
+          'line-width': 0.6,
+          'line-gap-width': ['interpolate', ['linear'], ['zoom'], 1, gap * 0.6, 5, gap * 1.2, 9, gap * 2] as ExpressionSpecification,
+          'line-opacity': 1 - i * 0.2,
+        },
+      })),
       { id: 'land-base', type: 'fill', source: 'regions', paint: { 'fill-color': '#e8e2d0', 'fill-antialias': false } },
       { id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 300 } },
       {
@@ -466,6 +567,8 @@ export function baseStyle(): StyleSpecification {
       { id: 'height-key', type: 'color-relief', source: 'dem-tint', paint: { 'color-relief-color': keyRamp() } },
       // Occupied land: stripes in the occupier's colour (one pattern image per colour, see controller).
       { id: 'occupation', type: 'fill', source: 'occupied', paint: { 'fill-pattern': ['get', 'pat'], 'fill-opacity': 0.85 } },
+      // Climate zones (Köppen), over the countries' colours.
+      { id: 'climate', type: 'raster', source: 'climate', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.72, 'raster-resampling': 'nearest' } },
       {
         // The crisp light: every ridge and valley, lit from the north-west.
         id: 'hillshade',
@@ -496,7 +599,11 @@ export function baseStyle(): StyleSpecification {
           'hillshade-exaggeration': 0.8,
         },
       },
+      // Land the sea takes when its level rises: drawn over the countries.
+      { id: 'sea-flood', type: 'color-relief', source: 'flood', layout: { visibility: 'none' }, paint: { 'color-relief-color': seaRamps(1, '#e8e2d0', '#c4def0').flooded } },
       { id: 'veil', type: 'fill', source: 'veil', paint: { 'fill-color': '#050a18', 'fill-opacity': 0 }, layout: { visibility: 'none' } },
+      // City lights seen from space (bright where people live), over the night veil.
+      { id: 'lights', type: 'raster', source: 'lights', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.9, 'raster-fade-duration': 300 } },
       { id: 'urban', type: 'fill', source: 'urban', minzoom: 3.5, paint: { 'fill-color': 'rgba(0,0,0,0.1)' } },
       { id: 'lakes', type: 'fill', source: 'lakes', paint: { 'fill-color': '#c4def0' } },
       { id: 'lakes-line', type: 'line', source: 'lakes', paint: { 'line-color': 'rgba(40,80,120,0.4)', 'line-width': 0.6 } },
@@ -506,7 +613,8 @@ export function baseStyle(): StyleSpecification {
         source: 'rivers',
         minzoom: 2,
         filter: ['<=', ['get', 'scalerank'], ['step', ['zoom'], 4, 3, 6, 4.5, 8, 6, 12]],
-        paint: { 'line-color': '#6fa8d6', 'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.4, 6, 1.3, 9, 2] },
+        // Wide where much river drains through (the length of the network upstream, see build-river-flow.py).
+        paint: { 'line-color': '#6fa8d6', 'line-width': ['interpolate', ['exponential', 1.4], ['zoom'], 2, ['*', 0.5, ['+', 0.2, ['*', 0.024, ['sqrt', ['max', 0, ['coalesce', ['get', 'flow'], 0]]]]]], 5, ['*', 1, ['+', 0.2, ['*', 0.024, ['sqrt', ['max', 0, ['coalesce', ['get', 'flow'], 0]]]]]], 8, ['*', 2, ['+', 0.2, ['*', 0.024, ['sqrt', ['max', 0, ['coalesce', ['get', 'flow'], 0]]]]]], 11, ['*', 3.4, ['+', 0.2, ['*', 0.024, ['sqrt', ['max', 0, ['coalesce', ['get', 'flow'], 0]]]]]]] },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {
@@ -558,7 +666,7 @@ export function baseStyle(): StyleSpecification {
         source: 'rivers',
         minzoom: 2,
         filter: ['<=', ['get', 'scalerank'], ['step', ['zoom'], 4, 3, 6, 4.5, 8, 6, 12]],
-        paint: { 'line-color': '#6fa8d6', 'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.3, 6, 0.8, 9, 1.2], 'line-opacity': 0.95 },
+        paint: { 'line-color': '#6fa8d6', 'line-width': ['interpolate', ['exponential', 1.4], ['zoom'], 2, ['*', 0.35, ['+', 0.2, ['*', 0.024, ['sqrt', ['max', 0, ['coalesce', ['get', 'flow'], 0]]]]]], 5, ['*', 0.7, ['+', 0.2, ['*', 0.024, ['sqrt', ['max', 0, ['coalesce', ['get', 'flow'], 0]]]]]], 8, ['*', 1.3, ['+', 0.2, ['*', 0.024, ['sqrt', ['max', 0, ['coalesce', ['get', 'flow'], 0]]]]]], 11, ['*', 2.2, ['+', 0.2, ['*', 0.024, ['sqrt', ['max', 0, ['coalesce', ['get', 'flow'], 0]]]]]]], 'line-opacity': 0.95 },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       },
       {

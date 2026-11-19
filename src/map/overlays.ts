@@ -266,7 +266,7 @@ export function loadOverlay(o: Overlay): Promise<FeatureCollection> {
   return p;
 }
 
-async function fetchCached(url: string, live: boolean): Promise<FeatureCollection> {
+export async function fetchCached(url: string, live: boolean): Promise<FeatureCollection> {
   const cache = typeof caches !== 'undefined' ? await caches.open(CACHE).catch(() => null) : null;
   const cached = cache ? await cache.match(url) : undefined;
   if (cached && !live) return cached.json();

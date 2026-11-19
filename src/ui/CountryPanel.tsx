@@ -23,6 +23,10 @@ import { CountryColour } from './CountryColour';
 import { CountryOccupations, CountryRealm, CountryStates, LabelControl } from './WorldbuildPanels';
 import { Icon, type IconName } from './icons';
 import { fmtArea, fmtInt } from '../util';
+import { ArmsEditor } from './ArmsMaker';
+import { flagColors } from '../world/flagColors';
+import { flagUrlFor } from '../world/store';
+import { iso2 } from '../world/flags';
 
 type Tab = 'overview' | 'look' | 'politics' | 'lore';
 const TABS: [Tab, IconName, string][] = [
@@ -191,6 +195,9 @@ export function CountryPanel({ cid }: { cid: string }) {
                 e.target.value = '';
               }}
             />
+          </Section>
+          <Section title="Coat of arms">
+            <ArmsEditor value={c.arms} colors={[c.color, ...(flagColors(flagUrlFor(c, iso2)) ?? [])]} onChange={(arms) => updateCountry(cid, { arms }, arms ? 'Edit coat of arms' : 'Remove coat of arms')} />
           </Section>
           <Section title="Name on the map">
             <LabelControl cid={cid} />

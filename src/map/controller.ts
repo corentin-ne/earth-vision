@@ -4,7 +4,9 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection, Geometry, Point } from 'geojson';
 import type { Country, LngLat, Mark, Region } from '../types';
-import { LOOKS, baseStyle, asset, depthRamp, autoGradient, vivid, type Look } from './style';
+import { LOOKS, baseStyle, asset, depthRamp, autoGradient, vivid, seaRamps, WATER_LINES, type Look } from './style';
+import { ensureTanaka, TANAKA_LAYERS } from './tanaka';
+import { FlowRenderer } from './flow';
 import { GradientState, CopyLayer, ComposeLayer } from './gradient';
 import { flagColors, onFlagColors } from '../world/flagColors';
 import { WaterLayer, rgb } from './water';
@@ -65,6 +67,8 @@ export class MapController {
   map: MLMap;
   /** The cloud deck over the globe, gathering while the land is still loading. */
   private clouds: CloudDeck | null = null;
+  /** Animated winds and ocean currents. */
+  private flow: FlowRenderer | null = null;
   private loaded = false;
   private regionColor = new Map<number, string>();
   private gradient = new GradientState();
@@ -195,6 +199,11 @@ export class MapController {
     } catch (e) {
       console.warn('clouds unavailable', e);
     }
+    try {
+      this.flow = new FlowRenderer(this.map);
+    } catch (e) {
+      console.warn('winds and currents unavailable', e);
+    }
     setOverlayWanted(() => get().doc?.overlays ?? []);
     this.loaded = true;
     this.applyLook();
@@ -204,6 +213,7 @@ export class MapController {
     this.unsubs.push(
       useWorld.subscribe((s, p) => {
         if (s.mapStyle !== p.mapStyle || s.layers !== p.layers || s.globe !== p.globe) this.applyLook();
+        else if (s.seaLevel !== p.seaLevel) this.applySea();
         if (s.selection !== p.selection) this.syncSelection();
         if (s.docks !== p.docks) this.updatePadding();
         if (s.tool !== p.tool || s.splitMode !== p.splitMode) this.onToolChange(s, p);
@@ -213,7 +223,7 @@ export class MapController {
           this.recolorAll();
           this.syncAlliances();
         }
-        if (s.thematic !== p.thematic) this.recolorAll();
+        if (s.thematic !== p.thematic || s.posterFocus !== p.posterFocus) this.recolorAll();
         if (s.markSel !== p.markSel) this.syncMarks();
         if (s.drawKind !== p.drawKind && s.tool === 'draw') this.cancelDraw();
         if (s.doc?.overlays !== p.doc?.overlays) this.syncData();
@@ -266,6 +276,7 @@ export class MapController {
     clearInterval(this.readyTimer);
     this.waves.stop();
     this.clouds?.destroy();
+    this.flow?.destroy();
     this.unsubs.forEach((u) => u());
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
@@ -295,7 +306,8 @@ export class MapController {
       'sky-horizon-blend': 0.6,
       'horizon-fog-blend': 0.6,
       'fog-ground-blend': 0.8,
-      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 5, 0.6, 8, 0],
+      // The atmosphere halo (an option) glows further out and stays on longer as you zoom in.
+      'atmosphere-blend': layers.atmosphere ? ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 0.85, 8, 0.15] : ['interpolate', ['linear'], ['zoom'], 0, 0.8, 5, 0.6, 8, 0],
     });
     paint('ocean', 'background-color', L.ocean);
     paint('land-base', 'fill-color', L.landBase);
@@ -383,8 +395,68 @@ export class MapController {
     m.setFilter('country-labels', layers.curvedLabels ? ['<', ['zoom'], ['get', 'zfit']] : null);
     this.syncCurves();
 
+    // Engraved water lines along the coasts (the antique look).
+    WATER_LINES.forEach((_, i) => {
+      vis(`water-line-${i}`, !!L.waterLines);
+      if (L.waterLines) paint(`water-line-${i}`, 'line-color', L.waterLines);
+    });
+    vis('lights', layers.lights);
+    paint('lights', 'raster-opacity', mapStyle === 'night' ? 1 : 0.85);
+    vis('climate', layers.climate);
+    this.applyTanaka(layers.tanaka, mapStyle);
+    if (this.flow) {
+      const dark = mapStyle === 'night' || mapStyle === 'political';
+      this.flow.style = {
+        wind: dark ? '255,255,255' : mapStyle === 'antique' ? '86,60,32' : '38,52,78',
+        warm: mapStyle === 'antique' ? '170,58,36' : '236,88,58',
+        cold: mapStyle === 'antique' ? '44,82,120' : mapStyle === 'night' ? '110,180,255' : '36,112,210',
+        neutral: '96,124,150',
+      };
+      for (const k of ['winds', 'currents'] as const) this.flow.set(k, layers[k]).catch(() => toast(`Could not load the ${k}`, 'error'));
+    }
+    this.applySea();
+
     m.setTerrain(layers.terrain ? { source: 'dem-terrain', exaggeration: 18 } : null);
     this.recolorAll();
+  }
+
+  /** Lit contour lines, added the first time they are turned on. */
+  private applyTanaka(on: boolean, style: string) {
+    const m = this.map;
+    if (on) {
+      try {
+        ensureTanaka(m, 'sea-flood');
+      } catch (e) {
+        console.warn('contours unavailable', e);
+        return;
+      }
+    }
+    for (const id of TANAKA_LAYERS) if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+    if (on && m.getLayer('tanaka-light')) {
+      // On the dark map the light edge is a cool glint, on paper a warm one.
+      m.setPaintProperty('tanaka-light', 'line-color', style === 'night' ? 'rgba(170,200,255,0.45)' : style === 'antique' ? 'rgba(255,246,222,0.85)' : 'rgba(255,252,240,0.8)');
+      m.setPaintProperty('tanaka-shadow', 'line-color', style === 'night' ? 'rgba(0,0,8,0.7)' : style === 'antique' ? 'rgba(70,48,22,0.5)' : 'rgba(30,24,40,0.5)');
+    }
+  }
+
+  /** The sea-level slider: land uncovered below today's sea, land drowned above it. */
+  applySea() {
+    if (!this.loaded) return;
+    const { seaLevel, mapStyle } = get();
+    const L = LOOKS[mapStyle];
+    const m = this.map;
+    const land = L.unclaimed ?? L.landBase;
+    // The shallowest water colour: new sea looks like the shallows along today's coasts.
+    const water = [...L.depth].sort((a, b) => b[0] - a[0])[0][1];
+    const r = seaRamps(seaLevel, land, water);
+    if (m.getLayer('sea-emerged')) {
+      m.setLayoutProperty('sea-emerged', 'visibility', seaLevel < 0 ? 'visible' : 'none');
+      m.setPaintProperty('sea-emerged', 'color-relief-color', r.emerged);
+    }
+    if (m.getLayer('sea-flood')) {
+      m.setLayoutProperty('sea-flood', 'visibility', seaLevel > 0 ? 'visible' : 'none');
+      m.setPaintProperty('sea-flood', 'color-relief-color', r.flooded);
+    }
   }
 
   /** Layers of the editor itself (not of the map look): alliance outlines, the rivers and crests the brush stops at. */
@@ -587,6 +659,8 @@ export class MapController {
     if (c && doc && this.thematicOn() && this.thematic) {
       return auto((r && this.thematic.regionColor?.(r)) || this.thematic.colors[cid] || mute(c.color, mapStyle === 'night'));
     }
+    const focus = get().posterFocus;
+    if (c && focus && (focus.cid ? cid !== focus.cid : !(r && focus.regions?.includes(r.id)))) return auto(mute(c.color, mapStyle === 'night'));
     if (c && allianceView && doc) {
       // Alliance view: members take their alliance's colour, everyone else fades to grey.
       const a = doc.alliances.find((x) => (allianceView === 'all' || x.id === allianceView) && x.members.includes(cid));
@@ -600,7 +674,8 @@ export class MapController {
         if (f && f.length >= 2) return [f[0], f.length === 3 ? f[1] : mix(f[0], f[1], 0.5), f[f.length - 1]];
         if (f?.length === 1) return auto(f[0]);
       }
-      return auto(vivid(c.color, L.vivid));
+      // Washed looks fade every colour into the paper, like hand-coloured engravings.
+      return auto(L.wash ? mix(c.color, L.landBase, L.wash) : vivid(c.color, L.vivid));
     }
     const u = L.unclaimed ?? 'rgba(0,0,0,0)';
     return [u, u, u];

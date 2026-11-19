@@ -61,6 +61,8 @@ export interface Country {
   gradient?: [string, string, string];
   /** Country this one is a vassal / puppet of. */
   overlord?: string;
+  /** Coat of arms (see world/arms.ts). */
+  arms?: import('./world/arms').ArmsSpec;
   /** Subdivisions, by key (regions point at them with `state`). */
   states?: Record<string, CountryState>;
 }

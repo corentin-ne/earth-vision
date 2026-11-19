@@ -1,0 +1,139 @@
+/* Coat-of-arms editor and name generator. */
+
+.wg-row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--fg-2);
+  min-width: 0;
+}
+.wg-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.wg-row select,
+.wg-row input {
+  width: 100%;
+  min-width: 0;
+}
+.segmented.wg-seg {
+  margin: 0;
+  flex-wrap: wrap;
+}
+.segmented.wg-seg button {
+  flex: 1 0 auto;
+  padding: 5px 7px;
+}
+
+/* Coat of arms */
+.wg-arms {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wg-arms-empty {
+  align-items: center;
+  padding: 18px 8px;
+  color: var(--muted);
+  text-align: center;
+}
+.wg-arms-empty .hint {
+  margin: 0;
+}
+.wg-arms-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 10px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: radial-gradient(circle at 50% 35%, var(--glass-3), var(--glass-2) 70%);
+}
+.wg-arms-img {
+  display: block;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
+}
+.wg-blazon {
+  margin: 0;
+  max-width: 34ch;
+  text-align: center;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-2);
+}
+.wg-arms-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.wg-arms-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.wg-tinctures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wg-tinctures .swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+}
+.wg-tinctures .swatch.metal {
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.55), transparent 55%, rgba(0, 0, 0, 0.18));
+}
+
+/* Name generator */
+.wg-names {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+.wg-kinds button {
+  flex: 1 1 auto;
+}
+.wg-name-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 120px;
+  align-content: flex-start;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--glass-2);
+}
+.chip-btn.wg-name {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 550;
+  animation: wg-pop 0.25s var(--ease-out) both;
+}
+.chip-btn.wg-name.copied {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+@keyframes wg-pop {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.wg-name-window {
+  width: min(520px, 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip-btn.wg-name {
+    animation: none;
+  }
+}

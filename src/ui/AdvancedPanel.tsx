@@ -15,6 +15,7 @@ import {
 import { Icon, type IconName } from './icons';
 import { UpdateRow } from './Updates';
 import { fmtInt } from '../util';
+import { applyCityHistory, fmtYear } from '../world/cityHistory';
 
 const SNAP: [string, number][] = [
   ['Gentle', 0.004],
@@ -30,7 +31,16 @@ export function AdvancedPanel() {
   const [healStep, setHealStep] = useState(3);
   const [healCountries, setHealCountries] = useState(false);
   const [snap, setSnap] = useState(1);
+  const [histYear, setHistYear] = useState<number | null>(null);
+  const [histAdd, setHistAdd] = useState(true);
+  const [histUpdate, setHistUpdate] = useState(true);
   if (!open) return null;
+  // A world named after a year ("Earth in 1914") starts on that year.
+  const titleYear = (() => {
+    const m = /(\d{1,4})\s*(BC)?\s*$/i.exec(useWorld.getState().doc?.meta.title ?? '');
+    return m ? (m[2] ? -Number(m[1]) : Number(m[1])) : 1900;
+  })();
+  const year = histYear ?? titleYear;
   const close = () => useWorld.setState({ advancedOpen: false });
   const popKey = populationKey();
   const { doc, selection } = useWorld.getState();
@@ -64,6 +74,49 @@ export function AdvancedPanel() {
           </button>
           <button className="btn small" disabled={!popKey || !!busy} onClick={() => go('even', () => recalcPopulation('even'), String)} title="Keeps every country's total, spreads it over its land by area">
             {busy === 'even' ? <span className="spinner small" /> : null} Even spread per country
+          </button>
+        </Tool>
+
+        <Tool
+          icon="city"
+          title="Cities through history"
+          desc="Populations of about 1,700 cities from 3700 BC to AD 2000 (Reba et al. 2016, after Chandler and Modelski). Each city takes its latest figure up to the year chosen."
+        >
+          <input
+            type="number"
+            className="year-input"
+            value={year}
+            min={-3700}
+            max={2000}
+            onKeyDown={(e) => e.stopPropagation()}
+            onChange={(e) => setHistYear(Math.max(-3700, Math.min(2000, Math.round(+e.target.value || 0))))}
+            title="Year (negative for BC)"
+          />
+          <label className="toggle small">
+            <input type="checkbox" checked={histUpdate} onChange={(e) => setHistUpdate(e.target.checked)} />
+            <span className="switch" />
+            Update populations
+          </label>
+          <label className="toggle small">
+            <input type="checkbox" checked={histAdd} onChange={(e) => setHistAdd(e.target.checked)} />
+            <span className="switch" />
+            Add missing cities
+          </label>
+          <button
+            className="btn primary small"
+            disabled={!!busy || (!histAdd && !histUpdate)}
+            onClick={() =>
+              go(
+                'hist',
+                () => applyCityHistory(year, { update: histUpdate, add: histAdd }),
+                (r) => {
+                  const x = r as { updated: number; added: number };
+                  return x.updated || x.added ? `${fmtYear(year)}: ${x.updated} cities updated, ${x.added} added` : `No city figures to change for ${fmtYear(year)}`;
+                },
+              )
+            }
+          >
+            {busy === 'hist' ? <span className="spinner small" /> : <Icon name="city" size={14} />} Apply {fmtYear(year)}
           </button>
         </Tool>
 

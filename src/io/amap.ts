@@ -15,6 +15,7 @@
 // format cannot express (notes, per-region populations, city sizes, all stats &
 // fields, the camera), so a .map round trip loses nothing.
 import { unzipSync, zipSync, strFromU8, strToU8, type Zippable } from 'fflate';
+import { normalizeArms } from '../world/arms';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import type { City, CityPlan, Country, CountryState, Era, LngLat, Mark, Region, RegionGeom, WaterLabel, WorldBundle, WorldDoc, StatDef, Alliance } from '../types';
 import { geomArea, labelPoint, GeoEngine } from '../geo/engine';
@@ -86,6 +87,7 @@ interface Sidecar {
       overlord?: string;
       states?: Record<string, CountryState>;
       colorMode?: Country['colorMode'];
+      arms?: Country['arms'];
       gradient?: Country['gradient'];
       /** A label placed by hand. */
       label?: LngLat;
@@ -405,8 +407,8 @@ function buildSidecar(doc: WorldDoc): Sidecar {
   const countries: NonNullable<Sidecar['countries']> = {};
   for (const c of Object.values(doc.countries)) {
     const states = c.states && Object.keys(c.states).length ? c.states : undefined;
-    if (c.notes || Object.keys(c.stats).length || Object.keys(c.fields).length || c.overlord || states || c.labelFixed || c.colorMode || c.gradient)
-      countries[c.cid] = { notes: c.notes, stats: c.stats, fields: c.fields, overlord: c.overlord, states, label: c.labelFixed ? c.label : undefined, colorMode: c.colorMode, gradient: c.gradient };
+    if (c.notes || Object.keys(c.stats).length || Object.keys(c.fields).length || c.overlord || states || c.labelFixed || c.colorMode || c.gradient || c.arms)
+      countries[c.cid] = { notes: c.notes, stats: c.stats, fields: c.fields, overlord: c.overlord, states, label: c.labelFixed ? c.label : undefined, colorMode: c.colorMode, gradient: c.gradient, arms: c.arms };
   }
   const regions: NonNullable<Sidecar['regions']> = {};
   const regionInfo: NonNullable<Sidecar['regionInfo']> = {};
@@ -455,6 +457,8 @@ function applySidecar(
     if (extra.overlord && countries[extra.overlord]) c.overlord = extra.overlord;
     if (extra.states) c.states = extra.states;
     if (extra.colorMode) c.colorMode = extra.colorMode;
+    const arms = normalizeArms(extra.arms);
+    if (arms) c.arms = arms;
     if (extra.gradient?.length === 3) c.gradient = extra.gradient;
     if (extra.label) {
       c.label = extra.label;

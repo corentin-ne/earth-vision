@@ -3,6 +3,7 @@ import type { WorldBundle, WorldDoc, WorldMeta } from '../types';
 import { listWorlds, deleteWorld, loadBundle, loadDoc, renameWorld, duplicateWorld, loadThumbs, saveThumb, mainWorld, storageUsage } from '../io/db';
 import { readWorldFile, downloadMap } from '../io/files';
 import { loadEarth } from '../io/earth';
+import { ERAS, historicalEarth, loadEra, modernNames, type Era } from '../io/history';
 import { fantasyEarth } from '../world/generate';
 import { randomFlag } from '../world/flagGen';
 import { seeded } from '../world/names';
@@ -23,6 +24,7 @@ export function Home({ onOpen, busy }: { onOpen: (b: WorldBundle, isNew: boolean
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<Sort>('recent');
   const [newMenu, setNewMenu] = useState(false);
+  const [eraMenu, setEraMenu] = useState(false);
   const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -140,7 +142,22 @@ export function Home({ onOpen, busy }: { onOpen: (b: WorldBundle, isNew: boolean
   const status = busy ?? working;
   const empty = worlds !== null && worlds.length === 0;
 
-  const newWorld = (kind: 'earth' | 'blank' | 'fantasy') => {
+  const newHistorical = (era: Era) =>
+    run(`Drawing the world of ${era.year}…`, async () => {
+      const [blank, fc, modern] = await Promise.all([
+        loadEarth({ unclaimed: true }),
+        loadEra(era).catch(() => Promise.reject(new Error('Could not download the borders of that year (offline?)'))),
+        modernNames(),
+      ]);
+      return historicalEarth(blank, fc, era, modern);
+    });
+
+  const newWorld = (kind: 'earth' | 'blank' | 'fantasy' | 'history') => {
+    if (kind === 'history') {
+      setNewMenu(true);
+      setEraMenu(true);
+      return;
+    }
     if (kind === 'earth') run('Building Earth…', () => loadEarth());
     if (kind === 'blank') run('Building a blank Earth…', () => loadEarth({ unclaimed: true }));
     if (kind === 'fantasy')
@@ -208,6 +225,26 @@ export function Home({ onOpen, busy }: { onOpen: (b: WorldBundle, isNew: boolean
                 <NewOption icon="globe" title="Real Earth" sub="Today's countries over ~4,600 regions" onClick={() => newWorld('earth')} />
                 <NewOption icon="sparkle" title="Fantasy Earth" sub="Invented nations, names & capitals" onClick={() => newWorld('fantasy')} />
                 <NewOption icon="brush" title="Blank Earth" sub="All land unclaimed — paint from scratch" onClick={() => newWorld('blank')} />
+                <NewOption icon="clock" title="Historical Earth" sub="The borders of a year in the past, from 323 BC to 1994" onClick={() => setEraMenu(!eraMenu)} />
+                {eraMenu && (
+                  <div className="era-list">
+                    {ERAS.map((e) => (
+                      <button
+                        key={e.file}
+                        className="era-item"
+                        onClick={() => {
+                          setNewMenu(false);
+                          setEraMenu(false);
+                          newHistorical(e);
+                        }}
+                      >
+                        <strong>{e.year}</strong>
+                        <span>{e.label}</span>
+                      </button>
+                    ))}
+                    <small className="era-credit">Borders: historical-basemaps (A. Ourednik), downloaded once then kept offline.</small>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -310,7 +347,7 @@ function NewOption({ icon, title, sub, onClick }: { icon: IconName; title: strin
   );
 }
 
-function Welcome({ onImport, onNew }: { onImport: () => void; onNew: (k: 'earth' | 'blank' | 'fantasy') => void }) {
+function Welcome({ onImport, onNew }: { onImport: () => void; onNew: (k: 'earth' | 'blank' | 'fantasy' | 'history') => void }) {
   return (
     <section className="welcome">
       <h1>Shape your own world.</h1>
@@ -327,6 +364,9 @@ function Welcome({ onImport, onNew }: { onImport: () => void; onNew: (k: 'earth'
         </button>
         <button className="chip-btn" onClick={() => onNew('blank')}>
           <Icon name="brush" size={16} /> Blank Earth
+        </button>
+        <button className="chip-btn" onClick={() => onNew('history')}>
+          <Icon name="clock" size={16} /> Historical Earth
         </button>
       </div>
       <small className="hint">…or drop an A+ World Map Editor file anywhere on this page.</small>

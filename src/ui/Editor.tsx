@@ -36,13 +36,14 @@ import { DrawOptions, MarkPanel, RegionExtras, DRAW_KINDS } from './WorldbuildPa
 import { DataLayers, FindReplaceWindow, StatsWindow, ThematicLegend, ThematicPicker } from './Windows';
 import { PosterDialog } from './PosterDialog';
 import { markNoun } from '../world/edits';
-import { TimelineBar, toggleTimeline } from './Timeline';
-import { stepChapter, viewChapter } from '../world/timeline';
 import { pathLength, ringArea } from '../geo/measure';
 import { CityEditor } from './CityEditor';
 import { openCity } from '../world/city';
 import { Compass, SpaceBackdrop } from './Sky';
 import { BootGlobe, HANDOFF_MS } from './BootGlobe';
+import { AtmosphereHalo, ClimateLegend, PaperOverlay, SeaLevelControl } from './MapExtras';
+import { NameGeneratorWindow } from './NameGenerator';
+import { guessCulture } from '../world/cultures';
 
 export function Editor({ onHome }: { onHome: () => void }) {
   useShortcuts();
@@ -59,6 +60,8 @@ export function Editor({ onHome }: { onHome: () => void }) {
     <div className={'editor' + (details ? ' details-open' : '') + (ready ? ' ready' : '') + (zen ? ' zen' : '') + (past ? ' past' : '')}>
       <SpaceBackdrop />
       <MapView onReady={() => setReady(true)} />
+      <AtmosphereHalo />
+      <PaperOverlay />
       <LoadingVeil ready={ready} />
       {zen ? (
         <ZenControls />
@@ -75,7 +78,6 @@ export function Editor({ onHome }: { onHome: () => void }) {
           <ThematicLegend />
           <SnapCard />
           <BrushCursor />
-          <TimelineBar />
         </>
       )}
       <HoverTip />
@@ -86,6 +88,7 @@ export function Editor({ onHome }: { onHome: () => void }) {
       <StatsWindow />
       <FindReplaceWindow />
       <PosterDialog />
+      <NamesWindow />
       <FlagGallery />
       <FlagLightbox />
       <FlagMaker />
@@ -412,7 +415,7 @@ function TopBar({ onHome }: { onHome: () => void }) {
       <div className="sep" />
       <Search />
       <div className="menu-wrap hide-phone" ref={toolsRef}>
-        <button className={'icon-btn' + (tools ? ' on' : '')} onClick={() => setTools(!tools)} title="World: statistics, flags, timeline, find & replace, repairs…">
+        <button className={'icon-btn' + (tools ? ' on' : '')} onClick={() => setTools(!tools)} title="World: statistics, flags, find & replace, repairs…">
           <Icon name="menu" />
         </button>
         {tools && (
@@ -426,9 +429,8 @@ function TopBar({ onHome }: { onHome: () => void }) {
               <Icon name="flag" size={15} /> <span className="grow">Flags of the world</span>
               <kbd>F</kbd>
             </button>
-            <button onClick={tool(toggleTimeline)}>
-              <Icon name="clock" size={15} /> <span className="grow">Timeline: chapters of history</span>
-              <kbd>T</kbd>
+            <button onClick={tool(() => useWorld.setState({ namesOpen: true }))}>
+              <Icon name="quill" size={15} /> <span className="grow">Name generator: names by culture</span>
             </button>
             <button onClick={tool(surprise)}>
               <Icon name="dice" size={15} /> <span className="grow">Visit a random country</span>
@@ -513,6 +515,20 @@ async function exportWorld(kind: ExportKind) {
   }
 }
 
+/** The name generator, set on the culture of the place selected (or in view). */
+function NamesWindow() {
+  const open = useWorld((s) => s.namesOpen);
+  if (!open) return null;
+  const { doc, selection } = useWorld.getState();
+  const c = selection.cid ? doc?.countries[selection.cid] : undefined;
+  const cap = c?.capital != null ? doc?.cities[c.capital] : undefined;
+  const at = cap ? [cap.lng, cap.lat] : (() => {
+    const m = mapCtl?.map.getCenter();
+    return m ? [m.lng, m.lat] : [0, 45];
+  })();
+  return <NameGeneratorWindow open onClose={() => useWorld.setState({ namesOpen: false })} initialCulture={guessCulture(at[0], at[1])} />;
+}
+
 /** Flies to a random country and opens its page. */
 function surprise() {
   const doc = useWorld.getState().doc;
@@ -583,8 +599,6 @@ const SHORTCUTS: [string, [string, string][]][] = [
     [
       ['S', 'Statistics'],
       ['F', 'Flags of the world'],
-      ['T', 'Timeline: chapters of history'],
-      [',  .', 'Previous / next chapter'],
       ['R', 'Visit a random country'],
       ['Ctrl + H', 'Find & replace'],
       ['A', 'Repair & automate'],
@@ -991,7 +1005,7 @@ const PHONE_MORE: [string, { id: string; label: string; icon: IconName; run: () 
     [
       { id: 'stats', label: 'Statistics', icon: 'chart', run: () => useWorld.setState({ statsOpen: true }) },
       { id: 'flags', label: 'Flags', icon: 'flag', run: () => useWorld.setState({ galleryOpen: true }) },
-      { id: 'timeline', label: 'Timeline', icon: 'clock', run: toggleTimeline },
+      { id: 'names', label: 'Names', icon: 'quill', run: () => useWorld.setState({ namesOpen: true }) },
       { id: 'random', label: 'Random country', icon: 'dice', run: () => surprise() },
     ],
   ],
@@ -1097,7 +1111,7 @@ function PhoneDock() {
           <Icon name="layers" />
         </button>
         <div className="menu-wrap" ref={moreRef}>
-          <button className={'icon-btn' + (more ? ' on' : '')} onClick={() => setMore(!more)} title="More: statistics, flags, timeline, tools…" aria-label="More">
+          <button className={'icon-btn' + (more ? ' on' : '')} onClick={() => setMore(!more)} title="More: statistics, flags, tools…" aria-label="More">
             <Icon name="more" />
           </button>
         </div>
@@ -1538,6 +1552,7 @@ const STYLES: { id: MapStyleId; label: string; desc: string }[] = [
   { id: 'atlas', label: 'Atlas', desc: 'Physical relief with fine borders' },
   { id: 'plain', label: 'Plain', desc: 'Flat colours, like A+ World Map' },
   { id: 'night', label: 'Night', desc: 'Dark, for screenshots' },
+  { id: 'antique', label: 'Antique', desc: 'Old engraved map: paper, washed colours, water lines' },
 ];
 
 type LayerItem = { key: keyof Layers; label: string; icon: IconName; hint: string; needs?: keyof Layers };
@@ -1579,6 +1594,8 @@ const LAYER_TABS: { id: MapTab; label: string; icon: IconName; items: LayerItem[
       { key: 'relief', label: 'Relief', icon: 'image', hint: 'Terrain relief picture (Atlas look)' },
       { key: 'terrain', label: '3D', icon: 'island', hint: 'Mountains in 3D (tilt the map)' },
       { key: 'urban', label: 'Urban', icon: 'city', hint: 'Built-up areas' },
+      { key: 'tanaka', label: 'Contours', icon: 'contours', hint: 'Lit contour lines (Tanaka): terraces of light and shadow' },
+      { key: 'climate', label: 'Climates', icon: 'sun', hint: 'Climate zones (Köppen): rainforest, desert, steppe, tundra…' },
     ],
   },
   {
@@ -1590,6 +1607,10 @@ const LAYER_TABS: { id: MapTab; label: string; icon: IconName; items: LayerItem[
       { key: 'rivers', label: 'Rivers', icon: 'river', hint: 'Rivers, shown over borders too' },
       { key: 'clouds', label: 'Clouds', icon: 'sparkle', hint: 'Soft clouds over the globe, clearing as you zoom in' },
       { key: 'graticule', label: 'Grid', icon: 'globe', hint: 'Lines of latitude and longitude' },
+      { key: 'atmosphere', label: 'Halo', icon: 'sparkle', hint: 'A glowing halo of atmosphere around the globe' },
+      { key: 'lights', label: 'Night lights', icon: 'moon', hint: 'City lights seen from space (NASA Black Marble)' },
+      { key: 'winds', label: 'Winds', icon: 'wind', hint: 'Prevailing surface winds, animated' },
+      { key: 'currents', label: 'Currents', icon: 'current', hint: 'The great ocean currents, warm in red and cold in blue, animated' },
     ],
   },
 ];
@@ -1706,6 +1727,8 @@ function LayersPanel() {
                 })}
               </div>
             )}
+            {tabId === 'sky' && <SeaLevelControl />}
+            {tabId === 'land' && layers.climate && <ClimateLegend />}
             {tabId === 'data' && <DataLayers />}
           </div>
         </div>
@@ -1746,8 +1769,6 @@ export function useShortcuts() {
         else if (k === 'c') setTool('city');
         else if (k === 'd') setTool('draw');
         else if (k === 'm' && useWorld.getState().doc) setTool(useWorld.getState().tool === 'measure' ? 'select' : 'measure');
-        else if (k === 't' && useWorld.getState().doc) toggleTimeline();
-        else if ((k === ',' || k === '.') && useWorld.getState().timelineOpen) stepChapter(k === ',' ? -1 : 1);
         else if (k === 's' && useWorld.getState().doc) useWorld.setState((s) => ({ statsOpen: !s.statsOpen }));
         else if (k === 'o' && useWorld.getState().doc) (useWorld.getState().layersOpen && useWorld.getState().mapTab === 'data' ? useWorld.setState({ layersOpen: false }) : openMapPanel('data'));
         else if (k === 'g') useWorld.setState((s) => ({ globe: !s.globe }));
@@ -1777,7 +1798,6 @@ export function useShortcuts() {
         else if (k === 'escape' && useWorld.getState().advancedOpen) useWorld.setState({ advancedOpen: false });
         else if (k === 'escape' && useWorld.getState().galleryOpen) useWorld.setState({ galleryOpen: false });
         else if (k === 'escape' && useWorld.getState().markSel) useWorld.setState({ markSel: null });
-        else if (k === 'escape' && useWorld.getState().tool === 'select' && useWorld.getState().era && !useWorld.getState().selection.cid && !useWorld.getState().selection.regions.length && useWorld.getState().selection.city == null) viewChapter(null);
         else if (k === 'escape' && useWorld.getState().tool !== 'split' && useWorld.getState().tool !== 'draw') {
           if (useWorld.getState().tool !== 'select') setTool('select');
           else select({});
